@@ -1,5 +1,10 @@
+# Binaries for programs and plugins
+scout-app
 
-# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-.beads-credential-key
+# vim swap files
+*.swp
+.swap
+.swx
+.swo
+.swn
+.swp
