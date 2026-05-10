@@ -1,6 +1,16 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
+# Documentation
+
+Documentation for the project is found in the docs folder.  This is considered
+the source of truth for what the project is supposed to do.  Some features may
+not be implemented yet.  Care should be taken to implement features with the
+overall plan in mind.
+
+# beads
+
+This project uses **bd** (beads) for issue tracking. Run `bd prime` for full 
+workflow context.
 
 > **Architecture in one line:** Issues live in a local Dolt database
 > (`.beads/dolt/`); cross-machine sync uses `bd dolt push/pull` (a
@@ -25,9 +35,12 @@ bd dolt push          # Push beads data to remote
 
 ## Non-Interactive Shell Commands
 
-**ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
+**ALWAYS use non-interactive flags** with file operations to avoid hanging on
+confirmation prompts.
 
-Shell commands like `cp`, `mv`, and `rm` may be aliased to include `-i` (interactive) mode on some systems, causing the agent to hang indefinitely waiting for y/n input.
+Shell commands like `cp`, `mv`, and `rm` may be aliased to include `-i` 
+(interactive) mode on some systems, causing the agent to hang indefinitely 
+waiting for y/n input.
 
 **Use these forms instead:**
 ```bash
@@ -50,7 +63,8 @@ cp -rf source dest          # NOT: cp -r source dest
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
 ## Beads Issue Tracker
 
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full
+workflow context and commands.
 
 ### Quick Reference
 
@@ -63,19 +77,25 @@ bd close <id>         # Complete work
 
 ### Rules
 
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown
+  TODO lists
 - Run `bd prime` for detailed command reference and session close protocol
 - Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
+**Architecture in one line:** issues live in a local Dolt DB; sync uses 
+`refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export.
+See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for
+details and anti-patterns.
 
 ## Session Completion
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT
+complete until `git push` succeeds.
 
 **MANDATORY WORKFLOW:**
 
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
+1. **File issues for remaining work** - Create issues for anything that needs
+   follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
