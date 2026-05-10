@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "scout_app",
+  "project_id": "c7b5d99b-bad8-4571-8fd5-ad916379794e"
+}
