@@ -1,20 +1,44 @@
-# Context: Scout Events App
+# Context: Scout App
+
+This document defines the ubiquitous language for the scout troop event organization app.
 
 ## Glossary
 
-### Media
-- **Media Store**: Google Drive is the primary destination for all user-uploaded photos and videos.
-- **Upload Flow**: Users upload media through the application, which then pushes the files to a specific, pre-configured Google Drive folder designated for the event.
-- **Legacy Archive**: Existing troop photos currently in Google Drive may be linked to events within the application.
+### Event
+A planned social or troop activity with a title, description, location, and timing.
 
-### Finance
-- **Payment Provider**: Stripe (primary) or Square (secondary) are used for all external transactions.
-- **Financial Data**: The application does not maintain an internal ledger. It fetches transaction, refund, and payout data directly from the payment provider APIs as needed for reporting.
-- **Patrol Reimbursement**: Calculated by the app but recorded externally in the troop's primary accounting system or via the payment provider.
+### Campout
+A specific type of **Event** that typically spans multiple days.
 
-### Membership
-- **Youth**: A scout participant in the troop.
-- **Guardian**: An adult (parent or authorized volunteer) linked to one or more Youth members.
-- **Scoutbook**: The external absolute source of truth for the troop's roster and relationships.
-- **Strict Sync**: Roster imports from Scoutbook automatically overwrite existing user data and guardianship links. Missing records in the import result in deactivation/soft-deletion in the app.
-- **Claiming**: The process where a user verifies their identity via a single-use token to set up their account password.
+### User
+A person registered in the system. Users have roles that determine their permissions.
+
+### Role
+A designation assigned to a **User** that determines their permissions. A **User** can have multiple **Roles**.
+
+### Permission
+A specific action that a **User** is allowed to perform (e.g., "Create Event", "Sign up for Event"). Permissions are mapped to **Roles**.
+
+### Attendee
+A **User** who has signed up to participate in a specific **Event**.
+
+### Sign-up
+The action of a **User** registering themselves as an **Attendee** for an **Event**.
+
+### Withdraw
+The action of a **User** removing themselves from the **Attendee** list.
+
+### Active Event
+An **Event** whose end time has not yet passed.
+
+### Past Event
+An **Event** whose end time has passed.
+
+### Event Cost
+The amount in currency required for a **User** to participate in an **Event**. For the MVP, this is a fixed value per **Event** for informational purposes.
+
+### Upcoming Events
+A chronological list of **Active Events** (future events).
+
+### Event Archive
+A chronological list of **Past Events** (historical events).
