@@ -11,7 +11,10 @@ A planned social or troop activity with a title, description, location, and timi
 A specific type of **Event** that typically spans multiple days.
 
 ### User
-A person registered in the system. Users have roles that determine their permissions.
+A security principal in the system, identified by their email address and authenticated via password. A User has no PII — all personal information lives on the associated **Profile**. Users have **Roles** that determine their **Permissions**.
+
+### Profile
+A 1:1 extension of a **User** containing all PII and personal information (name, birthdate, phone, etc.). Profiles are synced from an external system rather than managed in-app.
 
 ### Role
 A designation assigned to a **User** that determines their permissions. A **User** can have multiple **Roles**.
@@ -20,7 +23,16 @@ A designation assigned to a **User** that determines their permissions. A **User
 A specific action that a **User** is allowed to perform (e.g., "Create Event", "Sign up for Event"). Permissions are mapped to **Roles**.
 
 ### Attendee
-A **User** who has signed up to participate in a specific **Event**.
+A **User** who has signed up to participate in a specific **Event**. An Attendee has a status (`signed_up`, `canceled`) and may hold one or more **Responsibilities** for that Event.
+
+### Attendee Status
+Indicates whether an **Attendee** is currently participating (`signed_up`) or has been removed (`canceled`).
+
+### Responsibility
+A designated role an **Attendee** holds for a specific **Event** (e.g., `driver`, `cook`). An Attendee may hold multiple responsibilities.
+
+### Event Type
+A classification of an **Event** (e.g., `campout`). Defined as a fixed set of known values.
 
 ### Sign-up
 The action of a **User** registering themselves as an **Attendee** for an **Event**.

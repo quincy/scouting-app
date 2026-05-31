@@ -1,13 +1,31 @@
-# Build the Go application
 build:
-	go build -o scout-app main.go
+	go build -o scout-app .
 
-# Run tests
-verify:
-	go test -v ./...
+test:
+	go test -v -count=1 ./...
 
-# Run the application
+fmt:
+	go fmt ./...
+
+vet:
+	go vet ./...
+
+lint:
+	go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+
+check:
+	@output=$$(go fmt ./...); \
+	[ -z "$$output" ] || (echo "unformatted files:"; echo "$$output"; exit 1)
+	go vet ./...
+	go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+
+clean:
+	go clean
+	rm -f scout-app
+
+ci: check test build
+
 run:
 	./scout-app
 
-.PHONY: build test run
+.PHONY: build test vet lint check clean ci run

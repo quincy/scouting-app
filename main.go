@@ -1,46 +1,74 @@
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
-    "github.com/gorilla/mux"
+	"context"
+	"embed"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"scout-app/internal/api"
+	"scout-app/internal/storage"
+
+	"github.com/gorilla/mux"
 )
 
-func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "OK")
-}
+//go:embed migrations/*.sql
+var migrations embed.FS
 
 func main() {
-    router := mux.NewRouter()
-    router.HandleFunc("/healthcheck", healthCheckHandler).Methods("GET")
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		log.Fatal("DATABASE_URL environment variable is required")
+	}
 
-    srv := &http.Server{
-        Addr:    ":8080",
-        Handler: router,
-    }
+	db, err := storage.OpenDB(databaseURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("error closing database: %v", err)
+		}
+	}()
 
-    go func() {
-        if err := srv.ListenAndServe(); err != nil {
-            log.Fatalf("Server ListenAndServe: %v", err)
-        }
-    }()
+	if os.Getenv("AUTO_MIGRATE") == "true" {
+		log.Println("Running database migrations...")
+		if err := storage.RunMigrations(db, migrations, "migrations"); err != nil {
+			log.Fatalf("Migration failed: %v", err)
+		}
+		log.Println("Migrations complete")
+	}
 
-    sigs := make(chan os.Signal, 1)
-    signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-    fmt.Println("Waiting for SIGINT or SIGTERM")
-    <-sigs
-    ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-    defer cancel()
+	router := mux.NewRouter()
+	router.HandleFunc("/healthcheck", api.HealthCheckHandler).Methods("GET")
+	router.HandleFunc("/deepcheck", api.DeepCheckHandler(db)).Methods("GET")
 
-    err := srv.Shutdown(ctx)
-    if err != nil {
-        log.Fatalf("Server Shutdown: %v", err)
-    }
-    fmt.Println("Server gracefully stopped")
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: router,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil {
+			log.Fatalf("Server ListenAndServe: %v", err)
+		}
+	}()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	fmt.Println("Waiting for SIGINT or SIGTERM")
+	<-sigs
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	err = srv.Shutdown(ctx)
+	if err != nil {
+		log.Fatalf("Server Shutdown: %v", err)
+	}
+	fmt.Println("Server gracefully stopped")
 }
