@@ -1,0 +1,18 @@
+{{define "event_list.html"}}
+{{range .Events}}
+    {{template "event_card.html" .}}
+{{end}}
+
+<p class="section-count" id="{{.Section}}-count" hx-swap-oob="true">Showing {{.Displayed}} of {{.Total}}</p>
+
+{{if .HasMore}}
+    <button class="show-more" id="show-more-{{.Section}}" hx-swap-oob="true"
+            hx-get="/events/{{.Section}}?offset={{.NextOffset}}"
+            hx-target="#{{.Section}}-list"
+            hx-swap="beforeend">
+        Show more {{.Section}}
+    </button>
+{{else}}
+    <div id="show-more-{{.Section}}" hx-swap-oob="true" style="display:none"></div>
+{{end}}
+{{end}}

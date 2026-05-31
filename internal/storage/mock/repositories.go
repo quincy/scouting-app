@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"scout-app/internal/domain"
+	"sort"
 	"sync"
+	"time"
 )
 
 func newUUID() string {
@@ -196,4 +198,174 @@ func (r *RBACRepository) GetUserPermissions(ctx context.Context, userID string) 
 		}
 	}
 	return permissions, nil
+}
+
+// EventRepository is an in-memory implementation of domain.EventRepository.
+type EventRepository struct {
+	mu        sync.RWMutex
+	events    map[string]*domain.Event
+	attendees map[string][]string // eventID -> []userID
+}
+
+// NewEventRepository creates a new in-memory EventRepository.
+func NewEventRepository() *EventRepository {
+	return &EventRepository{
+		events:    make(map[string]*domain.Event),
+		attendees: make(map[string][]string),
+	}
+}
+
+// SeedEvents pre-populates events into the repository (used in tests).
+func (r *EventRepository) SeedEvents(events []*domain.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, e := range events {
+		if e.ID == "" {
+			e.ID = newUUID()
+		}
+		r.events[e.ID] = e
+	}
+}
+
+func (r *EventRepository) Create(ctx context.Context, event *domain.Event) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if event.ID == "" {
+		event.ID = newUUID()
+	}
+	clone := *event
+	r.events[clone.ID] = &clone
+	return nil
+}
+
+func (r *EventRepository) GetByID(ctx context.Context, id string) (*domain.Event, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	event, ok := r.events[id]
+	if !ok {
+		return nil, errors.New("event not found")
+	}
+	return event, nil
+}
+
+func (r *EventRepository) ListUpcoming(ctx context.Context, limit int, offset int) ([]*domain.EventListItem, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	now := time.Now()
+	var filtered []*domain.Event
+	for _, e := range r.events {
+		if e.EndTime.After(now) {
+			filtered = append(filtered, e)
+		}
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].StartTime.Before(filtered[j].StartTime)
+	})
+
+	return r.toEventListItems(filtered, limit, offset), nil
+}
+
+func (r *EventRepository) ListPast(ctx context.Context, limit int, offset int) ([]*domain.EventListItem, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	now := time.Now()
+	var filtered []*domain.Event
+	for _, e := range r.events {
+		if !e.EndTime.After(now) {
+			filtered = append(filtered, e)
+		}
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].StartTime.After(filtered[j].StartTime)
+	})
+
+	return r.toEventListItems(filtered, limit, offset), nil
+}
+
+// attendeesCount returns the number of signed-up attendees for an event.
+func (r *EventRepository) attendeesCount(eventID string) int {
+	return len(r.attendees[eventID])
+}
+
+// toEventListItems converts a sorted slice of events to EventListItem, applying pagination.
+func (r *EventRepository) toEventListItems(events []*domain.Event, limit int, offset int) []*domain.EventListItem {
+	if offset >= len(events) {
+		return []*domain.EventListItem{}
+	}
+
+	start := offset
+	end := offset + limit
+	if end > len(events) {
+		end = len(events)
+	}
+
+	slice := events[start:end]
+	items := make([]*domain.EventListItem, len(slice))
+	for i, e := range slice {
+		items[i] = &domain.EventListItem{
+			ID:            e.ID,
+			Title:         e.Title,
+			Location:      e.Location,
+			StartTime:     e.StartTime,
+			EndTime:       e.EndTime,
+			Type:          e.Type,
+			AttendeeCount: r.attendeesCount(e.ID),
+		}
+	}
+	return items
+}
+
+func (r *EventRepository) SignUp(ctx context.Context, eventID string, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.events[eventID]; !ok {
+		return errors.New("event not found")
+	}
+
+	for _, uid := range r.attendees[eventID] {
+		if uid == userID {
+			return nil // already signed up
+		}
+	}
+
+	r.attendees[eventID] = append(r.attendees[eventID], userID)
+	return nil
+}
+
+func (r *EventRepository) Withdraw(ctx context.Context, eventID string, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.events[eventID]; !ok {
+		return errors.New("event not found")
+	}
+
+	attendees := r.attendees[eventID]
+	for i, uid := range attendees {
+		if uid == userID {
+			r.attendees[eventID] = append(attendees[:i], attendees[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (r *EventRepository) GetAttendees(ctx context.Context, eventID string) ([]*domain.User, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if _, ok := r.events[eventID]; !ok {
+		return nil, errors.New("event not found")
+	}
+
+	// We store user IDs as strings; return empty list since we don't store full users here.
+	return []*domain.User{}, nil
 }

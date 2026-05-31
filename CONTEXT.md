@@ -54,3 +54,6 @@ A chronological list of **Active Events** (future events).
 
 ### Event Archive
 A chronological list of **Past Events** (historical events).
+
+### EventListItem
+An **Event** summary projected for list views, containing the core event fields plus the number of `signed_up` **Attendees**.

@@ -1,0 +1,13 @@
+{{define "event_card.html"}}
+<div class="event-card">
+    <h3><a href="/events/{{.ID}}">{{.Title}}</a></h3>
+    <div class="meta">
+        <span>{{.StartTime.Format "Mon, Jan 2, 2006 3:04 PM"}} – {{.EndTime.Format "Mon, Jan 2, 2006 3:04 PM"}}</span>
+        <span>{{.Location}}</span>
+    </div>
+    <div>
+        <span class="badge">{{.Type}}</span>
+        <span style="font-size:0.875rem;color:#666;margin-left:8px;">{{.AttendeeCount}} attendee{{if ne .AttendeeCount 1}}s{{end}}</span>
+    </div>
+</div>
+{{end}}

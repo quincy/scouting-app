@@ -26,6 +26,6 @@ clean:
 ci: check test build
 
 run:
-	./scout-app
+	USE_MOCK_STORAGE=true ./scout-app
 
 .PHONY: build test vet lint check clean ci run

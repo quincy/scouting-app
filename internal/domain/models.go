@@ -22,6 +22,17 @@ type Permission struct {
 	Name string
 }
 
+// EventListItem is a summary projection of an Event for list views.
+type EventListItem struct {
+	ID            string // UUID
+	Title         string
+	Location      string
+	StartTime     time.Time
+	EndTime       time.Time
+	Type          string // e.g. "campout"
+	AttendeeCount int
+}
+
 // Event represents a planned troop activity or campout.
 type Event struct {
 	ID          string // UUID

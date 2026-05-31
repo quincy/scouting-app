@@ -23,8 +23,8 @@ type RBACRepository interface {
 type EventRepository interface {
 	Create(ctx context.Context, event *Event) error
 	GetByID(ctx context.Context, id string) (*Event, error)
-	ListUpcoming(ctx context.Context, limit int, offset int) ([]*Event, error)
-	ListPast(ctx context.Context, limit int, offset int) ([]*Event, error)
+	ListUpcoming(ctx context.Context, limit int, offset int) ([]*EventListItem, error)
+	ListPast(ctx context.Context, limit int, offset int) ([]*EventListItem, error)
 	SignUp(ctx context.Context, eventID string, userID string) error
 	Withdraw(ctx context.Context, eventID string, userID string) error
 	GetAttendees(ctx context.Context, eventID string) ([]*User, error)

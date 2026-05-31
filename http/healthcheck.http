@@ -1,0 +1,5 @@
+### healthcheck
+GET http://localhost:8080/healthcheck
+
+### deepcheck
+GET http://localhost:8080/deepcheck
