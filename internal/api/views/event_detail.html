@@ -1,0 +1,45 @@
+{{define "event_detail.html"}}
+{{template "base_head" .}}
+<div class="back-link">
+    <a href="/events">&larr; Back to events</a>
+</div>
+
+<div class="event-detail">
+    <span class="badge">{{.Event.Type}}</span>
+    <h2>{{.Event.Title}}</h2>
+    {{if .Event.Description}}
+    <p class="description">{{.Event.Description}}</p>
+    {{end}}
+    <div class="meta">
+        <span>&#x1f4cd; {{.Event.Location}}</span>
+        <span>&#x1f4c5; {{.Event.StartTime.Format "Mon, Jan 2, 2006 3:04 PM"}} &ndash; {{.Event.EndTime.Format "Mon, Jan 2, 2006 3:04 PM"}}</span>
+        {{if .Event.CostCents}}<span>&#x1f4b0; ${{.CostDisplay}}</span>{{end}}
+    </div>
+</div>
+
+<div id="signup-section">
+    {{if .IsPast}}
+        <p style="color: #888; font-style: italic; margin-bottom: 16px;">This event has ended.</p>
+    {{else if .IsAttending}}
+        <button class="btn-withdraw" hx-post="/events/{{.Event.ID}}/withdraw" hx-target="#signup-section" hx-swap="outerHTML">
+            Withdraw
+        </button>
+    {{else}}
+        <button class="btn-signup" hx-post="/events/{{.Event.ID}}/signup" hx-target="#signup-section" hx-swap="outerHTML">
+            Sign Up
+        </button>
+    {{end}}
+</div>
+
+<div class="attendee-section">
+    <h2>Attendees <span id="attendee-count">({{.AttendeeCount}})</span></h2>
+    <ul class="attendee-list" id="attendee-list">
+        {{range .Attendees}}
+        <li{{if .IsYou}} class="you"{{end}}>
+            {{.Email}}{{if .IsYou}} (you){{end}}
+        </li>
+        {{end}}
+    </ul>
+</div>
+{{template "base_tail" .}}
+{{end}}

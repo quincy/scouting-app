@@ -62,9 +62,9 @@ func main() {
 	}
 
 	// Repositories
-	eventRepo := mock.NewEventRepository()
 	userRepo := mock.NewUserRepository()
 	rbacRepo := mock.NewRBACRepository()
+	eventRepo := mock.NewEventRepository(userRepo)
 
 	// Auth
 	hasher := &domain.BCryptHasher{}
@@ -79,6 +79,30 @@ func main() {
 			log.Fatalf("SeedAdminUser failed: %v", err)
 		}
 		log.Println("Seeded admin user: admin@scout.local / password")
+
+		// Seed example events
+		now := time.Now()
+		seedEvents := []*domain.Event{
+			{Title: "Campout at Lake George", Description: "Weekend camping trip with swimming, hiking, and campfire stories.", Location: "Lake George", StartTime: now.Add(72 * time.Hour), EndTime: now.Add(96 * time.Hour), CostCents: 1500, Type: "campout"},
+			{Title: "Knot-Tying Workshop", Description: "Learn essential scout knots including square, clove hitch, and bowline.", Location: "Scout Hall", StartTime: now.Add(720 * time.Hour), EndTime: now.Add(722 * time.Hour), CostCents: 0, Type: "workshop"},
+			{Title: "River Cleanup", Description: "Community service event to clean up the riverside trail.", Location: "River Park", StartTime: now.Add(-48 * time.Hour), EndTime: now.Add(-46 * time.Hour), CostCents: 0, Type: "service"},
+		}
+		for _, e := range seedEvents {
+			if err := eventRepo.Create(ctx, e); err != nil {
+				log.Fatalf("Create event failed: %v", err)
+			}
+		}
+		log.Println("Seeded 3 example events")
+
+		// Sign up admin to the first upcoming event
+		adminUser, err := userRepo.GetByEmail(ctx, "admin@scout.local")
+		if err != nil {
+			log.Fatalf("GetByEmail admin: %v", err)
+		}
+		if err := eventRepo.SignUp(ctx, seedEvents[0].ID, adminUser.ID); err != nil {
+			log.Fatalf("SignUp admin: %v", err)
+		}
+		log.Println("Signed up admin to Campout at Lake George")
 	}
 
 	router := mux.NewRouter()
@@ -93,10 +117,14 @@ func main() {
 	router.HandleFunc("/login", authHandler.Login).Methods("POST")
 	router.HandleFunc("/logout", api.RequireAuth(authService, authHandler.Logout)).Methods("POST")
 
-	eventHandler := api.NewEventHandler(eventRepo)
+	eventHandler := api.NewEventHandler(eventRepo, authService)
+	api.SetMuxVars(mux.Vars)
 	router.Handle("/events", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListEvents)).Methods("GET")
 	router.Handle("/events/upcoming", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListUpcoming)).Methods("GET")
 	router.Handle("/events/past", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListPast)).Methods("GET")
+	router.Handle("/events/{id}", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.EventDetail)).Methods("GET")
+	router.Handle("/events/{id}/signup", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.SignUp)).Methods("POST")
+	router.Handle("/events/{id}/withdraw", api.RequirePermission(authService, rbacRepo, "event:withdraw", eventHandler.Withdraw)).Methods("POST")
 
 	srv := &http.Server{
 		Addr:    ":8080",

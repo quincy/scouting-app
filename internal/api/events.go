@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"embed"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"scout-app/internal/domain"
 )
@@ -14,14 +16,16 @@ import (
 //go:embed views/*.html
 var viewsFS embed.FS
 
-// EventHandler serves the event list page and HTMX partials.
+// EventHandler serves the event list page, detail page, and HTMX partials.
 type EventHandler struct {
 	repo domain.EventRepository
+	auth *domain.AuthService
 	tmpl *template.Template
 }
 
 // eventsPageData is the data passed to layout.html for the initial page render.
 type eventsPageData struct {
+	Title              string
 	UpcomingEvents     []*domain.EventListItem
 	PastEvents         []*domain.EventListItem
 	UpcomingDisplayed  int
@@ -32,6 +36,36 @@ type eventsPageData struct {
 	PastNextOffset     int
 	ShowMoreUpcoming   bool
 	ShowMorePast       bool
+}
+
+// eventDetailData is the data passed to event_detail.html.
+type eventDetailData struct {
+	Title         string
+	Event         *domain.Event
+	CostDisplay   string
+	Attendees     []attendeeViewModel
+	AttendeeCount int
+	IsAttending   bool
+	IsPast        bool
+}
+
+// attendeeViewModel represents an attendee in the detail page.
+type attendeeViewModel struct {
+	Email string
+	IsYou bool
+}
+
+// signupButtonData is the data for the signup_button.html partial.
+type signupButtonData struct {
+	IsAttending bool
+	EventID     string
+	IsPast      bool
+}
+
+// attendeeListData is the data for the attendee_list.html partial.
+type attendeeListData struct {
+	Attendees     []attendeeViewModel
+	AttendeeCount int
 }
 
 // eventListPartialData is the data passed to event_list.html for HTMX partials.
@@ -45,12 +79,13 @@ type eventListPartialData struct {
 }
 
 // NewEventHandler creates an EventHandler with compiled templates.
-func NewEventHandler(repo domain.EventRepository) *EventHandler {
+func NewEventHandler(repo domain.EventRepository, auth *domain.AuthService) *EventHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
 	return &EventHandler{
 		repo: repo,
+		auth: auth,
 		tmpl: tmpl,
 	}
 }
@@ -92,6 +127,7 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	pastTotal := len(allPast)
 
 	data := eventsPageData{
+		Title:              "Events",
 		UpcomingEvents:     upcomingEvents,
 		PastEvents:         pastEvents,
 		UpcomingDisplayed:  len(upcomingEvents),
@@ -161,4 +197,230 @@ func (h *EventHandler) renderListPartial(w http.ResponseWriter, r *http.Request,
 	if err := h.tmpl.ExecuteTemplate(w, "event_list.html", data); err != nil {
 		log.Printf("template execution: %v", err)
 	}
+}
+
+// EventDetail renders the event detail page.
+func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	event, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		log.Printf("GetByID: %v", err)
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+
+	attendees, err := h.repo.GetAttendees(ctx, eventID)
+	if err != nil {
+		log.Printf("GetAttendees: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Get current user
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Build attendee view models
+	attendeeVMs := make([]attendeeViewModel, len(attendees))
+	isAttending := false
+	for i, u := range attendees {
+		vm := attendeeViewModel{Email: u.Email}
+		if u.ID == currentUser.ID {
+			vm.IsYou = true
+			isAttending = true
+		}
+		attendeeVMs[i] = vm
+	}
+
+	// Check if event is past
+	isPast := event.EndTime.Before(time.Now())
+
+	// Format cost
+	costDisplay := formatCost(event.CostCents)
+
+	data := eventDetailData{
+		Title:         "Events",
+		Event:         event,
+		CostDisplay:   costDisplay,
+		Attendees:     attendeeVMs,
+		AttendeeCount: len(attendees),
+		IsAttending:   isAttending,
+		IsPast:        isPast,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "event_detail.html", data); err != nil {
+		log.Printf("template execution: %v", err)
+	}
+}
+
+// SignUp handles HTMX sign-up request.
+func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	event, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		log.Printf("GetByID: %v", err)
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if event.EndTime.Before(time.Now()) {
+		http.Error(w, "Cannot sign up for a past event", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.repo.SignUp(ctx, eventID, currentUser.ID); err != nil {
+		log.Printf("SignUp: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Re-fetch attendees for updated list
+	attendees, err := h.repo.GetAttendees(ctx, eventID)
+	if err != nil {
+		log.Printf("GetAttendees: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	attendeeVMs := buildAttendeeVMs(attendees, currentUser)
+
+	// Render both partials
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	// Signup button (now shows Withdraw)
+	if err := h.tmpl.ExecuteTemplate(w, "signup_button.html", signupButtonData{
+		IsAttending: true,
+		EventID:     eventID,
+		IsPast:      false,
+	}); err != nil {
+		log.Printf("template execution (signup_button): %v", err)
+	}
+
+	// Attendee list OOB
+	if err := h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+		Attendees:     attendeeVMs,
+		AttendeeCount: len(attendees),
+	}); err != nil {
+		log.Printf("template execution (attendee_list): %v", err)
+	}
+}
+
+// Withdraw handles HTMX withdraw request.
+func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	event, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		log.Printf("GetByID: %v", err)
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if event.EndTime.Before(time.Now()) {
+		http.Error(w, "Cannot withdraw from a past event", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.repo.Withdraw(ctx, eventID, currentUser.ID); err != nil {
+		log.Printf("Withdraw: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Re-fetch attendees for updated list
+	attendees, err := h.repo.GetAttendees(ctx, eventID)
+	if err != nil {
+		log.Printf("GetAttendees: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	attendeeVMs := buildAttendeeVMs(attendees, currentUser)
+
+	// Render both partials
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	// Signup button (now shows Sign Up)
+	if err := h.tmpl.ExecuteTemplate(w, "signup_button.html", signupButtonData{
+		IsAttending: false,
+		EventID:     eventID,
+		IsPast:      false,
+	}); err != nil {
+		log.Printf("template execution (signup_button): %v", err)
+	}
+
+	// Attendee list OOB
+	if err := h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+		Attendees:     attendeeVMs,
+		AttendeeCount: len(attendees),
+	}); err != nil {
+		log.Printf("template execution (attendee_list): %v", err)
+	}
+}
+
+// muxVars is a variable so it can be overridden in tests.
+var muxVars = func(r *http.Request) map[string]string {
+	return map[string]string{} // default noop; production will set it
+}
+
+// SetMuxVars allows tests to set path variables.
+func SetMuxVars(fn func(r *http.Request) map[string]string) {
+	muxVars = fn
+}
+
+// formatCost converts cents to a dollar string, e.g. 1500 -> "15.00".
+func formatCost(cents int) string {
+	if cents == 0 {
+		return "0.00"
+	}
+	dollars := cents / 100
+	remainder := cents % 100
+	return fmt.Sprintf("%d.%02d", dollars, remainder)
+}
+
+// buildAttendeeVMs creates attendee view models with the current user marked.
+func buildAttendeeVMs(attendees []*domain.User, currentUser *domain.User) []attendeeViewModel {
+	vms := make([]attendeeViewModel, len(attendees))
+	for i, u := range attendees {
+		vm := attendeeViewModel{Email: u.Email}
+		if u.ID == currentUser.ID {
+			vm.IsYou = true
+		}
+		vms[i] = vm
+	}
+	return vms
 }

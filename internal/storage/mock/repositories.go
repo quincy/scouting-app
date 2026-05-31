@@ -221,14 +221,16 @@ func (r *RBACRepository) GetRoleByName(ctx context.Context, name string) (*domai
 type EventRepository struct {
 	mu        sync.RWMutex
 	events    map[string]*domain.Event
-	attendees map[string][]string // eventID -> []userID
+	attendees map[string][]*domain.User // eventID -> []*User
+	users     *UserRepository
 }
 
-// NewEventRepository creates a new in-memory EventRepository.
-func NewEventRepository() *EventRepository {
+// NewEventRepository creates a new in-memory EventRepository with a UserRepository.
+func NewEventRepository(users *UserRepository) *EventRepository {
 	return &EventRepository{
 		events:    make(map[string]*domain.Event),
-		attendees: make(map[string][]string),
+		attendees: make(map[string][]*domain.User),
+		users:     users,
 	}
 }
 
@@ -311,6 +313,19 @@ func (r *EventRepository) attendeesCount(eventID string) int {
 	return len(r.attendees[eventID])
 }
 
+// AttendeesMap returns the raw attendees map for inspection in tests.
+func (r *EventRepository) AttendeesMap() map[string][]*domain.User {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make(map[string][]*domain.User, len(r.attendees))
+	for k, v := range r.attendees {
+		users := make([]*domain.User, len(v))
+		copy(users, v)
+		result[k] = users
+	}
+	return result
+}
+
 // toEventListItems converts a sorted slice of events to EventListItem, applying pagination.
 func (r *EventRepository) toEventListItems(events []*domain.Event, limit int, offset int) []*domain.EventListItem {
 	if offset >= len(events) {
@@ -347,13 +362,19 @@ func (r *EventRepository) SignUp(ctx context.Context, eventID string, userID str
 		return errors.New("event not found")
 	}
 
-	for _, uid := range r.attendees[eventID] {
-		if uid == userID {
+	// Look up the user to verify they exist
+	user, err := r.users.GetByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+
+	for _, u := range r.attendees[eventID] {
+		if u.ID == userID {
 			return nil // already signed up
 		}
 	}
 
-	r.attendees[eventID] = append(r.attendees[eventID], userID)
+	r.attendees[eventID] = append(r.attendees[eventID], user)
 	return nil
 }
 
@@ -366,8 +387,8 @@ func (r *EventRepository) Withdraw(ctx context.Context, eventID string, userID s
 	}
 
 	attendees := r.attendees[eventID]
-	for i, uid := range attendees {
-		if uid == userID {
+	for i, u := range attendees {
+		if u.ID == userID {
 			r.attendees[eventID] = append(attendees[:i], attendees[i+1:]...)
 			return nil
 		}
@@ -383,6 +404,11 @@ func (r *EventRepository) GetAttendees(ctx context.Context, eventID string) ([]*
 		return nil, errors.New("event not found")
 	}
 
-	// We store user IDs as strings; return empty list since we don't store full users here.
-	return []*domain.User{}, nil
+	// Return a copy of the stored users
+	result := make([]*domain.User, len(r.attendees[eventID]))
+	for i, u := range r.attendees[eventID] {
+		clone := *u
+		result[i] = &clone
+	}
+	return result, nil
 }

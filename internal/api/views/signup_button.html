@@ -1,0 +1,15 @@
+{{define "signup_button.html"}}
+<div id="signup-section" hx-swap-oob="true">
+    {{if .IsPast}}
+        <p style="color: #888; font-style: italic; margin-bottom: 16px;">This event has ended.</p>
+    {{else if .IsAttending}}
+        <button class="btn-withdraw" hx-post="/events/{{.EventID}}/withdraw" hx-target="#signup-section" hx-swap="outerHTML">
+            Withdraw
+        </button>
+    {{else}}
+        <button class="btn-signup" hx-post="/events/{{.EventID}}/signup" hx-target="#signup-section" hx-swap="outerHTML">
+            Sign Up
+        </button>
+    {{end}}
+</div>
+{{end}}

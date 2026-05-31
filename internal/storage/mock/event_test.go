@@ -36,8 +36,14 @@ func pastEvent(id string, title string, daysAgo int) *domain.Event {
 	}
 }
 
+// newTestEventRepo creates a fresh user repo and event repo for testing.
+func newTestEventRepo() (*UserRepository, *EventRepository) {
+	userRepo := NewUserRepository()
+	return userRepo, NewEventRepository(userRepo)
+}
+
 func TestEventRepository_ListUpcoming_SortedASC(t *testing.T) {
-	repo := NewEventRepository()
+	_, repo := newTestEventRepo()
 	ctx := context.Background()
 
 	// Seed events: one past, two future
@@ -70,7 +76,7 @@ func TestEventRepository_ListUpcoming_SortedASC(t *testing.T) {
 }
 
 func TestEventRepository_ListPast_SortedDESC(t *testing.T) {
-	repo := NewEventRepository()
+	_, repo := newTestEventRepo()
 	ctx := context.Background()
 
 	// Seed events: two past, one future
@@ -103,7 +109,7 @@ func TestEventRepository_ListPast_SortedDESC(t *testing.T) {
 }
 
 func TestEventRepository_ListUpcoming_Pagination(t *testing.T) {
-	repo := NewEventRepository()
+	_, repo := newTestEventRepo()
 	ctx := context.Background()
 
 	// Seed 5 future events
@@ -177,17 +183,27 @@ func TestEventRepository_ListUpcoming_Pagination(t *testing.T) {
 }
 
 func TestEventRepository_AttendeeCount(t *testing.T) {
-	repo := NewEventRepository()
+	userRepo, repo := newTestEventRepo()
 	ctx := context.Background()
+
+	// Create users
+	userA := &domain.User{Email: "alice@test.com"}
+	userB := &domain.User{Email: "bob@test.com"}
+	if err := userRepo.Create(ctx, userA); err != nil {
+		t.Fatalf("Create userA: %v", err)
+	}
+	if err := userRepo.Create(ctx, userB); err != nil {
+		t.Fatalf("Create userB: %v", err)
+	}
 
 	evt := futureEvent("evt1", "Campout", 1)
 	repo.SeedEvents([]*domain.Event{evt})
 
 	// Sign up two users
-	if err := repo.SignUp(ctx, "evt1", "user-a"); err != nil {
+	if err := repo.SignUp(ctx, "evt1", userA.ID); err != nil {
 		t.Fatalf("SignUp failed: %v", err)
 	}
-	if err := repo.SignUp(ctx, "evt1", "user-b"); err != nil {
+	if err := repo.SignUp(ctx, "evt1", userB.ID); err != nil {
 		t.Fatalf("SignUp failed: %v", err)
 	}
 
@@ -205,7 +221,7 @@ func TestEventRepository_AttendeeCount(t *testing.T) {
 	}
 
 	// Withdraw one user
-	if err := repo.Withdraw(ctx, "evt1", "user-a"); err != nil {
+	if err := repo.Withdraw(ctx, "evt1", userA.ID); err != nil {
 		t.Fatalf("Withdraw failed: %v", err)
 	}
 
@@ -216,5 +232,64 @@ func TestEventRepository_AttendeeCount(t *testing.T) {
 
 	if results[0].AttendeeCount != 1 {
 		t.Errorf("expected AttendeeCount=1 after withdraw, got %d", results[0].AttendeeCount)
+	}
+}
+
+func TestEventRepository_GetAttendees_WithUserRepo(t *testing.T) {
+	userRepo := NewUserRepository()
+	repo := NewEventRepository(userRepo)
+	ctx := context.Background()
+
+	// Create users
+	userA := &domain.User{Email: "alice@test.com"}
+	userB := &domain.User{Email: "bob@test.com"}
+	if err := userRepo.Create(ctx, userA); err != nil {
+		t.Fatalf("Create userA: %v", err)
+	}
+	if err := userRepo.Create(ctx, userB); err != nil {
+		t.Fatalf("Create userB: %v", err)
+	}
+
+	evt := futureEvent("evt1", "Campout", 1)
+	repo.SeedEvents([]*domain.Event{evt})
+
+	// Sign up users
+	if err := repo.SignUp(ctx, "evt1", userA.ID); err != nil {
+		t.Fatalf("SignUp userA: %v", err)
+	}
+	if err := repo.SignUp(ctx, "evt1", userB.ID); err != nil {
+		t.Fatalf("SignUp userB: %v", err)
+	}
+
+	attendees, err := repo.GetAttendees(ctx, "evt1")
+	if err != nil {
+		t.Fatalf("GetAttendees failed: %v", err)
+	}
+
+	if len(attendees) != 2 {
+		t.Fatalf("expected 2 attendees, got %d", len(attendees))
+	}
+
+	// Verify emails match (order may vary)
+	emails := make(map[string]bool)
+	for _, u := range attendees {
+		emails[u.Email] = true
+	}
+	if !emails["alice@test.com"] {
+		t.Error("expected alice@test.com in attendees")
+	}
+	if !emails["bob@test.com"] {
+		t.Error("expected bob@test.com in attendees")
+	}
+}
+
+func TestEventRepository_GetAttendees_NonExistentEvent(t *testing.T) {
+	userRepo := NewUserRepository()
+	repo := NewEventRepository(userRepo)
+	ctx := context.Background()
+
+	_, err := repo.GetAttendees(ctx, "nonexistent")
+	if err == nil {
+		t.Error("expected error for non-existent event, got nil")
 	}
 }
