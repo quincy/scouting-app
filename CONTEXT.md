@@ -57,3 +57,15 @@ A chronological list of **Past Events** (historical events).
 
 ### EventListItem
 An **Event** summary projected for list views, containing the core event fields plus the number of `signed_up` **Attendees**.
+
+### Authentication
+The process of verifying a **User**'s identity by checking their email and password against the stored **Password Hash**.
+
+### Hasher
+An abstraction over password hashing that can **Hash** a plaintext password and **Verify** a password against an existing **Hash**.
+
+### Password Hash
+The bcrypt hash of a **User**'s password, stored on the **User** record. Never stored in plaintext.
+
+### Session
+A server-side record of an authenticated **User**'s login, tracked via an encrypted cookie (`session`) and stored by `gorilla/sessions`. Sessions expire after 24 hours.

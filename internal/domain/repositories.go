@@ -17,6 +17,7 @@ type RBACRepository interface {
 	LinkPermissionToRole(ctx context.Context, roleID string, permID string) error
 	GetUserRoles(ctx context.Context, userID string) ([]*Role, error)
 	GetUserPermissions(ctx context.Context, userID string) ([]*Permission, error)
+	GetRoleByName(ctx context.Context, name string) (*Role, error)
 }
 
 // EventRepository handles events, chronological views, and sign-ups.

@@ -87,6 +87,11 @@ func NewRBACRepository() *RBACRepository {
 	}
 }
 
+// SeedRoles creates the default roles and permissions in the repository.
+func (r *RBACRepository) SeedRoles(ctx context.Context) error {
+	return domain.SeedRoles(ctx, r)
+}
+
 func (r *RBACRepository) CreateRole(ctx context.Context, role *domain.Role) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -198,6 +203,18 @@ func (r *RBACRepository) GetUserPermissions(ctx context.Context, userID string) 
 		}
 	}
 	return permissions, nil
+}
+
+func (r *RBACRepository) GetRoleByName(ctx context.Context, name string) (*domain.Role, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, role := range r.roles {
+		if role.Name == name {
+			return role, nil
+		}
+	}
+	return nil, fmt.Errorf("role %q not found", name)
 }
 
 // EventRepository is an in-memory implementation of domain.EventRepository.

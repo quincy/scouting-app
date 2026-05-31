@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"scout-app/internal/api"
+	"scout-app/internal/domain"
 	"scout-app/internal/storage"
 	"scout-app/internal/storage/mock"
 
@@ -52,6 +53,34 @@ func main() {
 		}
 	}
 
+	sessionSecret := os.Getenv("SESSION_SECRET")
+	if useMock && sessionSecret == "" {
+		sessionSecret = "dev-secret-key"
+	}
+	if sessionSecret == "" {
+		log.Fatal("SESSION_SECRET environment variable is required")
+	}
+
+	// Repositories
+	eventRepo := mock.NewEventRepository()
+	userRepo := mock.NewUserRepository()
+	rbacRepo := mock.NewRBACRepository()
+
+	// Auth
+	hasher := &domain.BCryptHasher{}
+	authService := domain.NewAuthService(userRepo, rbacRepo, hasher, sessionSecret)
+
+	if useMock {
+		ctx := context.Background()
+		if err := rbacRepo.SeedRoles(ctx); err != nil {
+			log.Fatalf("SeedRoles failed: %v", err)
+		}
+		if err := authService.SeedAdminUser(ctx); err != nil {
+			log.Fatalf("SeedAdminUser failed: %v", err)
+		}
+		log.Println("Seeded admin user: admin@scout.local / password")
+	}
+
 	router := mux.NewRouter()
 	router.HandleFunc("/healthcheck", api.HealthCheckHandler).Methods("GET")
 
@@ -59,11 +88,15 @@ func main() {
 		router.HandleFunc("/deepcheck", api.DeepCheckHandler(db)).Methods("GET")
 	}
 
-	eventRepo := mock.NewEventRepository()
+	authHandler := api.NewAuthHandler(authService)
+	router.HandleFunc("/login", authHandler.LoginPage).Methods("GET")
+	router.HandleFunc("/login", authHandler.Login).Methods("POST")
+	router.HandleFunc("/logout", api.RequireAuth(authService, authHandler.Logout)).Methods("POST")
+
 	eventHandler := api.NewEventHandler(eventRepo)
-	router.HandleFunc("/events", eventHandler.ListEvents).Methods("GET")
-	router.HandleFunc("/events/upcoming", eventHandler.ListUpcoming).Methods("GET")
-	router.HandleFunc("/events/past", eventHandler.ListPast).Methods("GET")
+	router.Handle("/events", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListEvents)).Methods("GET")
+	router.Handle("/events/upcoming", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListUpcoming)).Methods("GET")
+	router.Handle("/events/past", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListPast)).Methods("GET")
 
 	srv := &http.Server{
 		Addr:    ":8080",
@@ -80,11 +113,10 @@ func main() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	fmt.Println("Waiting for SIGINT or SIGTERM")
 	<-sigs
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	err = srv.Shutdown(ctx)
-	if err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("Server Shutdown: %v", err)
 	}
 	fmt.Println("Server gracefully stopped")
