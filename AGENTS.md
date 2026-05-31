@@ -15,6 +15,8 @@ overall plan in mind.
 
 Beads issue tracker is used via `bd` CLI. See `docs/agents/issue-tracker.md`.
 
+When committing, include `.beads/issues.jsonl` and `.beads/interactions.jsonl` if they are modified. These are passive exports that should stay in sync with the commit they were generated from.
+
 ### Triage labels
 
 Standard canonical roles are used. See `docs/agents/triage-labels.md`.
