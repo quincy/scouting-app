@@ -480,12 +480,12 @@ func (r *OTPCodeRepository) GetByEmailAndCode(ctx context.Context, email string,
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, c := range r.codes {
-		if c.Email == email && c.Code == code && !c.Used {
+		if c.Email == email && c.Code == code && !c.Used && !c.IsExpired() {
 			clone := *c
 			return &clone, nil
 		}
 	}
-	return nil, errors.New("otp not found or already used")
+	return nil, errors.New("otp not found, already used, or expired")
 }
 
 func (r *OTPCodeRepository) MarkUsed(ctx context.Context, id string) error {
