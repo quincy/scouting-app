@@ -8,13 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"scout-app/internal/domain"
+	"scout-app/internal/domain/auth"
+	"scout-app/internal/domain/event"
+	"scout-app/internal/domain/user"
 	"scout-app/internal/storage/mock"
 )
 
-func futureEvent(id string, title string, daysFromNow int) *domain.Event {
+func futureEvent(id string, title string, daysFromNow int) *event.Event {
 	start := time.Now().AddDate(0, 0, daysFromNow)
-	return &domain.Event{
+	return &event.Event{
 		ID:        id,
 		Title:     title,
 		Location:  "Test Location",
@@ -25,9 +27,9 @@ func futureEvent(id string, title string, daysFromNow int) *domain.Event {
 	}
 }
 
-func pastEvent(id string, title string, daysAgo int) *domain.Event {
+func pastEvent(id string, title string, daysAgo int) *event.Event {
 	start := time.Now().AddDate(0, 0, -daysAgo)
-	return &domain.Event{
+	return &event.Event{
 		ID:        id,
 		Title:     title,
 		Location:  "Test Location",
@@ -40,14 +42,14 @@ func pastEvent(id string, title string, daysAgo int) *domain.Event {
 
 // setupEventTest creates mock repos, auth service, and event handler for testing.
 // Returns (userRepo, eventRepo, authService, handler).
-func setupEventTest(t *testing.T) (*mock.UserRepository, *mock.EventRepository, *domain.AuthService, *EventHandler) {
+func setupEventTest(t *testing.T) (*mock.UserRepository, *mock.EventRepository, *auth.AuthService, *EventHandler) {
 	t.Helper()
 	userRepo := mock.NewUserRepository()
 	rbacRepo := mock.NewRBACRepository()
 	eventRepo := mock.NewEventRepository(userRepo)
 
-	hasher := &domain.MockHasher{}
-	authService := domain.NewAuthService(userRepo, rbacRepo, hasher, "test-secret-key")
+	hasher := &auth.MockHasher{}
+	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, "test-secret-key")
 
 	ctx := t.Context()
 	if err := rbacRepo.SeedRoles(ctx); err != nil {
@@ -66,7 +68,7 @@ func setupEventTest(t *testing.T) (*mock.UserRepository, *mock.EventRepository, 
 }
 
 // loggedInRequest creates a request with a valid session cookie for admin.
-func loggedInRequest(t *testing.T, authService *domain.AuthService, method, path string) *http.Request {
+func loggedInRequest(t *testing.T, authService *auth.AuthService, method, path string) *http.Request {
 	t.Helper()
 
 	// Create a login response to capture session
@@ -86,7 +88,7 @@ func loggedInRequest(t *testing.T, authService *domain.AuthService, method, path
 func TestEventHandler_ListUpcomingPartial(t *testing.T) {
 	_, eventRepo, authService, handler := setupEventTest(t)
 
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		futureEvent("f1", "Alpha", 1),
 		futureEvent("f2", "Beta", 3),
 	})
@@ -124,7 +126,7 @@ func TestEventHandler_ListUpcomingPartial(t *testing.T) {
 func TestEventHandler_ListPastPartial(t *testing.T) {
 	_, eventRepo, authService, handler := setupEventTest(t)
 
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		pastEvent("p1", "Old Meeting", 10),
 		pastEvent("p2", "Recent Campout", 2),
 	})
@@ -157,7 +159,7 @@ func TestEventHandler_ListUpcoming_Pagination(t *testing.T) {
 	_, eventRepo, authService, handler := setupEventTest(t)
 
 	// Seed 12 upcoming events (first page shows 10)
-	var events []*domain.Event
+	var events []*event.Event
 	for i := 0; i < 12; i++ {
 		events = append(events, futureEvent(
 			fmt.Sprintf("f%d", i),
@@ -241,13 +243,13 @@ func TestEventHandler_ListEvents(t *testing.T) {
 	ctx := t.Context()
 
 	// Create a real user for sign-up
-	attendee := &domain.User{Email: "scout@test.com"}
+	attendee := &user.User{Email: "scout@test.com"}
 	if err := userRepo.Create(ctx, attendee); err != nil {
 		t.Fatalf("Create attendee: %v", err)
 	}
 
 	// Seed one future and one past event
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		futureEvent("f1", "Future Campout", 2),
 		pastEvent("p1", "Past Meeting", 5),
 	})
@@ -300,7 +302,7 @@ func TestEventHandler_ListEvents(t *testing.T) {
 func TestEventHandler_EventDetail_ShowsSignUpButtonWhenNotAttending(t *testing.T) {
 	_, eventRepo, authService, handler := setupEventTest(t)
 
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
 	})
 
@@ -323,7 +325,7 @@ func TestEventHandler_EventDetail_ShowsWithdrawButtonWhenAttending(t *testing.T)
 	ctx := t.Context()
 	_ = ctx
 
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
 	})
 
@@ -354,12 +356,12 @@ func TestEventHandler_EventDetail_MarksCurrentUserInAttendeeList(t *testing.T) {
 	userRepo, eventRepo, authService, handler := setupEventTest(t)
 	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
 	})
 
 	// Create another attendee (not the current user)
-	otherUser := &domain.User{Email: "other@scout.com"}
+	otherUser := &user.User{Email: "other@scout.com"}
 	if err := userRepo.Create(ctx, otherUser); err != nil {
 		t.Fatalf("Create otherUser: %v", err)
 	}
@@ -412,7 +414,7 @@ func TestEventHandler_SignUp_UpdatesButtonAndAttendeeList(t *testing.T) {
 	_, eventRepo, authService, handler := setupEventTest(t)
 	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
 	})
 
@@ -457,7 +459,7 @@ func TestEventHandler_Withdraw_UpdatesButtonAndAttendeeList(t *testing.T) {
 	userRepo, eventRepo, authService, handler := setupEventTest(t)
 	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
 	})
 
@@ -508,7 +510,7 @@ func TestEventHandler_EventDetail_RendersEventInfo(t *testing.T) {
 	_, eventRepo, authService, handler := setupEventTest(t)
 
 	// Seed an event
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		{
 			ID:          "evt1",
 			Title:       "Campout at Lake George",
@@ -559,7 +561,7 @@ func TestEventHandler_EventDetail_RendersEventInfo(t *testing.T) {
 func TestEventHandler_EventDetail_PastEvent_ShowsEndedMessage(t *testing.T) {
 	_, eventRepo, authService, handler := setupEventTest(t)
 
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		{
 			ID:        "past-evt",
 			Title:     "Past Campout",
@@ -596,7 +598,7 @@ func TestEventHandler_EventDetail_PastEvent_ShowsEndedMessage(t *testing.T) {
 func TestEventHandler_SignUp_PastEvent_ReturnsError(t *testing.T) {
 	userRepo, eventRepo, authService, handler := setupEventTest(t)
 
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		{
 			ID:        "past-evt",
 			Title:     "Past Campout",
@@ -633,7 +635,7 @@ func TestEventHandler_Withdraw_PastEvent_ReturnsError(t *testing.T) {
 	userRepo, eventRepo, authService, handler := setupEventTest(t)
 	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*domain.Event{
+	eventRepo.SeedEvents([]*event.Event{
 		{
 			ID:        "past-evt",
 			Title:     "Past Campout",

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"scout-app/internal/domain"
+	"scout-app/internal/domain/auth"
 )
 
 // loginPageData is passed to the login template.
@@ -16,17 +16,17 @@ type loginPageData struct {
 
 // AuthHandler serves login and logout endpoints.
 type AuthHandler struct {
-	auth *domain.AuthService
+	auth *auth.AuthService
 	tmpl *template.Template
 }
 
 // NewAuthHandler creates an AuthHandler with compiled templates.
-func NewAuthHandler(auth *domain.AuthService) *AuthHandler {
+func NewAuthHandler(authSvc *auth.AuthService) *AuthHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/login.html"),
 	)
 	return &AuthHandler{
-		auth: auth,
+		auth: authSvc,
 		tmpl: tmpl,
 	}
 }

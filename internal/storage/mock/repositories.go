@@ -5,7 +5,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"scout-app/internal/domain"
+	"scout-app/internal/domain/auth"
+	"scout-app/internal/domain/event"
+	"scout-app/internal/domain/otpcode"
+	"scout-app/internal/domain/parentyouthlink"
+	"scout-app/internal/domain/profile"
+	"scout-app/internal/domain/rbac"
+	"scout-app/internal/domain/scoutbooksession"
+	"scout-app/internal/domain/user"
 	"sort"
 	"sync"
 	"time"
@@ -17,91 +24,82 @@ func newUUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
-// UserRepository is an in-memory implementation of domain.UserRepository.
 type UserRepository struct {
 	mu    sync.RWMutex
-	users map[string]*domain.User
+	users map[string]*user.User
 }
 
 func NewUserRepository() *UserRepository {
 	return &UserRepository{
-		users: make(map[string]*domain.User),
+		users: make(map[string]*user.User),
 	}
 }
 
-func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
+func (r *UserRepository) Create(ctx context.Context, u *user.User) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	for _, u := range r.users {
-		if u.Email == user.Email {
-			return fmt.Errorf("email %q already exists", user.Email)
+	for _, existing := range r.users {
+		if existing.Email == u.Email {
+			return fmt.Errorf("email %q already exists", u.Email)
 		}
 	}
-
-	if user.ID == "" {
-		user.ID = newUUID()
+	if u.ID == "" {
+		u.ID = newUUID()
 	}
-	r.users[user.ID] = user
+	r.users[u.ID] = u
 	return nil
 }
 
-func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
+func (r *UserRepository) GetByID(ctx context.Context, id string) (*user.User, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	user, ok := r.users[id]
+	u, ok := r.users[id]
 	if !ok {
 		return nil, errors.New("user not found")
 	}
-	return user, nil
+	return u, nil
 }
 
-func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*user.User, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	for _, user := range r.users {
-		if user.Email == email {
-			return user, nil
+	for _, u := range r.users {
+		if u.Email == email {
+			return u, nil
 		}
 	}
 	return nil, errors.New("user not found")
 }
 
-// RBACRepository is an in-memory implementation of domain.RBACRepository.
 type RBACRepository struct {
 	mu              sync.RWMutex
-	roles           map[string]*domain.Role
-	permissions     map[string]*domain.Permission
-	userRoles       map[string][]string // userID -> []roleID
-	rolePermissions map[string][]string // roleID -> []permID
+	roles           map[string]*rbac.Role
+	permissions     map[string]*rbac.Permission
+	userRoles       map[string][]string
+	rolePermissions map[string][]string
 }
 
 func NewRBACRepository() *RBACRepository {
 	return &RBACRepository{
-		roles:           make(map[string]*domain.Role),
-		permissions:     make(map[string]*domain.Permission),
+		roles:           make(map[string]*rbac.Role),
+		permissions:     make(map[string]*rbac.Permission),
 		userRoles:       make(map[string][]string),
 		rolePermissions: make(map[string][]string),
 	}
 }
 
-// SeedRoles creates the default roles and permissions in the repository.
 func (r *RBACRepository) SeedRoles(ctx context.Context) error {
-	return domain.SeedRoles(ctx, r)
+	return auth.SeedRoles(ctx, r)
 }
 
-func (r *RBACRepository) CreateRole(ctx context.Context, role *domain.Role) error {
+func (r *RBACRepository) CreateRole(ctx context.Context, role *rbac.Role) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	for _, rl := range r.roles {
 		if rl.Name == role.Name {
 			return fmt.Errorf("role %q already exists", role.Name)
 		}
 	}
-
 	if role.ID == "" {
 		role.ID = newUUID()
 	}
@@ -109,16 +107,14 @@ func (r *RBACRepository) CreateRole(ctx context.Context, role *domain.Role) erro
 	return nil
 }
 
-func (r *RBACRepository) CreatePermission(ctx context.Context, perm *domain.Permission) error {
+func (r *RBACRepository) CreatePermission(ctx context.Context, perm *rbac.Permission) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	for _, p := range r.permissions {
 		if p.Name == perm.Name {
 			return fmt.Errorf("permission %q already exists", perm.Name)
 		}
 	}
-
 	if perm.ID == "" {
 		perm.ID = newUUID()
 	}
@@ -129,19 +125,14 @@ func (r *RBACRepository) CreatePermission(ctx context.Context, perm *domain.Perm
 func (r *RBACRepository) AssignRoleToUser(ctx context.Context, userID string, roleID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	// Check if role exists
 	if _, ok := r.roles[roleID]; !ok {
 		return errors.New("role not found")
 	}
-
-	// Prevent duplicates
 	for _, rid := range r.userRoles[userID] {
 		if rid == roleID {
 			return nil
 		}
 	}
-
 	r.userRoles[userID] = append(r.userRoles[userID], roleID)
 	return nil
 }
@@ -149,32 +140,26 @@ func (r *RBACRepository) AssignRoleToUser(ctx context.Context, userID string, ro
 func (r *RBACRepository) LinkPermissionToRole(ctx context.Context, roleID string, permID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	// Check if role and permission exist
 	if _, ok := r.roles[roleID]; !ok {
 		return errors.New("role not found")
 	}
 	if _, ok := r.permissions[permID]; !ok {
 		return errors.New("permission not found")
 	}
-
-	// Prevent duplicates
 	for _, pid := range r.rolePermissions[roleID] {
 		if pid == permID {
 			return nil
 		}
 	}
-
 	r.rolePermissions[roleID] = append(r.rolePermissions[roleID], permID)
 	return nil
 }
 
-func (r *RBACRepository) GetUserRoles(ctx context.Context, userID string) ([]*domain.Role, error) {
+func (r *RBACRepository) GetUserRoles(ctx context.Context, userID string) ([]*rbac.Role, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
 	rids := r.userRoles[userID]
-	var roles []*domain.Role
+	var roles []*rbac.Role
 	for _, rid := range rids {
 		if role, ok := r.roles[rid]; ok {
 			roles = append(roles, role)
@@ -183,14 +168,12 @@ func (r *RBACRepository) GetUserRoles(ctx context.Context, userID string) ([]*do
 	return roles, nil
 }
 
-func (r *RBACRepository) GetUserPermissions(ctx context.Context, userID string) ([]*domain.Permission, error) {
+func (r *RBACRepository) GetUserPermissions(ctx context.Context, userID string) ([]*rbac.Permission, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
 	rids := r.userRoles[userID]
 	permSet := make(map[string]bool)
-	var permissions []*domain.Permission
-
+	var permissions []*rbac.Permission
 	for _, rid := range rids {
 		pids := r.rolePermissions[rid]
 		for _, pid := range pids {
@@ -205,10 +188,9 @@ func (r *RBACRepository) GetUserPermissions(ctx context.Context, userID string) 
 	return permissions, nil
 }
 
-func (r *RBACRepository) GetRoleByName(ctx context.Context, name string) (*domain.Role, error) {
+func (r *RBACRepository) GetRoleByName(ctx context.Context, name string) (*rbac.Role, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
 	for _, role := range r.roles {
 		if role.Name == name {
 			return role, nil
@@ -217,28 +199,24 @@ func (r *RBACRepository) GetRoleByName(ctx context.Context, name string) (*domai
 	return nil, fmt.Errorf("role %q not found", name)
 }
 
-// EventRepository is an in-memory implementation of domain.EventRepository.
 type EventRepository struct {
 	mu        sync.RWMutex
-	events    map[string]*domain.Event
-	attendees map[string][]*domain.User // eventID -> []*User
+	events    map[string]*event.Event
+	attendees map[string][]*user.User
 	users     *UserRepository
 }
 
-// NewEventRepository creates a new in-memory EventRepository with a UserRepository.
 func NewEventRepository(users *UserRepository) *EventRepository {
 	return &EventRepository{
-		events:    make(map[string]*domain.Event),
-		attendees: make(map[string][]*domain.User),
+		events:    make(map[string]*event.Event),
+		attendees: make(map[string][]*user.User),
 		users:     users,
 	}
 }
 
-// SeedEvents pre-populates events into the repository (used in tests).
-func (r *EventRepository) SeedEvents(events []*domain.Event) {
+func (r *EventRepository) SeedEvents(events []*event.Event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	for _, e := range events {
 		if e.ID == "" {
 			e.ID = newUUID()
@@ -247,101 +225,88 @@ func (r *EventRepository) SeedEvents(events []*domain.Event) {
 	}
 }
 
-func (r *EventRepository) Create(ctx context.Context, event *domain.Event) error {
+func (r *EventRepository) Create(ctx context.Context, e *event.Event) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	if event.ID == "" {
-		event.ID = newUUID()
+	if e.ID == "" {
+		e.ID = newUUID()
 	}
-	clone := *event
+	clone := *e
 	r.events[clone.ID] = &clone
 	return nil
 }
 
-func (r *EventRepository) GetByID(ctx context.Context, id string) (*domain.Event, error) {
+func (r *EventRepository) GetByID(ctx context.Context, id string) (*event.Event, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	event, ok := r.events[id]
+	e, ok := r.events[id]
 	if !ok {
 		return nil, errors.New("event not found")
 	}
-	return event, nil
+	return e, nil
 }
 
-func (r *EventRepository) ListUpcoming(ctx context.Context, limit int, offset int) ([]*domain.EventListItem, error) {
+func (r *EventRepository) ListUpcoming(ctx context.Context, limit int, offset int) ([]*event.ListItem, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
 	now := time.Now()
-	var filtered []*domain.Event
+	var filtered []*event.Event
 	for _, e := range r.events {
 		if e.EndTime.After(now) {
 			filtered = append(filtered, e)
 		}
 	}
-
 	sort.Slice(filtered, func(i, j int) bool {
 		return filtered[i].StartTime.Before(filtered[j].StartTime)
 	})
-
-	return r.toEventListItems(filtered, limit, offset), nil
+	return r.toListItems(filtered, limit, offset), nil
 }
 
-func (r *EventRepository) ListPast(ctx context.Context, limit int, offset int) ([]*domain.EventListItem, error) {
+func (r *EventRepository) ListPast(ctx context.Context, limit int, offset int) ([]*event.ListItem, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
 	now := time.Now()
-	var filtered []*domain.Event
+	var filtered []*event.Event
 	for _, e := range r.events {
 		if !e.EndTime.After(now) {
 			filtered = append(filtered, e)
 		}
 	}
-
 	sort.Slice(filtered, func(i, j int) bool {
 		return filtered[i].StartTime.After(filtered[j].StartTime)
 	})
-
-	return r.toEventListItems(filtered, limit, offset), nil
+	return r.toListItems(filtered, limit, offset), nil
 }
 
-// attendeesCount returns the number of signed-up attendees for an event.
 func (r *EventRepository) attendeesCount(eventID string) int {
 	return len(r.attendees[eventID])
 }
 
-// AttendeesMap returns the raw attendees map for inspection in tests.
-func (r *EventRepository) AttendeesMap() map[string][]*domain.User {
+func (r *EventRepository) AttendeesMap() map[string][]*user.User {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	result := make(map[string][]*domain.User, len(r.attendees))
+	result := make(map[string][]*user.User, len(r.attendees))
 	for k, v := range r.attendees {
-		users := make([]*domain.User, len(v))
+		users := make([]*user.User, len(v))
 		copy(users, v)
 		result[k] = users
 	}
 	return result
 }
 
-// toEventListItems converts a sorted slice of events to EventListItem, applying pagination.
-func (r *EventRepository) toEventListItems(events []*domain.Event, limit int, offset int) []*domain.EventListItem {
+func (r *EventRepository) toListItems(events []*event.Event, limit int, offset int) []*event.ListItem {
 	if offset >= len(events) {
-		return []*domain.EventListItem{}
+		return []*event.ListItem{}
 	}
-
 	start := offset
 	end := offset + limit
 	if end > len(events) {
 		end = len(events)
 	}
-
 	slice := events[start:end]
-	items := make([]*domain.EventListItem, len(slice))
+	items := make([]*event.ListItem, len(slice))
 	for i, e := range slice {
-		items[i] = &domain.EventListItem{
+		items[i] = &event.ListItem{
 			ID:            e.ID,
 			Title:         e.Title,
 			Location:      e.Location,
@@ -357,35 +322,28 @@ func (r *EventRepository) toEventListItems(events []*domain.Event, limit int, of
 func (r *EventRepository) SignUp(ctx context.Context, eventID string, userID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	if _, ok := r.events[eventID]; !ok {
 		return errors.New("event not found")
 	}
-
-	// Look up the user to verify they exist
-	user, err := r.users.GetByID(ctx, userID)
+	u, err := r.users.GetByID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
-
-	for _, u := range r.attendees[eventID] {
-		if u.ID == userID {
-			return nil // already signed up
+	for _, existing := range r.attendees[eventID] {
+		if existing.ID == userID {
+			return nil
 		}
 	}
-
-	r.attendees[eventID] = append(r.attendees[eventID], user)
+	r.attendees[eventID] = append(r.attendees[eventID], u)
 	return nil
 }
 
 func (r *EventRepository) Withdraw(ctx context.Context, eventID string, userID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	if _, ok := r.events[eventID]; !ok {
 		return errors.New("event not found")
 	}
-
 	attendees := r.attendees[eventID]
 	for i, u := range attendees {
 		if u.ID == userID {
@@ -396,19 +354,258 @@ func (r *EventRepository) Withdraw(ctx context.Context, eventID string, userID s
 	return nil
 }
 
-func (r *EventRepository) GetAttendees(ctx context.Context, eventID string) ([]*domain.User, error) {
+func (r *EventRepository) GetAttendees(ctx context.Context, eventID string) ([]*user.User, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
 	if _, ok := r.events[eventID]; !ok {
 		return nil, errors.New("event not found")
 	}
-
-	// Return a copy of the stored users
-	result := make([]*domain.User, len(r.attendees[eventID]))
+	result := make([]*user.User, len(r.attendees[eventID]))
 	for i, u := range r.attendees[eventID] {
 		clone := *u
 		result[i] = &clone
 	}
 	return result, nil
+}
+
+type ProfileRepository struct {
+	mu       sync.RWMutex
+	profiles map[string]*profile.Profile
+}
+
+func NewProfileRepository() *ProfileRepository {
+	return &ProfileRepository{
+		profiles: make(map[string]*profile.Profile),
+	}
+}
+
+func (r *ProfileRepository) Create(ctx context.Context, p *profile.Profile) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, existing := range r.profiles {
+		if existing.BSAID == p.BSAID {
+			return fmt.Errorf("profile with BSA ID %q already exists", p.BSAID)
+		}
+	}
+	if p.ID == "" {
+		p.ID = newUUID()
+	}
+	clone := *p
+	r.profiles[clone.ID] = &clone
+	return nil
+}
+
+func (r *ProfileRepository) GetByID(ctx context.Context, id string) (*profile.Profile, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	p, ok := r.profiles[id]
+	if !ok {
+		return nil, errors.New("profile not found")
+	}
+	clone := *p
+	return &clone, nil
+}
+
+func (r *ProfileRepository) GetByEmail(ctx context.Context, email string) (*profile.Profile, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.profiles {
+		if p.Email == email {
+			clone := *p
+			return &clone, nil
+		}
+	}
+	return nil, errors.New("profile not found")
+}
+
+func (r *ProfileRepository) GetByBSAID(ctx context.Context, bsaID string) (*profile.Profile, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.profiles {
+		if p.BSAID == bsaID {
+			clone := *p
+			return &clone, nil
+		}
+	}
+	return nil, errors.New("profile not found")
+}
+
+func (r *ProfileRepository) ListByStatus(ctx context.Context, status profile.Status) ([]*profile.Profile, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []*profile.Profile
+	for _, p := range r.profiles {
+		if p.Status == status {
+			clone := *p
+			result = append(result, &clone)
+		}
+	}
+	return result, nil
+}
+
+func (r *ProfileRepository) Update(ctx context.Context, p *profile.Profile) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.profiles[p.ID]; !ok {
+		return errors.New("profile not found")
+	}
+	clone := *p
+	r.profiles[clone.ID] = &clone
+	return nil
+}
+
+type OTPCodeRepository struct {
+	mu    sync.RWMutex
+	codes map[string]*otpcode.OTPCode
+}
+
+func NewOTPCodeRepository() *OTPCodeRepository {
+	return &OTPCodeRepository{
+		codes: make(map[string]*otpcode.OTPCode),
+	}
+}
+
+func (r *OTPCodeRepository) Create(ctx context.Context, otp *otpcode.OTPCode) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if otp.ID == "" {
+		otp.ID = newUUID()
+	}
+	clone := *otp
+	r.codes[clone.ID] = &clone
+	return nil
+}
+
+func (r *OTPCodeRepository) GetByEmailAndCode(ctx context.Context, email string, code string) (*otpcode.OTPCode, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, c := range r.codes {
+		if c.Email == email && c.Code == code && !c.Used {
+			clone := *c
+			return &clone, nil
+		}
+	}
+	return nil, errors.New("otp not found or already used")
+}
+
+func (r *OTPCodeRepository) MarkUsed(ctx context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c, ok := r.codes[id]
+	if !ok {
+		return errors.New("otp not found")
+	}
+	c.Used = true
+	return nil
+}
+
+type ParentYouthLinkRepository struct {
+	mu    sync.RWMutex
+	links map[string]*parentyouthlink.ParentYouthConnection
+}
+
+func NewParentYouthLinkRepository() *ParentYouthLinkRepository {
+	return &ParentYouthLinkRepository{
+		links: make(map[string]*parentyouthlink.ParentYouthConnection),
+	}
+}
+
+func (r *ParentYouthLinkRepository) Create(ctx context.Context, link *parentyouthlink.ParentYouthConnection) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if link.ID == "" {
+		link.ID = newUUID()
+	}
+	clone := *link
+	r.links[clone.ID] = &clone
+	return nil
+}
+
+func (r *ParentYouthLinkRepository) GetByID(ctx context.Context, id string) (*parentyouthlink.ParentYouthConnection, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	l, ok := r.links[id]
+	if !ok {
+		return nil, errors.New("link not found")
+	}
+	clone := *l
+	return &clone, nil
+}
+
+func (r *ParentYouthLinkRepository) ListByParent(ctx context.Context, parentProfileID string) ([]*parentyouthlink.ParentYouthConnection, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []*parentyouthlink.ParentYouthConnection
+	for _, l := range r.links {
+		if l.ParentProfileID == parentProfileID {
+			clone := *l
+			result = append(result, &clone)
+		}
+	}
+	return result, nil
+}
+
+func (r *ParentYouthLinkRepository) ListByStatus(ctx context.Context, status parentyouthlink.Status) ([]*parentyouthlink.ParentYouthConnection, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []*parentyouthlink.ParentYouthConnection
+	for _, l := range r.links {
+		if l.Status == status {
+			clone := *l
+			result = append(result, &clone)
+		}
+	}
+	return result, nil
+}
+
+func (r *ParentYouthLinkRepository) UpdateStatus(ctx context.Context, id string, status parentyouthlink.Status, approvedBy string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	l, ok := r.links[id]
+	if !ok {
+		return errors.New("link not found")
+	}
+	l.Status = status
+	l.ApprovedBy = &approvedBy
+	now := time.Now()
+	l.ApprovedAt = &now
+	return nil
+}
+
+type ScoutbookSessionRepository struct {
+	mu       sync.RWMutex
+	sessions map[string]*scoutbooksession.Session
+}
+
+func NewScoutbookSessionRepository() *ScoutbookSessionRepository {
+	return &ScoutbookSessionRepository{
+		sessions: make(map[string]*scoutbooksession.Session),
+	}
+}
+
+func (r *ScoutbookSessionRepository) Create(ctx context.Context, s *scoutbooksession.Session) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s.ID == "" {
+		s.ID = newUUID()
+	}
+	clone := *s
+	r.sessions[clone.ID] = &clone
+	return nil
+}
+
+func (r *ScoutbookSessionRepository) GetLatest(ctx context.Context) (*scoutbooksession.Session, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var latest *scoutbooksession.Session
+	for _, s := range r.sessions {
+		if latest == nil || s.CreatedAt.After(latest.CreatedAt) {
+			clone := *s
+			latest = &clone
+		}
+	}
+	if latest == nil {
+		return nil, errors.New("no sessions found")
+	}
+	return latest, nil
 }

@@ -10,7 +10,9 @@ import (
 	"strconv"
 	"time"
 
-	"scout-app/internal/domain"
+	"scout-app/internal/domain/auth"
+	"scout-app/internal/domain/event"
+	"scout-app/internal/domain/user"
 )
 
 //go:embed views/*.html
@@ -18,16 +20,16 @@ var viewsFS embed.FS
 
 // EventHandler serves the event list page, detail page, and HTMX partials.
 type EventHandler struct {
-	repo domain.EventRepository
-	auth *domain.AuthService
+	repo event.Repository
+	auth *auth.AuthService
 	tmpl *template.Template
 }
 
 // eventsPageData is the data passed to layout.html for the initial page render.
 type eventsPageData struct {
 	Title              string
-	UpcomingEvents     []*domain.EventListItem
-	PastEvents         []*domain.EventListItem
+	UpcomingEvents     []*event.ListItem
+	PastEvents         []*event.ListItem
 	UpcomingDisplayed  int
 	UpcomingTotal      int
 	PastDisplayed      int
@@ -41,7 +43,7 @@ type eventsPageData struct {
 // eventDetailData is the data passed to event_detail.html.
 type eventDetailData struct {
 	Title         string
-	Event         *domain.Event
+	Event         *event.Event
 	CostDisplay   string
 	Attendees     []attendeeViewModel
 	AttendeeCount int
@@ -70,7 +72,7 @@ type attendeeListData struct {
 
 // eventListPartialData is the data passed to event_list.html for HTMX partials.
 type eventListPartialData struct {
-	Events     []*domain.EventListItem
+	Events     []*event.ListItem
 	Section    string // "upcoming" or "past"
 	Displayed  int    // total displayed so far
 	Total      int    // total events in this section
@@ -79,7 +81,7 @@ type eventListPartialData struct {
 }
 
 // NewEventHandler creates an EventHandler with compiled templates.
-func NewEventHandler(repo domain.EventRepository, auth *domain.AuthService) *EventHandler {
+func NewEventHandler(repo event.Repository, auth *auth.AuthService) *EventHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
@@ -157,7 +159,7 @@ func (h *EventHandler) ListPast(w http.ResponseWriter, r *http.Request) {
 }
 
 // listFunc matches the signature of EventRepository's ListUpcoming and ListPast.
-type listFunc func(ctx context.Context, limit int, offset int) ([]*domain.EventListItem, error)
+type listFunc func(ctx context.Context, limit int, offset int) ([]*event.ListItem, error)
 
 // renderListPartial renders the HTMX partial for a section of events.
 func (h *EventHandler) renderListPartial(w http.ResponseWriter, r *http.Request, section string, fn listFunc) {
@@ -413,7 +415,7 @@ func formatCost(cents int) string {
 }
 
 // buildAttendeeVMs creates attendee view models with the current user marked.
-func buildAttendeeVMs(attendees []*domain.User, currentUser *domain.User) []attendeeViewModel {
+func buildAttendeeVMs(attendees []*user.User, currentUser *user.User) []attendeeViewModel {
 	vms := make([]attendeeViewModel, len(attendees))
 	for i, u := range attendees {
 		vm := attendeeViewModel{Email: u.Email}

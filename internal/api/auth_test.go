@@ -6,17 +6,17 @@ import (
 	"strings"
 	"testing"
 
-	"scout-app/internal/domain"
+	"scout-app/internal/domain/auth"
 	"scout-app/internal/storage/mock"
 )
 
 // setupAuthTest creates mock repos, seeds roles, creates an AuthService,
 // and creates an AuthHandler for testing.
-func setupAuthTest(t *testing.T) (*AuthHandler, *domain.AuthService, *mock.UserRepository, *mock.RBACRepository) {
+func setupAuthTest(t *testing.T) (*AuthHandler, *auth.AuthService, *mock.UserRepository, *mock.RBACRepository) {
 	t.Helper()
 	userRepo := mock.NewUserRepository()
 	rbacRepo := mock.NewRBACRepository()
-	hasher := &domain.MockHasher{}
+	hasher := &auth.MockHasher{}
 
 	// Seed default roles
 	ctx := t.Context()
@@ -24,7 +24,7 @@ func setupAuthTest(t *testing.T) (*AuthHandler, *domain.AuthService, *mock.UserR
 		t.Fatalf("SeedRoles: %v", err)
 	}
 
-	authService := domain.NewAuthService(userRepo, rbacRepo, hasher, "test-secret-key")
+	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, "test-secret-key")
 	authHandler := NewAuthHandler(authService)
 	return authHandler, authService, userRepo, rbacRepo
 }

@@ -1,4 +1,4 @@
-package domain
+package auth
 
 import (
 	"context"
@@ -6,17 +6,18 @@ import (
 	"net/http"
 	"time"
 
+	"scout-app/internal/domain/rbac"
+	"scout-app/internal/domain/user"
+
 	"github.com/gorilla/sessions"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Hasher provides password hashing and verification.
 type Hasher interface {
 	Hash(password string) (string, error)
 	Verify(password, hash string) error
 }
 
-// BCryptHasher implements Hasher using bcrypt.
 type BCryptHasher struct{}
 
 func (h *BCryptHasher) Hash(password string) (string, error) {
@@ -31,7 +32,6 @@ func (h *BCryptHasher) Verify(password, hash string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 
-// MockHasher implements Hasher for testing — stores and compares plaintext.
 type MockHasher struct{}
 
 func (h *MockHasher) Hash(password string) (string, error) {
@@ -45,24 +45,21 @@ func (h *MockHasher) Verify(password, hash string) error {
 	return nil
 }
 
-// Session keys
 const sessionName = "session"
 const sessionUserIDKey = "user_id"
 
-// AuthService owns sessions and password verification.
 type AuthService struct {
-	users   UserRepository
-	rbac    RBACRepository
+	users   user.Repository
+	rbac    rbac.Repository
 	hasher  Hasher
 	session *sessions.CookieStore
 }
 
-// NewAuthService creates an AuthService with an encrypted cookie store.
-func NewAuthService(users UserRepository, rbac RBACRepository, hasher Hasher, sessionSecret string) *AuthService {
+func NewAuthService(users user.Repository, rbac rbac.Repository, hasher Hasher, sessionSecret string) *AuthService {
 	store := sessions.NewCookieStore([]byte(sessionSecret))
 	store.Options = &sessions.Options{
 		Path:     "/",
-		MaxAge:   86400, // 24 hours
+		MaxAge:   86400,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	}
@@ -74,64 +71,55 @@ func NewAuthService(users UserRepository, rbac RBACRepository, hasher Hasher, se
 	}
 }
 
-// Login verifies credentials and creates a session.
-func (s *AuthService) Login(w http.ResponseWriter, r *http.Request, email, password string) (*User, error) {
-	user, err := s.users.GetByEmail(r.Context(), email)
+func (s *AuthService) Login(w http.ResponseWriter, r *http.Request, email, password string) (*user.User, error) {
+	u, err := s.users.GetByEmail(r.Context(), email)
 	if err != nil {
 		return nil, errors.New("invalid credentials")
 	}
-	if user == nil {
+	if u == nil {
 		return nil, errors.New("invalid credentials")
 	}
-
-	if err := s.hasher.Verify(password, user.PasswordHash); err != nil {
+	if err := s.hasher.Verify(password, u.PasswordHash); err != nil {
 		return nil, errors.New("invalid credentials")
 	}
-
 	sess, err := s.session.Get(r, sessionName)
 	if err != nil {
 		return nil, err
 	}
-	sess.Values[sessionUserIDKey] = user.ID
-	sess.Options.MaxAge = 86400 // 24 hours
+	sess.Values[sessionUserIDKey] = u.ID
+	sess.Options.MaxAge = 86400
 	if err := sess.Save(r, w); err != nil {
 		return nil, err
 	}
-
-	return user, nil
+	return u, nil
 }
 
-// GetAuthenticatedUser reads the session and returns the logged-in user.
-func (s *AuthService) GetAuthenticatedUser(r *http.Request) (*User, error) {
+func (s *AuthService) GetAuthenticatedUser(r *http.Request) (*user.User, error) {
 	sess, err := s.session.Get(r, sessionName)
 	if err != nil {
 		return nil, nil
 	}
-
 	userID, ok := sess.Values[sessionUserIDKey].(string)
 	if !ok || userID == "" {
 		return nil, nil
 	}
-
-	user, err := s.users.GetByID(r.Context(), userID)
+	u, err := s.users.GetByID(r.Context(), userID)
 	if err != nil {
 		return nil, nil
 	}
-	return user, nil
+	return u, nil
 }
 
-// Logout clears the session cookie.
 func (s *AuthService) Logout(w http.ResponseWriter, r *http.Request) error {
 	sess, err := s.session.Get(r, sessionName)
 	if err != nil {
 		return err
 	}
-	sess.Options.MaxAge = -1 // delete cookie
+	sess.Options.MaxAge = -1
 	delete(sess.Values, sessionUserIDKey)
 	return sess.Save(r, w)
 }
 
-// defaultRoles and defaultPermissions mirror what the SQL migration sets up.
 var defaultRoles = []struct {
 	Name        string
 	Permissions []string
@@ -143,24 +131,22 @@ var defaultRoles = []struct {
 	{Name: "parent", Permissions: []string{"event:view", "event:signup", "event:withdraw"}},
 }
 
-// SeedRoles creates the default roles and permissions in the RBAC repository.
-func SeedRoles(ctx context.Context, rbac RBACRepository) error {
+func SeedRoles(ctx context.Context, rbacRepo rbac.Repository) error {
 	permIDs := make(map[string]string)
 	for _, permName := range []string{"event:create", "event:view", "event:signup", "event:withdraw"} {
-		perm := &Permission{Name: permName}
-		if err := rbac.CreatePermission(ctx, perm); err != nil {
+		perm := &rbac.Permission{Name: permName}
+		if err := rbacRepo.CreatePermission(ctx, perm); err != nil {
 			return err
 		}
 		permIDs[permName] = perm.ID
 	}
-
 	for _, rl := range defaultRoles {
-		role := &Role{Name: rl.Name}
-		if err := rbac.CreateRole(ctx, role); err != nil {
+		role := &rbac.Role{Name: rl.Name}
+		if err := rbacRepo.CreateRole(ctx, role); err != nil {
 			return err
 		}
 		for _, permName := range rl.Permissions {
-			if err := rbac.LinkPermissionToRole(ctx, role.ID, permIDs[permName]); err != nil {
+			if err := rbacRepo.LinkPermissionToRole(ctx, role.ID, permIDs[permName]); err != nil {
 				return err
 			}
 		}
@@ -168,25 +154,22 @@ func SeedRoles(ctx context.Context, rbac RBACRepository) error {
 	return nil
 }
 
-// SeedAdminUser creates the admin user with the admin role (for mock mode).
 func (s *AuthService) SeedAdminUser(ctx context.Context) error {
 	hash, err := s.hasher.Hash("password")
 	if err != nil {
 		return err
 	}
-	user := &User{
+	u := &user.User{
 		Email:        "admin@scout.local",
 		PasswordHash: hash,
 		CreatedAt:    time.Now(),
 	}
-	if err := s.users.Create(ctx, user); err != nil {
+	if err := s.users.Create(ctx, u); err != nil {
 		return err
 	}
-
 	adminRole, err := s.rbac.GetRoleByName(ctx, "admin")
 	if err != nil {
 		return err
 	}
-
-	return s.rbac.AssignRoleToUser(ctx, user.ID, adminRole.ID)
+	return s.rbac.AssignRoleToUser(ctx, u.ID, adminRole.ID)
 }

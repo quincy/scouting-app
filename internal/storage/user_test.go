@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"scout-app/internal/domain"
+	"scout-app/internal/domain/user"
 	"scout-app/internal/storage/mock"
 )
 
@@ -14,7 +14,7 @@ func TestUserRepository_CreateAndGetByID(t *testing.T) {
 	repo := mock.NewUserRepository()
 	ctx := context.Background()
 
-	user := &domain.User{
+	user := &user.User{
 		Email:        "test@example.com",
 		PasswordHash: "hashedpassword",
 		CreatedAt:    time.Now(),
@@ -43,7 +43,7 @@ func TestUserRepository_GetByEmail(t *testing.T) {
 	repo := mock.NewUserRepository()
 	ctx := context.Background()
 
-	user := &domain.User{
+	user := &user.User{
 		Email:        "unique@example.com",
 		PasswordHash: "pwd",
 		CreatedAt:    time.Now(),
@@ -71,13 +71,13 @@ func TestUserRepository_DuplicateEmail(t *testing.T) {
 	repo := mock.NewUserRepository()
 	ctx := context.Background()
 
-	user1 := &domain.User{
+	user1 := &user.User{
 		Email:        "duplicate@example.com",
 		PasswordHash: "hash1",
 		CreatedAt:    time.Now(),
 	}
 
-	user2 := &domain.User{
+	user2 := &user.User{
 		Email:        "duplicate@example.com",
 		PasswordHash: "hash2",
 		CreatedAt:    time.Now(),

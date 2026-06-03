@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"scout-app/internal/domain"
+	"scout-app/internal/domain/auth"
 	"scout-app/internal/storage/mock"
 )
 
@@ -97,8 +97,8 @@ func TestDomainSeedRoles(t *testing.T) {
 	rbac := mock.NewRBACRepository()
 	ctx := context.Background()
 
-	if err := domain.SeedRoles(ctx, rbac); err != nil {
-		t.Fatalf("domain.SeedRoles failed: %v", err)
+	if err := auth.SeedRoles(ctx, rbac); err != nil {
+		t.Fatalf("auth.SeedRoles failed: %v", err)
 	}
 
 	adminRole, err := rbac.GetRoleByName(ctx, "admin")

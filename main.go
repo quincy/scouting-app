@@ -13,7 +13,8 @@ import (
 	"time"
 
 	"scout-app/internal/api"
-	"scout-app/internal/domain"
+	"scout-app/internal/domain/auth"
+	"scout-app/internal/domain/event"
 	"scout-app/internal/storage"
 	"scout-app/internal/storage/mock"
 
@@ -67,8 +68,8 @@ func main() {
 	eventRepo := mock.NewEventRepository(userRepo)
 
 	// Auth
-	hasher := &domain.BCryptHasher{}
-	authService := domain.NewAuthService(userRepo, rbacRepo, hasher, sessionSecret)
+	hasher := &auth.BCryptHasher{}
+	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, sessionSecret)
 
 	if useMock {
 		ctx := context.Background()
@@ -82,7 +83,7 @@ func main() {
 
 		// Seed example events
 		now := time.Now()
-		seedEvents := []*domain.Event{
+		seedEvents := []*event.Event{
 			{Title: "Campout at Lake George", Description: "Weekend camping trip with swimming, hiking, and campfire stories.", Location: "Lake George", StartTime: now.Add(72 * time.Hour), EndTime: now.Add(96 * time.Hour), CostCents: 1500, Type: "campout"},
 			{Title: "Knot-Tying Workshop", Description: "Learn essential scout knots including square, clove hitch, and bowline.", Location: "Scout Hall", StartTime: now.Add(720 * time.Hour), EndTime: now.Add(722 * time.Hour), CostCents: 0, Type: "workshop"},
 			{Title: "River Cleanup", Description: "Community service event to clean up the riverside trail.", Location: "River Park", StartTime: now.Add(-48 * time.Hour), EndTime: now.Add(-46 * time.Hour), CostCents: 0, Type: "service"},

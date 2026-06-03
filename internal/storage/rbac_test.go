@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"scout-app/internal/domain"
+	"scout-app/internal/domain/rbac"
 	"scout-app/internal/storage/mock"
 )
 
@@ -13,8 +13,8 @@ func TestRBACRepository_RolesAndPermissions(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Create Roles
-	adminRole := &domain.Role{Name: "Admin"}
-	leaderRole := &domain.Role{Name: "Leader"}
+	adminRole := &rbac.Role{Name: "Admin"}
+	leaderRole := &rbac.Role{Name: "Leader"}
 	err := repo.CreateRole(ctx, adminRole)
 	if err != nil {
 		t.Fatalf("failed to create admin role: %v", err)
@@ -26,14 +26,14 @@ func TestRBACRepository_RolesAndPermissions(t *testing.T) {
 	}
 
 	// Try creating duplicate role
-	err = repo.CreateRole(ctx, &domain.Role{Name: "Admin"})
+	err = repo.CreateRole(ctx, &rbac.Role{Name: "Admin"})
 	if err == nil {
 		t.Error("expected error when creating duplicate role, got nil")
 	}
 
 	// 2. Create Permissions
-	createEventPerm := &domain.Permission{Name: "Create Event"}
-	signUpPerm := &domain.Permission{Name: "Sign up for Event"}
+	createEventPerm := &rbac.Permission{Name: "Create Event"}
+	signUpPerm := &rbac.Permission{Name: "Sign up for Event"}
 	err = repo.CreatePermission(ctx, createEventPerm)
 	if err != nil {
 		t.Fatalf("failed to create permission: %v", err)

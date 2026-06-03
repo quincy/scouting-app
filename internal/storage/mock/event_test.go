@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"scout-app/internal/domain"
+	"scout-app/internal/domain/event"
+	"scout-app/internal/domain/user"
 )
 
-func futureEvent(id string, title string, daysFromNow int) *domain.Event {
+func futureEvent(id string, title string, daysFromNow int) *event.Event {
 	start := time.Now().AddDate(0, 0, daysFromNow)
-	return &domain.Event{
+	return &event.Event{
 		ID:        id,
 		Title:     title,
 		Location:  "Camp",
@@ -23,9 +24,9 @@ func futureEvent(id string, title string, daysFromNow int) *domain.Event {
 	}
 }
 
-func pastEvent(id string, title string, daysAgo int) *domain.Event {
+func pastEvent(id string, title string, daysAgo int) *event.Event {
 	start := time.Now().AddDate(0, 0, -daysAgo)
-	return &domain.Event{
+	return &event.Event{
 		ID:        id,
 		Title:     title,
 		Location:  "Camp",
@@ -47,7 +48,7 @@ func TestEventRepository_ListUpcoming_SortedASC(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed events: one past, two future
-	repo.SeedEvents([]*domain.Event{
+	repo.SeedEvents([]*event.Event{
 		pastEvent("p1", "Past Event", 2),
 		futureEvent("f1", "Alpha", 1), // tomorrow
 		futureEvent("f2", "Beta", 3),  // 3 days from now
@@ -80,7 +81,7 @@ func TestEventRepository_ListPast_SortedDESC(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed events: two past, one future
-	repo.SeedEvents([]*domain.Event{
+	repo.SeedEvents([]*event.Event{
 		futureEvent("f1", "Future Event", 1),
 		pastEvent("p1", "Zeta", 10), // 10 days ago
 		pastEvent("p2", "Alpha", 5), // 5 days ago (more recent)
@@ -113,7 +114,7 @@ func TestEventRepository_ListUpcoming_Pagination(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed 5 future events
-	var events []*domain.Event
+	var events []*event.Event
 	for i := 0; i < 5; i++ {
 		events = append(events, futureEvent(fmt.Sprintf("f%d", i), fmt.Sprintf("Event %d", i), i+1))
 	}
@@ -187,8 +188,8 @@ func TestEventRepository_AttendeeCount(t *testing.T) {
 	ctx := context.Background()
 
 	// Create users
-	userA := &domain.User{Email: "alice@test.com"}
-	userB := &domain.User{Email: "bob@test.com"}
+	userA := &user.User{Email: "alice@test.com"}
+	userB := &user.User{Email: "bob@test.com"}
 	if err := userRepo.Create(ctx, userA); err != nil {
 		t.Fatalf("Create userA: %v", err)
 	}
@@ -197,7 +198,7 @@ func TestEventRepository_AttendeeCount(t *testing.T) {
 	}
 
 	evt := futureEvent("evt1", "Campout", 1)
-	repo.SeedEvents([]*domain.Event{evt})
+	repo.SeedEvents([]*event.Event{evt})
 
 	// Sign up two users
 	if err := repo.SignUp(ctx, "evt1", userA.ID); err != nil {
@@ -241,8 +242,8 @@ func TestEventRepository_GetAttendees_WithUserRepo(t *testing.T) {
 	ctx := context.Background()
 
 	// Create users
-	userA := &domain.User{Email: "alice@test.com"}
-	userB := &domain.User{Email: "bob@test.com"}
+	userA := &user.User{Email: "alice@test.com"}
+	userB := &user.User{Email: "bob@test.com"}
 	if err := userRepo.Create(ctx, userA); err != nil {
 		t.Fatalf("Create userA: %v", err)
 	}
@@ -251,7 +252,7 @@ func TestEventRepository_GetAttendees_WithUserRepo(t *testing.T) {
 	}
 
 	evt := futureEvent("evt1", "Campout", 1)
-	repo.SeedEvents([]*domain.Event{evt})
+	repo.SeedEvents([]*event.Event{evt})
 
 	// Sign up users
 	if err := repo.SignUp(ctx, "evt1", userA.ID); err != nil {
