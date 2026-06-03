@@ -17,6 +17,8 @@ import (
 	"scout-app/internal/domain/event"
 	"scout-app/internal/domain/parentyouthlink"
 	"scout-app/internal/domain/profile"
+	"scout-app/internal/domain/sync"
+	"scout-app/internal/scoutbook"
 	"scout-app/internal/storage"
 	"scout-app/internal/storage/mock"
 
@@ -176,6 +178,17 @@ func main() {
 		log.Println("Login as admin@scout.local / password to manage Alex Youth and Bailey Scout via linked profiles")
 	}
 
+	// Scoutbook sync
+	scoutbookOrgGUID := os.Getenv("SCOUTBOOK_ORG_GUID")
+	var syncHandler *api.SyncHandler
+	if scoutbookOrgGUID != "" {
+		scoutbookToken := os.Getenv("SCOUTBOOK_TOKEN")
+		scoutbookClient := scoutbook.NewClient("", scoutbookToken, scoutbookOrgGUID)
+		syncSvc := sync.NewService(profileRepo, sync.NewScoutbookClientAdapter(scoutbookClient))
+		syncHandler = api.NewSyncHandler(syncSvc)
+		log.Println("Scoutbook sync service configured")
+	}
+
 	router := mux.NewRouter()
 	router.HandleFunc("/healthcheck", api.HealthCheckHandler).Methods("GET")
 
@@ -196,6 +209,10 @@ func main() {
 	router.Handle("/events/{id}", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.EventDetail)).Methods("GET")
 	router.Handle("/events/{id}/signup", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.SignUp)).Methods("POST")
 	router.Handle("/events/{id}/withdraw", api.RequirePermission(authService, rbacRepo, "event:withdraw", eventHandler.Withdraw)).Methods("POST")
+
+	if syncHandler != nil {
+		router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")
+	}
 
 	srv := &http.Server{
 		Addr:    ":8080",
