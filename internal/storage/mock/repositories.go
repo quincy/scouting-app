@@ -202,15 +202,15 @@ func (r *RBACRepository) GetRoleByName(ctx context.Context, name string) (*rbac.
 type EventRepository struct {
 	mu        sync.RWMutex
 	events    map[string]*event.Event
-	attendees map[string][]*user.User
-	users     *UserRepository
+	attendees map[string][]*profile.Profile
+	profiles  *ProfileRepository
 }
 
-func NewEventRepository(users *UserRepository) *EventRepository {
+func NewEventRepository(profiles *ProfileRepository) *EventRepository {
 	return &EventRepository{
 		events:    make(map[string]*event.Event),
-		attendees: make(map[string][]*user.User),
-		users:     users,
+		attendees: make(map[string][]*profile.Profile),
+		profiles:  profiles,
 	}
 }
 
@@ -282,14 +282,14 @@ func (r *EventRepository) attendeesCount(eventID string) int {
 	return len(r.attendees[eventID])
 }
 
-func (r *EventRepository) AttendeesMap() map[string][]*user.User {
+func (r *EventRepository) AttendeesMap() map[string][]*profile.Profile {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	result := make(map[string][]*user.User, len(r.attendees))
+	result := make(map[string][]*profile.Profile, len(r.attendees))
 	for k, v := range r.attendees {
-		users := make([]*user.User, len(v))
-		copy(users, v)
-		result[k] = users
+		profiles := make([]*profile.Profile, len(v))
+		copy(profiles, v)
+		result[k] = profiles
 	}
 	return result
 }
@@ -319,34 +319,34 @@ func (r *EventRepository) toListItems(events []*event.Event, limit int, offset i
 	return items
 }
 
-func (r *EventRepository) SignUp(ctx context.Context, eventID string, userID string) error {
+func (r *EventRepository) SignUp(ctx context.Context, eventID string, profileID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.events[eventID]; !ok {
 		return errors.New("event not found")
 	}
-	u, err := r.users.GetByID(ctx, userID)
+	p, err := r.profiles.GetByID(ctx, profileID)
 	if err != nil {
-		return fmt.Errorf("user not found: %w", err)
+		return fmt.Errorf("profile not found: %w", err)
 	}
 	for _, existing := range r.attendees[eventID] {
-		if existing.ID == userID {
+		if existing.ID == profileID {
 			return nil
 		}
 	}
-	r.attendees[eventID] = append(r.attendees[eventID], u)
+	r.attendees[eventID] = append(r.attendees[eventID], p)
 	return nil
 }
 
-func (r *EventRepository) Withdraw(ctx context.Context, eventID string, userID string) error {
+func (r *EventRepository) Withdraw(ctx context.Context, eventID string, profileID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.events[eventID]; !ok {
 		return errors.New("event not found")
 	}
 	attendees := r.attendees[eventID]
-	for i, u := range attendees {
-		if u.ID == userID {
+	for i, p := range attendees {
+		if p.ID == profileID {
 			r.attendees[eventID] = append(attendees[:i], attendees[i+1:]...)
 			return nil
 		}
@@ -354,15 +354,15 @@ func (r *EventRepository) Withdraw(ctx context.Context, eventID string, userID s
 	return nil
 }
 
-func (r *EventRepository) GetAttendees(ctx context.Context, eventID string) ([]*user.User, error) {
+func (r *EventRepository) GetAttendees(ctx context.Context, eventID string) ([]*profile.Profile, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if _, ok := r.events[eventID]; !ok {
 		return nil, errors.New("event not found")
 	}
-	result := make([]*user.User, len(r.attendees[eventID]))
-	for i, u := range r.attendees[eventID] {
-		clone := *u
+	result := make([]*profile.Profile, len(r.attendees[eventID]))
+	for i, p := range r.attendees[eventID] {
+		clone := *p
 		result[i] = &clone
 	}
 	return result, nil
@@ -382,9 +382,11 @@ func NewProfileRepository() *ProfileRepository {
 func (r *ProfileRepository) Create(ctx context.Context, p *profile.Profile) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, existing := range r.profiles {
-		if existing.BSAID == p.BSAID {
-			return fmt.Errorf("profile with BSA ID %q already exists", p.BSAID)
+	if p.BSAID != "" {
+		for _, existing := range r.profiles {
+			if existing.BSAID == p.BSAID {
+				return fmt.Errorf("profile with BSA ID %q already exists", p.BSAID)
+			}
 		}
 	}
 	if p.ID == "" {
@@ -428,6 +430,18 @@ func (r *ProfileRepository) GetByBSAID(ctx context.Context, bsaID string) (*prof
 		}
 	}
 	return nil, errors.New("profile not found")
+}
+
+func (r *ProfileRepository) GetByUserID(ctx context.Context, userID string) (*profile.Profile, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.profiles {
+		if p.UserID != nil && *p.UserID == userID {
+			clone := *p
+			return &clone, nil
+		}
+	}
+	return nil, errors.New("profile not found for user")
 }
 
 func (r *ProfileRepository) ListByStatus(ctx context.Context, status profile.Status) ([]*profile.Profile, error) {

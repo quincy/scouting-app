@@ -15,6 +15,8 @@ import (
 	"scout-app/internal/api"
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/event"
+	"scout-app/internal/domain/parentyouthlink"
+	"scout-app/internal/domain/profile"
 	"scout-app/internal/storage"
 	"scout-app/internal/storage/mock"
 
@@ -64,8 +66,10 @@ func main() {
 
 	// Repositories
 	userRepo := mock.NewUserRepository()
+	profileRepo := mock.NewProfileRepository()
+	parentYouthLinkRepo := mock.NewParentYouthLinkRepository()
 	rbacRepo := mock.NewRBACRepository()
-	eventRepo := mock.NewEventRepository(userRepo)
+	eventRepo := mock.NewEventRepository(profileRepo)
 
 	// Auth
 	hasher := &auth.BCryptHasher{}
@@ -80,6 +84,24 @@ func main() {
 			log.Fatalf("SeedAdminUser failed: %v", err)
 		}
 		log.Println("Seeded admin user: admin@scout.local / password")
+
+		// Create admin profile
+		adminUser, err := userRepo.GetByEmail(ctx, "admin@scout.local")
+		if err != nil {
+			log.Fatalf("GetByEmail admin: %v", err)
+		}
+		adminProfile := &profile.Profile{
+			FirstName:  "Admin",
+			LastName:   "User",
+			Email:      "admin@scout.local",
+			MemberType: profile.MemberTypeAdult,
+			Status:     profile.StatusActive,
+			UserID:     &adminUser.ID,
+		}
+		if err := profileRepo.Create(ctx, adminProfile); err != nil {
+			log.Fatalf("Create admin profile: %v", err)
+		}
+		log.Println("Created admin profile")
 
 		// Seed example events
 		now := time.Now()
@@ -96,14 +118,62 @@ func main() {
 		log.Println("Seeded 3 example events")
 
 		// Sign up admin to the first upcoming event
-		adminUser, err := userRepo.GetByEmail(ctx, "admin@scout.local")
-		if err != nil {
-			log.Fatalf("GetByEmail admin: %v", err)
-		}
-		if err := eventRepo.SignUp(ctx, seedEvents[0].ID, adminUser.ID); err != nil {
+		if err := eventRepo.SignUp(ctx, seedEvents[0].ID, adminProfile.ID); err != nil {
 			log.Fatalf("SignUp admin: %v", err)
 		}
 		log.Println("Signed up admin to Campout at Lake George")
+
+		// Create linked youth profile
+		youthProfile := &profile.Profile{
+			FirstName:  "Alex",
+			LastName:   "Youth",
+			Email:      "alex.youth@scout.local",
+			MemberType: profile.MemberTypeYouth,
+			Status:     profile.StatusActive,
+		}
+		if err := profileRepo.Create(ctx, youthProfile); err != nil {
+			log.Fatalf("Create youth profile: %v", err)
+		}
+		log.Println("Created youth profile: Alex Youth")
+
+		// Link youth to admin
+		link := &parentyouthlink.ParentYouthConnection{
+			ParentProfileID: adminProfile.ID,
+			YouthProfileID:  youthProfile.ID,
+			Status:          parentyouthlink.StatusApproved,
+		}
+		if err := parentYouthLinkRepo.Create(ctx, link); err != nil {
+			log.Fatalf("Create parent-youth link: %v", err)
+		}
+		log.Println("Linked Alex Youth to admin")
+
+		// Sign up youth to the first upcoming event
+		if err := eventRepo.SignUp(ctx, seedEvents[0].ID, youthProfile.ID); err != nil {
+			log.Fatalf("SignUp youth: %v", err)
+		}
+		log.Println("Signed up Alex Youth to Campout at Lake George")
+
+		// Create a second linked youth not yet signed up (to test sign-up flow)
+		youthProfile2 := &profile.Profile{
+			FirstName:  "Bailey",
+			LastName:   "Scout",
+			Email:      "bailey.scout@scout.local",
+			MemberType: profile.MemberTypeYouth,
+			Status:     profile.StatusActive,
+		}
+		if err := profileRepo.Create(ctx, youthProfile2); err != nil {
+			log.Fatalf("Create youth profile 2: %v", err)
+		}
+		link2 := &parentyouthlink.ParentYouthConnection{
+			ParentProfileID: adminProfile.ID,
+			YouthProfileID:  youthProfile2.ID,
+			Status:          parentyouthlink.StatusApproved,
+		}
+		if err := parentYouthLinkRepo.Create(ctx, link2); err != nil {
+			log.Fatalf("Create parent-youth link 2: %v", err)
+		}
+		log.Println("Created and linked Bailey Scout (not signed up)")
+		log.Println("Login as admin@scout.local / password to manage Alex Youth and Bailey Scout via linked profiles")
 	}
 
 	router := mux.NewRouter()
@@ -118,7 +188,7 @@ func main() {
 	router.HandleFunc("/login", authHandler.Login).Methods("POST")
 	router.HandleFunc("/logout", api.RequireAuth(authService, authHandler.Logout)).Methods("POST")
 
-	eventHandler := api.NewEventHandler(eventRepo, authService)
+	eventHandler := api.NewEventHandler(eventRepo, authService, profileRepo, parentYouthLinkRepo)
 	api.SetMuxVars(mux.Vars)
 	router.Handle("/events", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListEvents)).Methods("GET")
 	router.Handle("/events/upcoming", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListUpcoming)).Methods("GET")

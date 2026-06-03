@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"scout-app/internal/domain/event"
-	"scout-app/internal/domain/user"
+	"scout-app/internal/domain/profile"
 )
 
 func futureEvent(id string, title string, daysFromNow int) *event.Event {
@@ -37,21 +37,33 @@ func pastEvent(id string, title string, daysAgo int) *event.Event {
 	}
 }
 
-// newTestEventRepo creates a fresh user repo and event repo for testing.
-func newTestEventRepo() (*UserRepository, *EventRepository) {
-	userRepo := NewUserRepository()
-	return userRepo, NewEventRepository(userRepo)
+func newTestEventRepo() (*ProfileRepository, *EventRepository) {
+	profileRepo := NewProfileRepository()
+	return profileRepo, NewEventRepository(profileRepo)
+}
+
+func createTestProfile(repo *ProfileRepository, firstName, lastName, email string) *profile.Profile {
+	p := &profile.Profile{
+		FirstName:  firstName,
+		LastName:   lastName,
+		Email:      email,
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+	}
+	if err := repo.Create(context.Background(), p); err != nil {
+		panic(err)
+	}
+	return p
 }
 
 func TestEventRepository_ListUpcoming_SortedASC(t *testing.T) {
 	_, repo := newTestEventRepo()
 	ctx := context.Background()
 
-	// Seed events: one past, two future
 	repo.SeedEvents([]*event.Event{
 		pastEvent("p1", "Past Event", 2),
-		futureEvent("f1", "Alpha", 1), // tomorrow
-		futureEvent("f2", "Beta", 3),  // 3 days from now
+		futureEvent("f1", "Alpha", 1),
+		futureEvent("f2", "Beta", 3),
 	})
 
 	results, err := repo.ListUpcoming(ctx, 10, 0)
@@ -68,7 +80,6 @@ func TestEventRepository_ListUpcoming_SortedASC(t *testing.T) {
 			results[0].Title, results[1].Title)
 	}
 
-	// Verify past event is excluded
 	for _, r := range results {
 		if r.ID == "p1" {
 			t.Error("past event should not appear in ListUpcoming")
@@ -80,11 +91,10 @@ func TestEventRepository_ListPast_SortedDESC(t *testing.T) {
 	_, repo := newTestEventRepo()
 	ctx := context.Background()
 
-	// Seed events: two past, one future
 	repo.SeedEvents([]*event.Event{
 		futureEvent("f1", "Future Event", 1),
-		pastEvent("p1", "Zeta", 10), // 10 days ago
-		pastEvent("p2", "Alpha", 5), // 5 days ago (more recent)
+		pastEvent("p1", "Zeta", 10),
+		pastEvent("p2", "Alpha", 5),
 	})
 
 	results, err := repo.ListPast(ctx, 10, 0)
@@ -101,7 +111,6 @@ func TestEventRepository_ListPast_SortedDESC(t *testing.T) {
 			results[0].Title, results[1].Title)
 	}
 
-	// Verify future event is excluded
 	for _, r := range results {
 		if r.ID == "f1" {
 			t.Error("future event should not appear in ListPast")
@@ -113,7 +122,6 @@ func TestEventRepository_ListUpcoming_Pagination(t *testing.T) {
 	_, repo := newTestEventRepo()
 	ctx := context.Background()
 
-	// Seed 5 future events
 	var events []*event.Event
 	for i := 0; i < 5; i++ {
 		events = append(events, futureEvent(fmt.Sprintf("f%d", i), fmt.Sprintf("Event %d", i), i+1))
@@ -122,14 +130,10 @@ func TestEventRepository_ListUpcoming_Pagination(t *testing.T) {
 		return events[i].StartTime.Before(events[j].StartTime)
 	})
 
-	// Manually assign IDs to match expected ordering
 	for i, e := range events {
 		e.ID = fmt.Sprintf("f%d", i)
-		e.Title = fmt.Sprintf("Event %d", i) // Event 0 is tomorrow (ASC first), Event 4 is 5 days out (ASC last)
+		e.Title = fmt.Sprintf("Event %d", i)
 	}
-	// Re-sort by days to make sure they're in the right order
-	// Actually the futureEvent uses daysFromNow, so Event 0 (i=0, daysFromNow=1) is the soonest
-	// That's the correct ASC order: Event 0, Event 1, ..., Event 4
 
 	repo.SeedEvents(events)
 
@@ -184,27 +188,19 @@ func TestEventRepository_ListUpcoming_Pagination(t *testing.T) {
 }
 
 func TestEventRepository_AttendeeCount(t *testing.T) {
-	userRepo, repo := newTestEventRepo()
+	profileRepo, repo := newTestEventRepo()
 	ctx := context.Background()
 
-	// Create users
-	userA := &user.User{Email: "alice@test.com"}
-	userB := &user.User{Email: "bob@test.com"}
-	if err := userRepo.Create(ctx, userA); err != nil {
-		t.Fatalf("Create userA: %v", err)
-	}
-	if err := userRepo.Create(ctx, userB); err != nil {
-		t.Fatalf("Create userB: %v", err)
-	}
+	profileA := createTestProfile(profileRepo, "Alice", "Smith", "alice@test.com")
+	profileB := createTestProfile(profileRepo, "Bob", "Jones", "bob@test.com")
 
 	evt := futureEvent("evt1", "Campout", 1)
 	repo.SeedEvents([]*event.Event{evt})
 
-	// Sign up two users
-	if err := repo.SignUp(ctx, "evt1", userA.ID); err != nil {
+	if err := repo.SignUp(ctx, "evt1", profileA.ID); err != nil {
 		t.Fatalf("SignUp failed: %v", err)
 	}
-	if err := repo.SignUp(ctx, "evt1", userB.ID); err != nil {
+	if err := repo.SignUp(ctx, "evt1", profileB.ID); err != nil {
 		t.Fatalf("SignUp failed: %v", err)
 	}
 
@@ -221,8 +217,7 @@ func TestEventRepository_AttendeeCount(t *testing.T) {
 		t.Errorf("expected AttendeeCount=2, got %d", results[0].AttendeeCount)
 	}
 
-	// Withdraw one user
-	if err := repo.Withdraw(ctx, "evt1", userA.ID); err != nil {
+	if err := repo.Withdraw(ctx, "evt1", profileA.ID); err != nil {
 		t.Fatalf("Withdraw failed: %v", err)
 	}
 
@@ -236,30 +231,21 @@ func TestEventRepository_AttendeeCount(t *testing.T) {
 	}
 }
 
-func TestEventRepository_GetAttendees_WithUserRepo(t *testing.T) {
-	userRepo := NewUserRepository()
-	repo := NewEventRepository(userRepo)
+func TestEventRepository_GetAttendees_WithProfiles(t *testing.T) {
+	profileRepo, repo := newTestEventRepo()
 	ctx := context.Background()
 
-	// Create users
-	userA := &user.User{Email: "alice@test.com"}
-	userB := &user.User{Email: "bob@test.com"}
-	if err := userRepo.Create(ctx, userA); err != nil {
-		t.Fatalf("Create userA: %v", err)
-	}
-	if err := userRepo.Create(ctx, userB); err != nil {
-		t.Fatalf("Create userB: %v", err)
-	}
+	profileA := createTestProfile(profileRepo, "Alice", "Smith", "alice@test.com")
+	profileB := createTestProfile(profileRepo, "Bob", "Jones", "bob@test.com")
 
 	evt := futureEvent("evt1", "Campout", 1)
 	repo.SeedEvents([]*event.Event{evt})
 
-	// Sign up users
-	if err := repo.SignUp(ctx, "evt1", userA.ID); err != nil {
-		t.Fatalf("SignUp userA: %v", err)
+	if err := repo.SignUp(ctx, "evt1", profileA.ID); err != nil {
+		t.Fatalf("SignUp profileA: %v", err)
 	}
-	if err := repo.SignUp(ctx, "evt1", userB.ID); err != nil {
-		t.Fatalf("SignUp userB: %v", err)
+	if err := repo.SignUp(ctx, "evt1", profileB.ID); err != nil {
+		t.Fatalf("SignUp profileB: %v", err)
 	}
 
 	attendees, err := repo.GetAttendees(ctx, "evt1")
@@ -271,22 +257,20 @@ func TestEventRepository_GetAttendees_WithUserRepo(t *testing.T) {
 		t.Fatalf("expected 2 attendees, got %d", len(attendees))
 	}
 
-	// Verify emails match (order may vary)
-	emails := make(map[string]bool)
-	for _, u := range attendees {
-		emails[u.Email] = true
+	names := make(map[string]bool)
+	for _, p := range attendees {
+		names[p.FirstName] = true
 	}
-	if !emails["alice@test.com"] {
-		t.Error("expected alice@test.com in attendees")
+	if !names["Alice"] {
+		t.Error("expected Alice in attendees")
 	}
-	if !emails["bob@test.com"] {
-		t.Error("expected bob@test.com in attendees")
+	if !names["Bob"] {
+		t.Error("expected Bob in attendees")
 	}
 }
 
 func TestEventRepository_GetAttendees_NonExistentEvent(t *testing.T) {
-	userRepo := NewUserRepository()
-	repo := NewEventRepository(userRepo)
+	_, repo := newTestEventRepo()
 	ctx := context.Background()
 
 	_, err := repo.GetAttendees(ctx, "nonexistent")

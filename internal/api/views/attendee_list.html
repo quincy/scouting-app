@@ -1,10 +1,19 @@
 {{define "attendee_list.html"}}
 <span id="attendee-count" hx-swap-oob="true">({{.AttendeeCount}})</span>
-<ul class="attendee-list" id="attendee-list" hx-swap-oob="true">
-    {{range .Attendees}}
-    <li{{if .IsYou}} class="you"{{end}}>
-        {{.Email}}{{if .IsYou}} (you){{end}}
-    </li>
-    {{end}}
-</ul>
+<div class="attendee-group" id="attendee-group-youth" hx-swap-oob="true">
+    <h3 class="attendee-group-label">Youth</h3>
+    <ul class="attendee-list" id="attendee-list-youth">
+        {{range .YouthAttendees}}
+        <li>{{.ProfileName}}</li>
+        {{end}}
+    </ul>
+</div>
+<div class="attendee-group" id="attendee-group-adults" hx-swap-oob="true">
+    <h3 class="attendee-group-label">Adults</h3>
+    <ul class="attendee-list" id="attendee-list-adults">
+        {{range .AdultAttendees}}
+        <li>{{.ProfileName}}</li>
+        {{end}}
+    </ul>
+</div>
 {{end}}

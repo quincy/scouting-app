@@ -20,26 +20,42 @@
 <div id="signup-section">
     {{if .IsPast}}
         <p style="color: #888; font-style: italic; margin-bottom: 16px;">This event has ended.</p>
-    {{else if .IsAttending}}
-        <button class="btn-withdraw" hx-post="/events/{{.Event.ID}}/withdraw" hx-target="#signup-section" hx-swap="outerHTML">
-            Withdraw
-        </button>
     {{else}}
-        <button class="btn-signup" hx-post="/events/{{.Event.ID}}/signup" hx-target="#signup-section" hx-swap="outerHTML">
-            Sign Up
-        </button>
+        {{range .Profiles}}
+        <div class="profile-signup-row" id="profile-{{.ProfileID}}">
+            <span>{{.ProfileName}}</span>
+            {{if .IsAttending}}
+            <button class="btn-withdraw" hx-post="/events/{{$.Event.ID}}/withdraw?profile_id={{.ProfileID}}" hx-target="#signup-section" hx-swap="outerHTML">
+                Withdraw
+            </button>
+            {{else}}
+            <button class="btn-signup" hx-post="/events/{{$.Event.ID}}/signup?profile_id={{.ProfileID}}" hx-target="#signup-section" hx-swap="outerHTML">
+                Sign Up
+            </button>
+            {{end}}
+        </div>
+        {{end}}
     {{end}}
 </div>
 
 <div class="attendee-section">
     <h2>Attendees <span id="attendee-count">({{.AttendeeCount}})</span></h2>
-    <ul class="attendee-list" id="attendee-list">
-        {{range .Attendees}}
-        <li{{if .IsYou}} class="you"{{end}}>
-            {{.Email}}{{if .IsYou}} (you){{end}}
-        </li>
-        {{end}}
-    </ul>
+    <div class="attendee-group" id="attendee-group-youth">
+        <h3 class="attendee-group-label">Youth</h3>
+        <ul class="attendee-list" id="attendee-list-youth">
+            {{range .YouthAttendees}}
+            <li>{{.ProfileName}}</li>
+            {{end}}
+        </ul>
+    </div>
+    <div class="attendee-group" id="attendee-group-adults">
+        <h3 class="attendee-group-label">Adults</h3>
+        <ul class="attendee-list" id="attendee-list-adults">
+            {{range .AdultAttendees}}
+            <li>{{.ProfileName}}</li>
+            {{end}}
+        </ul>
+    </div>
 </div>
 {{template "base_tail" .}}
 {{end}}

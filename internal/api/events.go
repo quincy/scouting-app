@@ -7,25 +7,27 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/event"
-	"scout-app/internal/domain/user"
+	"scout-app/internal/domain/parentyouthlink"
+	"scout-app/internal/domain/profile"
 )
 
 //go:embed views/*.html
 var viewsFS embed.FS
 
-// EventHandler serves the event list page, detail page, and HTMX partials.
 type EventHandler struct {
-	repo event.Repository
-	auth *auth.AuthService
-	tmpl *template.Template
+	repo            event.Repository
+	auth            *auth.AuthService
+	profiles        profile.Repository
+	parentYouthLink parentyouthlink.Repository
+	tmpl            *template.Template
 }
 
-// eventsPageData is the data passed to layout.html for the initial page render.
 type eventsPageData struct {
 	Title              string
 	UpcomingEvents     []*event.ListItem
@@ -40,59 +42,65 @@ type eventsPageData struct {
 	ShowMorePast       bool
 }
 
-// eventDetailData is the data passed to event_detail.html.
-type eventDetailData struct {
-	Title         string
-	Event         *event.Event
-	CostDisplay   string
-	Attendees     []attendeeViewModel
-	AttendeeCount int
-	IsAttending   bool
-	IsPast        bool
-}
-
-// attendeeViewModel represents an attendee in the detail page.
-type attendeeViewModel struct {
-	Email string
-	IsYou bool
-}
-
-// signupButtonData is the data for the signup_button.html partial.
-type signupButtonData struct {
+type profileSignUpVM struct {
+	ProfileID   string
+	ProfileName string
 	IsAttending bool
-	EventID     string
-	IsPast      bool
 }
 
-// attendeeListData is the data for the attendee_list.html partial.
+type eventDetailData struct {
+	Title          string
+	Event          *event.Event
+	CostDisplay    string
+	YouthAttendees []attendeeViewModel
+	YouthCount     int
+	AdultAttendees []attendeeViewModel
+	AdultCount     int
+	AttendeeCount  int
+	Profiles       []profileSignUpVM
+	IsPast         bool
+}
+
+type attendeeViewModel struct {
+	ProfileName string
+}
+
+type signupSectionData struct {
+	EventID  string
+	IsPast   bool
+	Profiles []profileSignUpVM
+}
+
 type attendeeListData struct {
-	Attendees     []attendeeViewModel
-	AttendeeCount int
+	YouthAttendees []attendeeViewModel
+	YouthCount     int
+	AdultAttendees []attendeeViewModel
+	AdultCount     int
+	AttendeeCount  int
 }
 
-// eventListPartialData is the data passed to event_list.html for HTMX partials.
 type eventListPartialData struct {
 	Events     []*event.ListItem
-	Section    string // "upcoming" or "past"
-	Displayed  int    // total displayed so far
-	Total      int    // total events in this section
-	NextOffset int    // offset for next request
-	HasMore    bool   // whether more events are available
+	Section    string
+	Displayed  int
+	Total      int
+	NextOffset int
+	HasMore    bool
 }
 
-// NewEventHandler creates an EventHandler with compiled templates.
-func NewEventHandler(repo event.Repository, auth *auth.AuthService) *EventHandler {
+func NewEventHandler(repo event.Repository, auth *auth.AuthService, profiles profile.Repository, parentYouthLink parentyouthlink.Repository) *EventHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
 	return &EventHandler{
-		repo: repo,
-		auth: auth,
-		tmpl: tmpl,
+		repo:            repo,
+		auth:            auth,
+		profiles:        profiles,
+		parentYouthLink: parentYouthLink,
+		tmpl:            tmpl,
 	}
 }
 
-// ListEvents renders the full event list page with initial upcoming and past events.
 func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -110,7 +118,6 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get total counts for "Showing X of Y"
 	allUpcoming, err := h.repo.ListUpcoming(ctx, 100000, 0)
 	if err != nil {
 		log.Printf("ListUpcoming (all): %v", err)
@@ -148,20 +155,16 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ListUpcoming handles HTMX partial requests for upcoming events.
 func (h *EventHandler) ListUpcoming(w http.ResponseWriter, r *http.Request) {
 	h.renderListPartial(w, r, "upcoming", h.repo.ListUpcoming)
 }
 
-// ListPast handles HTMX partial requests for past events.
 func (h *EventHandler) ListPast(w http.ResponseWriter, r *http.Request) {
 	h.renderListPartial(w, r, "past", h.repo.ListPast)
 }
 
-// listFunc matches the signature of EventRepository's ListUpcoming and ListPast.
 type listFunc func(ctx context.Context, limit int, offset int) ([]*event.ListItem, error)
 
-// renderListPartial renders the HTMX partial for a section of events.
 func (h *EventHandler) renderListPartial(w http.ResponseWriter, r *http.Request, section string, fn listFunc) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 
@@ -173,7 +176,6 @@ func (h *EventHandler) renderListPartial(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Get total count
 	allEvents, err := fn(ctx, 100000, 0)
 	if err != nil {
 		log.Printf("%s (all): %v", section, err)
@@ -201,7 +203,6 @@ func (h *EventHandler) renderListPartial(w http.ResponseWriter, r *http.Request,
 	}
 }
 
-// EventDetail renders the event detail page.
 func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	vars := muxVars(r)
 	eventID := vars["id"]
@@ -225,39 +226,28 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get current user
 	currentUser, err := h.auth.GetAuthenticatedUser(r)
 	if err != nil || currentUser == nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	// Build attendee view models
-	attendeeVMs := make([]attendeeViewModel, len(attendees))
-	isAttending := false
-	for i, u := range attendees {
-		vm := attendeeViewModel{Email: u.Email}
-		if u.ID == currentUser.ID {
-			vm.IsYou = true
-			isAttending = true
-		}
-		attendeeVMs[i] = vm
-	}
-
-	// Check if event is past
 	isPast := event.EndTime.Before(time.Now())
-
-	// Format cost
 	costDisplay := formatCost(event.CostCents)
+	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
+	youthVMs, adultVMs := splitAttendeeVMs(attendees)
 
 	data := eventDetailData{
-		Title:         "Events",
-		Event:         event,
-		CostDisplay:   costDisplay,
-		Attendees:     attendeeVMs,
-		AttendeeCount: len(attendees),
-		IsAttending:   isAttending,
-		IsPast:        isPast,
+		Title:          "Events",
+		Event:          event,
+		CostDisplay:    costDisplay,
+		YouthAttendees: youthVMs,
+		YouthCount:     len(youthVMs),
+		AdultAttendees: adultVMs,
+		AdultCount:     len(adultVMs),
+		AttendeeCount:  len(attendees),
+		Profiles:       profileVMs,
+		IsPast:         isPast,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -266,12 +256,71 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// SignUp handles HTMX sign-up request.
+func (h *EventHandler) buildProfileSignUps(ctx context.Context, currentUserID string, attendees []*profile.Profile) []profileSignUpVM {
+	var youthVMs []profileSignUpVM
+	var adultVMs []profileSignUpVM
+
+	userProfile, err := h.profiles.GetByUserID(ctx, currentUserID)
+	if err == nil {
+		isAttending := false
+		for _, a := range attendees {
+			if a.ID == userProfile.ID {
+				isAttending = true
+				break
+			}
+		}
+		adultVMs = append(adultVMs, profileSignUpVM{
+			ProfileID:   userProfile.ID,
+			ProfileName: userProfile.FirstName + " " + userProfile.LastName,
+			IsAttending: isAttending,
+		})
+	}
+
+	if userProfile != nil {
+		links, err := h.parentYouthLink.ListByParent(ctx, userProfile.ID)
+		if err == nil {
+			for _, link := range links {
+				if link.Status != parentyouthlink.StatusApproved {
+					continue
+				}
+				youthProfile, err := h.profiles.GetByID(ctx, link.YouthProfileID)
+				if err != nil {
+					continue
+				}
+				isAttending := false
+				for _, a := range attendees {
+					if a.ID == youthProfile.ID {
+						isAttending = true
+						break
+					}
+				}
+				youthVMs = append(youthVMs, profileSignUpVM{
+					ProfileID:   youthProfile.ID,
+					ProfileName: youthProfile.FirstName + " " + youthProfile.LastName,
+					IsAttending: isAttending,
+				})
+			}
+		}
+	}
+
+	sort.Slice(youthVMs, func(i, j int) bool {
+		return youthVMs[i].ProfileName < youthVMs[j].ProfileName
+	})
+
+	return append(adultVMs, youthVMs...)
+}
+
 func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	vars := muxVars(r)
 	eventID := vars["id"]
 	if eventID == "" {
 		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	profileID := r.URL.Query().Get("profile_id")
+	if profileID == "" {
+		http.Error(w, "Missing profile_id", http.StatusBadRequest)
 		return
 	}
 
@@ -293,13 +342,17 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.repo.SignUp(ctx, eventID, currentUser.ID); err != nil {
+	if !h.canManageProfile(ctx, currentUser.ID, profileID) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if err := h.repo.SignUp(ctx, eventID, profileID); err != nil {
 		log.Printf("SignUp: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// Re-fetch attendees for updated list
 	attendees, err := h.repo.GetAttendees(ctx, eventID)
 	if err != nil {
 		log.Printf("GetAttendees: %v", err)
@@ -307,35 +360,41 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	attendeeVMs := buildAttendeeVMs(attendees, currentUser)
+	youthVMs, adultVMs := splitAttendeeVMs(attendees)
+	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
 
-	// Render both partials
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	// Signup button (now shows Withdraw)
-	if err := h.tmpl.ExecuteTemplate(w, "signup_button.html", signupButtonData{
-		IsAttending: true,
-		EventID:     eventID,
-		IsPast:      false,
+	if err := h.tmpl.ExecuteTemplate(w, "signup_button.html", signupSectionData{
+		EventID:  eventID,
+		IsPast:   false,
+		Profiles: profileVMs,
 	}); err != nil {
 		log.Printf("template execution (signup_button): %v", err)
 	}
 
-	// Attendee list OOB
 	if err := h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
-		Attendees:     attendeeVMs,
-		AttendeeCount: len(attendees),
+		YouthAttendees: youthVMs,
+		YouthCount:     len(youthVMs),
+		AdultAttendees: adultVMs,
+		AdultCount:     len(adultVMs),
+		AttendeeCount:  len(attendees),
 	}); err != nil {
 		log.Printf("template execution (attendee_list): %v", err)
 	}
 }
 
-// Withdraw handles HTMX withdraw request.
 func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	vars := muxVars(r)
 	eventID := vars["id"]
 	if eventID == "" {
 		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	profileID := r.URL.Query().Get("profile_id")
+	if profileID == "" {
+		http.Error(w, "Missing profile_id", http.StatusBadRequest)
 		return
 	}
 
@@ -357,13 +416,17 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.repo.Withdraw(ctx, eventID, currentUser.ID); err != nil {
+	if !h.canManageProfile(ctx, currentUser.ID, profileID) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if err := h.repo.Withdraw(ctx, eventID, profileID); err != nil {
 		log.Printf("Withdraw: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// Re-fetch attendees for updated list
 	attendees, err := h.repo.GetAttendees(ctx, eventID)
 	if err != nil {
 		log.Printf("GetAttendees: %v", err)
@@ -371,40 +434,58 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	attendeeVMs := buildAttendeeVMs(attendees, currentUser)
+	youthVMs, adultVMs := splitAttendeeVMs(attendees)
+	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
 
-	// Render both partials
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	// Signup button (now shows Sign Up)
-	if err := h.tmpl.ExecuteTemplate(w, "signup_button.html", signupButtonData{
-		IsAttending: false,
-		EventID:     eventID,
-		IsPast:      false,
+	if err := h.tmpl.ExecuteTemplate(w, "signup_button.html", signupSectionData{
+		EventID:  eventID,
+		IsPast:   false,
+		Profiles: profileVMs,
 	}); err != nil {
 		log.Printf("template execution (signup_button): %v", err)
 	}
 
-	// Attendee list OOB
 	if err := h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
-		Attendees:     attendeeVMs,
-		AttendeeCount: len(attendees),
+		YouthAttendees: youthVMs,
+		YouthCount:     len(youthVMs),
+		AdultAttendees: adultVMs,
+		AdultCount:     len(adultVMs),
+		AttendeeCount:  len(attendees),
 	}); err != nil {
 		log.Printf("template execution (attendee_list): %v", err)
 	}
 }
 
-// muxVars is a variable so it can be overridden in tests.
-var muxVars = func(r *http.Request) map[string]string {
-	return map[string]string{} // default noop; production will set it
+func (h *EventHandler) canManageProfile(ctx context.Context, userID string, profileID string) bool {
+	userProfile, err := h.profiles.GetByUserID(ctx, userID)
+	if err != nil {
+		return false
+	}
+	if userProfile.ID == profileID {
+		return true
+	}
+	links, err := h.parentYouthLink.ListByParent(ctx, userProfile.ID)
+	if err != nil {
+		return false
+	}
+	for _, link := range links {
+		if link.YouthProfileID == profileID && link.Status == parentyouthlink.StatusApproved {
+			return true
+		}
+	}
+	return false
 }
 
-// SetMuxVars allows tests to set path variables.
+var muxVars = func(r *http.Request) map[string]string {
+	return map[string]string{}
+}
+
 func SetMuxVars(fn func(r *http.Request) map[string]string) {
 	muxVars = fn
 }
 
-// formatCost converts cents to a dollar string, e.g. 1500 -> "15.00".
 func formatCost(cents int) string {
 	if cents == 0 {
 		return "0.00"
@@ -414,15 +495,22 @@ func formatCost(cents int) string {
 	return fmt.Sprintf("%d.%02d", dollars, remainder)
 }
 
-// buildAttendeeVMs creates attendee view models with the current user marked.
-func buildAttendeeVMs(attendees []*user.User, currentUser *user.User) []attendeeViewModel {
-	vms := make([]attendeeViewModel, len(attendees))
-	for i, u := range attendees {
-		vm := attendeeViewModel{Email: u.Email}
-		if u.ID == currentUser.ID {
-			vm.IsYou = true
+func splitAttendeeVMs(attendees []*profile.Profile) ([]attendeeViewModel, []attendeeViewModel) {
+	var youthVMs []attendeeViewModel
+	var adultVMs []attendeeViewModel
+	for _, p := range attendees {
+		vm := attendeeViewModel{ProfileName: p.FirstName + " " + p.LastName}
+		if p.MemberType == profile.MemberTypeYouth {
+			youthVMs = append(youthVMs, vm)
+		} else {
+			adultVMs = append(adultVMs, vm)
 		}
-		vms[i] = vm
 	}
-	return vms
+	sort.Slice(youthVMs, func(i, j int) bool {
+		return youthVMs[i].ProfileName < youthVMs[j].ProfileName
+	})
+	sort.Slice(adultVMs, func(i, j int) bool {
+		return adultVMs[i].ProfileName < adultVMs[j].ProfileName
+	})
+	return youthVMs, adultVMs
 }

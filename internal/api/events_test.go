@@ -10,7 +10,8 @@ import (
 
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/event"
-	"scout-app/internal/domain/user"
+	"scout-app/internal/domain/parentyouthlink"
+	"scout-app/internal/domain/profile"
 	"scout-app/internal/storage/mock"
 )
 
@@ -40,13 +41,13 @@ func pastEvent(id string, title string, daysAgo int) *event.Event {
 	}
 }
 
-// setupEventTest creates mock repos, auth service, and event handler for testing.
-// Returns (userRepo, eventRepo, authService, handler).
-func setupEventTest(t *testing.T) (*mock.UserRepository, *mock.EventRepository, *auth.AuthService, *EventHandler) {
+func setupEventTest(t *testing.T) (*mock.ProfileRepository, *mock.EventRepository, *mock.ParentYouthLinkRepository, *auth.AuthService, *EventHandler, *profile.Profile) {
 	t.Helper()
 	userRepo := mock.NewUserRepository()
+	profileRepo := mock.NewProfileRepository()
+	parentYouthLinkRepo := mock.NewParentYouthLinkRepository()
 	rbacRepo := mock.NewRBACRepository()
-	eventRepo := mock.NewEventRepository(userRepo)
+	eventRepo := mock.NewEventRepository(profileRepo)
 
 	hasher := &auth.MockHasher{}
 	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, "test-secret-key")
@@ -59,19 +60,33 @@ func setupEventTest(t *testing.T) (*mock.UserRepository, *mock.EventRepository, 
 		t.Fatalf("SeedAdminUser: %v", err)
 	}
 
-	handler := NewEventHandler(eventRepo, authService)
+	adminUser, err := userRepo.GetByEmail(ctx, "admin@scout.local")
+	if err != nil {
+		t.Fatalf("GetByEmail admin: %v", err)
+	}
+	adminProfile := &profile.Profile{
+		FirstName:  "Admin",
+		LastName:   "User",
+		Email:      "admin@scout.local",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+		UserID:     &adminUser.ID,
+	}
+	if err := profileRepo.Create(ctx, adminProfile); err != nil {
+		t.Fatalf("Create admin profile: %v", err)
+	}
+
+	handler := NewEventHandler(eventRepo, authService, profileRepo, parentYouthLinkRepo)
 	SetMuxVars(func(r *http.Request) map[string]string {
 		return map[string]string{"id": r.URL.Query().Get("id")}
 	})
 
-	return userRepo, eventRepo, authService, handler
+	return profileRepo, eventRepo, parentYouthLinkRepo, authService, handler, adminProfile
 }
 
-// loggedInRequest creates a request with a valid session cookie for admin.
 func loggedInRequest(t *testing.T, authService *auth.AuthService, method, path string) *http.Request {
 	t.Helper()
 
-	// Create a login response to capture session
 	authHandler := NewAuthHandler(authService)
 	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
 	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -86,7 +101,7 @@ func loggedInRequest(t *testing.T, authService *auth.AuthService, method, path s
 }
 
 func TestEventHandler_ListUpcomingPartial(t *testing.T) {
-	_, eventRepo, authService, handler := setupEventTest(t)
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
 
 	eventRepo.SeedEvents([]*event.Event{
 		futureEvent("f1", "Alpha", 1),
@@ -104,7 +119,6 @@ func TestEventHandler_ListUpcomingPartial(t *testing.T) {
 
 	body := rr.Body.String()
 
-	// Should contain the event cards
 	if !strings.Contains(body, "Alpha") {
 		t.Errorf("expected partial to contain 'Alpha', got:\n%s", body)
 	}
@@ -112,7 +126,6 @@ func TestEventHandler_ListUpcomingPartial(t *testing.T) {
 		t.Errorf("expected partial to contain 'Beta', got:\n%s", body)
 	}
 
-	// Should contain OOB counter update
 	if !strings.Contains(body, "upcoming-count") {
 		t.Errorf("expected partial to contain OOB counter, got:\n%s", body)
 	}
@@ -124,7 +137,7 @@ func TestEventHandler_ListUpcomingPartial(t *testing.T) {
 }
 
 func TestEventHandler_ListPastPartial(t *testing.T) {
-	_, eventRepo, authService, handler := setupEventTest(t)
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
 
 	eventRepo.SeedEvents([]*event.Event{
 		pastEvent("p1", "Old Meeting", 10),
@@ -156,9 +169,8 @@ func TestEventHandler_ListPastPartial(t *testing.T) {
 }
 
 func TestEventHandler_ListUpcoming_Pagination(t *testing.T) {
-	_, eventRepo, authService, handler := setupEventTest(t)
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
 
-	// Seed 12 upcoming events (first page shows 10)
 	var events []*event.Event
 	for i := 0; i < 12; i++ {
 		events = append(events, futureEvent(
@@ -185,12 +197,10 @@ func TestEventHandler_ListUpcoming_Pagination(t *testing.T) {
 			t.Error("did not expect Event 10 on first page")
 		}
 
-		// Should show "Showing 10 of 12"
 		if !strings.Contains(body, "Showing 10 of 12") {
 			t.Errorf("expected 'Showing 10 of 12', got:\n%s", body)
 		}
 
-		// Should have show-more button
 		if !strings.Contains(body, "show-more-upcoming") {
 			t.Errorf("expected show-more button to be present, got:\n%s", body)
 		}
@@ -209,7 +219,6 @@ func TestEventHandler_ListUpcoming_Pagination(t *testing.T) {
 			t.Errorf("expected Event 11 on second page, got:\n%s", body)
 		}
 
-		// Should show "Showing 12 of 12"
 		if !strings.Contains(body, "Showing 12 of 12") {
 			t.Errorf("expected 'Showing 12 of 12', got:\n%s", body)
 		}
@@ -219,7 +228,7 @@ func TestEventHandler_ListUpcoming_Pagination(t *testing.T) {
 }
 
 func TestEventHandler_ListEvents_Empty(t *testing.T) {
-	_, _, authService, handler := setupEventTest(t)
+	_, _, _, authService, handler, _ := setupEventTest(t)
 
 	req := httptest.NewRequest("GET", "/events", nil)
 	rr := httptest.NewRecorder()
@@ -239,23 +248,26 @@ func TestEventHandler_ListEvents_Empty(t *testing.T) {
 }
 
 func TestEventHandler_ListEvents(t *testing.T) {
-	userRepo, eventRepo, authService, handler := setupEventTest(t)
+	profileRepo, eventRepo, _, authService, handler, _ := setupEventTest(t)
 	ctx := t.Context()
 
-	// Create a real user for sign-up
-	attendee := &user.User{Email: "scout@test.com"}
-	if err := userRepo.Create(ctx, attendee); err != nil {
-		t.Fatalf("Create attendee: %v", err)
+	attendeeProfile := &profile.Profile{
+		FirstName:  "Scout",
+		LastName:   "Test",
+		Email:      "scout@test.com",
+		MemberType: profile.MemberTypeYouth,
+		Status:     profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, attendeeProfile); err != nil {
+		t.Fatalf("Create attendee profile: %v", err)
 	}
 
-	// Seed one future and one past event
 	eventRepo.SeedEvents([]*event.Event{
 		futureEvent("f1", "Future Campout", 2),
 		pastEvent("p1", "Past Meeting", 5),
 	})
 
-	// Sign up the attendee for the future event
-	if err := eventRepo.SignUp(ctx, "f1", attendee.ID); err != nil {
+	if err := eventRepo.SignUp(ctx, "f1", attendeeProfile.ID); err != nil {
 		t.Fatalf("SignUp failed: %v", err)
 	}
 
@@ -270,13 +282,11 @@ func TestEventHandler_ListEvents(t *testing.T) {
 
 	body := rr.Body.String()
 
-	// Check content type is HTML
 	ct := rr.Header().Get("Content-Type")
 	if ct == "" || !strings.HasPrefix(ct, "text/html") {
 		t.Errorf("expected Content-Type text/html, got %q", ct)
 	}
 
-	// Verify page contains expected content
 	if !strings.Contains(body, "Future Campout") {
 		t.Errorf("expected page to contain 'Future Campout', got:\n%s", body)
 	}
@@ -300,7 +310,7 @@ func TestEventHandler_ListEvents(t *testing.T) {
 }
 
 func TestEventHandler_EventDetail_ShowsSignUpButtonWhenNotAttending(t *testing.T) {
-	_, eventRepo, authService, handler := setupEventTest(t)
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
 
 	eventRepo.SeedEvents([]*event.Event{
 		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
@@ -321,20 +331,13 @@ func TestEventHandler_EventDetail_ShowsSignUpButtonWhenNotAttending(t *testing.T
 }
 
 func TestEventHandler_EventDetail_ShowsWithdrawButtonWhenAttending(t *testing.T) {
-	userRepo, eventRepo, authService, handler := setupEventTest(t)
-	ctx := t.Context()
-	_ = ctx
+	_, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
 
 	eventRepo.SeedEvents([]*event.Event{
 		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
 	})
 
-	// Sign up the admin user (who will be logged in)
-	admin, err := userRepo.GetByEmail(ctx, "admin@scout.local")
-	if err != nil {
-		t.Fatalf("GetByEmail: %v", err)
-	}
-	if err := eventRepo.SignUp(ctx, "evt1", admin.ID); err != nil {
+	if err := eventRepo.SignUp(t.Context(), "evt1", adminProfile.ID); err != nil {
 		t.Fatalf("SignUp: %v", err)
 	}
 
@@ -352,32 +355,30 @@ func TestEventHandler_EventDetail_ShowsWithdrawButtonWhenAttending(t *testing.T)
 	}
 }
 
-func TestEventHandler_EventDetail_MarksCurrentUserInAttendeeList(t *testing.T) {
-	userRepo, eventRepo, authService, handler := setupEventTest(t)
+func TestEventHandler_EventDetail_ShowsProfileNameInAttendeeList(t *testing.T) {
+	profileRepo, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
 	eventRepo.SeedEvents([]*event.Event{
 		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
 	})
 
-	// Create another attendee (not the current user)
-	otherUser := &user.User{Email: "other@scout.com"}
-	if err := userRepo.Create(ctx, otherUser); err != nil {
-		t.Fatalf("Create otherUser: %v", err)
+	otherProfile := &profile.Profile{
+		FirstName:  "Other",
+		LastName:   "Scout",
+		Email:      "other@scout.com",
+		MemberType: profile.MemberTypeYouth,
+		Status:     profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, otherProfile); err != nil {
+		t.Fatalf("Create otherProfile: %v", err)
 	}
 
-	// Get admin user who will be logged in
-	admin, err := userRepo.GetByEmail(ctx, "admin@scout.local")
-	if err != nil {
-		t.Fatalf("GetByEmail admin: %v", err)
-	}
-
-	// Sign up both users
-	if err := eventRepo.SignUp(ctx, "evt1", admin.ID); err != nil {
+	if err := eventRepo.SignUp(ctx, "evt1", adminProfile.ID); err != nil {
 		t.Fatalf("SignUp admin: %v", err)
 	}
-	if err := eventRepo.SignUp(ctx, "evt1", otherUser.ID); err != nil {
-		t.Fatalf("SignUp otherUser: %v", err)
+	if err := eventRepo.SignUp(ctx, "evt1", otherProfile.ID); err != nil {
+		t.Fatalf("SignUp other: %v", err)
 	}
 
 	req := loggedInRequest(t, authService, "GET", "/events/evt1?id=evt1")
@@ -387,18 +388,16 @@ func TestEventHandler_EventDetail_MarksCurrentUserInAttendeeList(t *testing.T) {
 
 	body := rr.Body.String()
 
-	// Admin should be marked with (you)
-	if !strings.Contains(body, "admin@scout.local (you)") {
-		t.Errorf("expected admin user to be marked with '(you)', got:\n%s", body)
+	if !strings.Contains(body, "Admin User") {
+		t.Errorf("expected 'Admin User' in attendee list, got:\n%s", body)
 	}
-	// Other user should NOT have (you)
-	if strings.Contains(body, "other@scout.com (you)") {
-		t.Error("other user should not be marked with '(you)'")
+	if !strings.Contains(body, "Other Scout") {
+		t.Errorf("expected 'Other Scout' in attendee list, got:\n%s", body)
 	}
 }
 
 func TestEventHandler_EventDetail_NonExistentEventReturns404(t *testing.T) {
-	_, _, authService, handler := setupEventTest(t)
+	_, _, _, authService, handler, _ := setupEventTest(t)
 
 	req := loggedInRequest(t, authService, "GET", "/events/nonexistent?id=nonexistent")
 	rr := httptest.NewRecorder()
@@ -411,14 +410,14 @@ func TestEventHandler_EventDetail_NonExistentEventReturns404(t *testing.T) {
 }
 
 func TestEventHandler_SignUp_UpdatesButtonAndAttendeeList(t *testing.T) {
-	_, eventRepo, authService, handler := setupEventTest(t)
+	_, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
 	eventRepo.SeedEvents([]*event.Event{
 		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
 	})
 
-	req := loggedInRequest(t, authService, "POST", "/events/evt1/signup?id=evt1")
+	req := loggedInRequest(t, authService, "POST", "/events/evt1/signup?id=evt1&profile_id="+adminProfile.ID)
 	rr := httptest.NewRecorder()
 
 	handler.SignUp(rr, req)
@@ -429,7 +428,6 @@ func TestEventHandler_SignUp_UpdatesButtonAndAttendeeList(t *testing.T) {
 
 	body := rr.Body.String()
 
-	// Response should contain the Withdraw button (since user is now attending)
 	if !strings.Contains(body, "Withdraw") {
 		t.Errorf("expected 'Withdraw' button after signup, got:\n%s", body)
 	}
@@ -437,15 +435,10 @@ func TestEventHandler_SignUp_UpdatesButtonAndAttendeeList(t *testing.T) {
 		t.Error("expected no 'Sign Up' button after signup")
 	}
 
-	// Should contain OOB attendee count and list
 	if !strings.Contains(body, "attendee-count") {
 		t.Errorf("expected attendee-count OOB element, got:\n%s", body)
 	}
-	if !strings.Contains(body, "admin@scout.local (you)") {
-		t.Errorf("expected admin in attendee list with '(you)', got:\n%s", body)
-	}
 
-	// Verify the database was updated
 	attendees, err := eventRepo.GetAttendees(ctx, "evt1")
 	if err != nil {
 		t.Fatalf("GetAttendees: %v", err)
@@ -456,23 +449,18 @@ func TestEventHandler_SignUp_UpdatesButtonAndAttendeeList(t *testing.T) {
 }
 
 func TestEventHandler_Withdraw_UpdatesButtonAndAttendeeList(t *testing.T) {
-	userRepo, eventRepo, authService, handler := setupEventTest(t)
+	_, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
 	eventRepo.SeedEvents([]*event.Event{
 		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
 	})
 
-	// Sign up admin first
-	admin, err := userRepo.GetByEmail(ctx, "admin@scout.local")
-	if err != nil {
-		t.Fatalf("GetByEmail: %v", err)
-	}
-	if err := eventRepo.SignUp(ctx, "evt1", admin.ID); err != nil {
+	if err := eventRepo.SignUp(ctx, "evt1", adminProfile.ID); err != nil {
 		t.Fatalf("SignUp: %v", err)
 	}
 
-	req := loggedInRequest(t, authService, "POST", "/events/evt1/withdraw?id=evt1")
+	req := loggedInRequest(t, authService, "POST", "/events/evt1/withdraw?id=evt1&profile_id="+adminProfile.ID)
 	rr := httptest.NewRecorder()
 
 	handler.Withdraw(rr, req)
@@ -483,7 +471,6 @@ func TestEventHandler_Withdraw_UpdatesButtonAndAttendeeList(t *testing.T) {
 
 	body := rr.Body.String()
 
-	// Response should contain the Sign Up button (since user is no longer attending)
 	if !strings.Contains(body, "Sign Up") {
 		t.Errorf("expected 'Sign Up' button after withdraw, got:\n%s", body)
 	}
@@ -491,12 +478,10 @@ func TestEventHandler_Withdraw_UpdatesButtonAndAttendeeList(t *testing.T) {
 		t.Error("expected no 'Withdraw' button after withdraw")
 	}
 
-	// Should contain OOB attendee count
 	if !strings.Contains(body, "attendee-count") {
 		t.Errorf("expected attendee-count OOB element, got:\n%s", body)
 	}
 
-	// Verify the database was updated
 	attendees, err := eventRepo.GetAttendees(ctx, "evt1")
 	if err != nil {
 		t.Fatalf("GetAttendees: %v", err)
@@ -507,9 +492,8 @@ func TestEventHandler_Withdraw_UpdatesButtonAndAttendeeList(t *testing.T) {
 }
 
 func TestEventHandler_EventDetail_RendersEventInfo(t *testing.T) {
-	_, eventRepo, authService, handler := setupEventTest(t)
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
 
-	// Seed an event
 	eventRepo.SeedEvents([]*event.Event{
 		{
 			ID:          "evt1",
@@ -535,7 +519,6 @@ func TestEventHandler_EventDetail_RendersEventInfo(t *testing.T) {
 
 	body := rr.Body.String()
 
-	// Check event info is rendered
 	if !strings.Contains(body, "Campout at Lake George") {
 		t.Errorf("expected title in response, got:\n%s", body)
 	}
@@ -559,7 +542,7 @@ func TestEventHandler_EventDetail_RendersEventInfo(t *testing.T) {
 }
 
 func TestEventHandler_EventDetail_PastEvent_ShowsEndedMessage(t *testing.T) {
-	_, eventRepo, authService, handler := setupEventTest(t)
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
 
 	eventRepo.SeedEvents([]*event.Event{
 		{
@@ -596,7 +579,7 @@ func TestEventHandler_EventDetail_PastEvent_ShowsEndedMessage(t *testing.T) {
 }
 
 func TestEventHandler_SignUp_PastEvent_ReturnsError(t *testing.T) {
-	userRepo, eventRepo, authService, handler := setupEventTest(t)
+	_, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
 
 	eventRepo.SeedEvents([]*event.Event{
 		{
@@ -610,7 +593,7 @@ func TestEventHandler_SignUp_PastEvent_ReturnsError(t *testing.T) {
 		},
 	})
 
-	req := loggedInRequest(t, authService, "POST", "/events/past-evt/signup?id=past-evt")
+	req := loggedInRequest(t, authService, "POST", "/events/past-evt/signup?id=past-evt&profile_id="+adminProfile.ID)
 	rr := httptest.NewRecorder()
 
 	handler.SignUp(rr, req)
@@ -619,7 +602,6 @@ func TestEventHandler_SignUp_PastEvent_ReturnsError(t *testing.T) {
 		t.Errorf("SignUp returned status %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 
-	// Verify no one was signed up
 	attendees, err := eventRepo.GetAttendees(t.Context(), "past-evt")
 	if err != nil {
 		t.Fatalf("GetAttendees: %v", err)
@@ -627,12 +609,10 @@ func TestEventHandler_SignUp_PastEvent_ReturnsError(t *testing.T) {
 	if len(attendees) != 0 {
 		t.Errorf("expected 0 attendees for past event, got %d", len(attendees))
 	}
-
-	_ = userRepo
 }
 
 func TestEventHandler_Withdraw_PastEvent_ReturnsError(t *testing.T) {
-	userRepo, eventRepo, authService, handler := setupEventTest(t)
+	_, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
 	eventRepo.SeedEvents([]*event.Event{
@@ -647,16 +627,11 @@ func TestEventHandler_Withdraw_PastEvent_ReturnsError(t *testing.T) {
 		},
 	})
 
-	// Sign up admin first
-	admin, err := userRepo.GetByEmail(ctx, "admin@scout.local")
-	if err != nil {
-		t.Fatalf("GetByEmail: %v", err)
-	}
-	if err := eventRepo.SignUp(ctx, "past-evt", admin.ID); err != nil {
+	if err := eventRepo.SignUp(ctx, "past-evt", adminProfile.ID); err != nil {
 		t.Fatalf("SignUp: %v", err)
 	}
 
-	req := loggedInRequest(t, authService, "POST", "/events/past-evt/withdraw?id=past-evt")
+	req := loggedInRequest(t, authService, "POST", "/events/past-evt/withdraw?id=past-evt&profile_id="+adminProfile.ID)
 	rr := httptest.NewRecorder()
 
 	handler.Withdraw(rr, req)
@@ -665,12 +640,100 @@ func TestEventHandler_Withdraw_PastEvent_ReturnsError(t *testing.T) {
 		t.Errorf("Withdraw returned status %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 
-	// Verify user is still signed up
 	attendees, err := eventRepo.GetAttendees(ctx, "past-evt")
 	if err != nil {
 		t.Fatalf("GetAttendees: %v", err)
 	}
 	if len(attendees) != 1 {
 		t.Errorf("expected 1 attendee (still signed up), got %d", len(attendees))
+	}
+}
+
+func TestEventHandler_EventDetail_ShowsLinkedYouthProfiles(t *testing.T) {
+	profileRepo, eventRepo, parentYouthLinkRepo, authService, handler, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	eventRepo.SeedEvents([]*event.Event{
+		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
+	})
+
+	youthProfile := &profile.Profile{
+		FirstName:  "Test",
+		LastName:   "Youth",
+		Email:      "test.youth@scout.local",
+		MemberType: profile.MemberTypeYouth,
+		Status:     profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, youthProfile); err != nil {
+		t.Fatalf("Create youth profile: %v", err)
+	}
+
+	link := &parentyouthlink.ParentYouthConnection{
+		ParentProfileID: adminProfile.ID,
+		YouthProfileID:  youthProfile.ID,
+		Status:          parentyouthlink.StatusApproved,
+	}
+	if err := parentYouthLinkRepo.Create(ctx, link); err != nil {
+		t.Fatalf("Create link: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "GET", "/events/evt1?id=evt1")
+	rr := httptest.NewRecorder()
+
+	handler.EventDetail(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("EventDetail returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+
+	// Should show admin profile name
+	if !strings.Contains(body, "Admin User") {
+		t.Errorf("expected 'Admin User' in profile list, got:\n%s", body)
+	}
+
+	// Should show linked youth profile name
+	if !strings.Contains(body, "Test Youth") {
+		t.Errorf("expected 'Test Youth' in profile list, got:\n%s", body)
+	}
+
+	// Youth should have a Sign Up button (not signed up yet)
+	if !strings.Contains(body, "Sign Up") {
+		t.Errorf("expected 'Sign Up' button for youth, got:\n%s", body)
+	}
+}
+
+func TestEventHandler_SignUp_MissingProfileID_ReturnsError(t *testing.T) {
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+
+	eventRepo.SeedEvents([]*event.Event{
+		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
+	})
+
+	req := loggedInRequest(t, authService, "POST", "/events/evt1/signup?id=evt1")
+	rr := httptest.NewRecorder()
+
+	handler.SignUp(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing profile_id, got %d", rr.Code)
+	}
+}
+
+func TestEventHandler_Withdraw_MissingProfileID_ReturnsError(t *testing.T) {
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+
+	eventRepo.SeedEvents([]*event.Event{
+		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
+	})
+
+	req := loggedInRequest(t, authService, "POST", "/events/evt1/withdraw?id=evt1")
+	rr := httptest.NewRecorder()
+
+	handler.Withdraw(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing profile_id, got %d", rr.Code)
 	}
 }

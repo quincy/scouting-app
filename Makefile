@@ -23,9 +23,9 @@ clean:
 	go clean
 	rm -f scout-app
 
-ci: check test build
+ci: clean check test build
 
-run:
+run: build
 	USE_MOCK_STORAGE=true ./scout-app
 
 .PHONY: build test vet lint check clean ci run
