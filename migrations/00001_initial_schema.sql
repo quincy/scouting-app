@@ -1,5 +1,4 @@
 -- +goose Up
--- +goose StatementBegin
 
 CREATE TABLE users (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -76,11 +75,11 @@ CREATE TABLE event_attendees (
 );
 
 CREATE TABLE event_attendee_responsibilities (
-    event_id      UUID NOT NULL,
-    user_id       UUID NOT NULL,
+    event_id       UUID NOT NULL,
+    user_id        UUID NOT NULL,
     responsibility TEXT NOT NULL,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (event_id, user_id, responsibility),
     FOREIGN KEY (event_id, user_id) REFERENCES event_attendees(event_id, user_id) ON DELETE CASCADE,
     CONSTRAINT chk_responsibility CHECK (responsibility IN ('driver', 'cook'))
@@ -103,10 +102,7 @@ INSERT INTO permissions (name) VALUES
     ('event:withdraw')
 ON CONFLICT (name) DO NOTHING;
 
--- +goose StatementEnd
-
 -- +goose Down
--- +goose StatementBegin
 
 DROP TABLE IF EXISTS event_attendee_responsibilities;
 DROP TABLE IF EXISTS event_attendees;
@@ -116,5 +112,3 @@ DROP TABLE IF EXISTS user_roles;
 DROP TABLE IF EXISTS permissions;
 DROP TABLE IF EXISTS roles;
 DROP TABLE IF EXISTS users;
-
--- +goose StatementEnd

@@ -13,6 +13,7 @@ type Config struct {
 	UseMockStorage      bool
 	DatabaseURL         string
 	AutoMigrate         bool
+	SeedDevData         bool
 	SessionSecret       string
 	ScoutbookAPIBaseURL string
 	ScoutbookOrgGUID    string
@@ -43,6 +44,7 @@ func ConfigFromEnv() (*Config, error) {
 		UseMockStorage:      getEnv("USE_MOCK_STORAGE", "") == "true",
 		DatabaseURL:         getEnv("DATABASE_URL", ""),
 		AutoMigrate:         getEnv("AUTO_MIGRATE", "") == "true",
+		SeedDevData:         getEnv("SEED_DEV_DATA", "") == "true",
 		SessionSecret:       getEnv("SESSION_SECRET", ""),
 		ScoutbookAPIBaseURL: getEnv("SCOUTBOOK_API_BASE_URL", "https://api.scouting.org"),
 		ScoutbookOrgGUID:    getEnv("SCOUTBOOK_ORG_GUID", ""),

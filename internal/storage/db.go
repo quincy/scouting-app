@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -27,6 +28,9 @@ func RunMigrations(db *sql.DB, migrationsFS embed.FS, dir string) error {
 		return fmt.Errorf("set dialect: %w", err)
 	}
 	if err := goose.Up(db, dir); err != nil {
+		if errors.Is(err, goose.ErrNoNextVersion) {
+			return nil
+		}
 		return fmt.Errorf("goose up: %w", err)
 	}
 	return nil

@@ -1,5 +1,4 @@
 -- +goose Up
--- +goose StatementBegin
 
 CREATE TABLE profiles (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -65,66 +64,7 @@ DROP INDEX IF EXISTS idx_users_email;
 
 ALTER TABLE users DROP COLUMN email;
 
-ALTER TABLE event_attendees ADD COLUMN profile_id UUID;
-
-UPDATE event_attendees ea
-SET profile_id = p.id
-FROM profiles p
-WHERE p.user_id = ea.user_id;
-
-ALTER TABLE event_attendees ALTER COLUMN profile_id SET NOT NULL;
-
-ALTER TABLE event_attendees ADD CONSTRAINT fk_event_attendees_profile FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE;
-
-ALTER TABLE event_attendee_responsibilities DROP CONSTRAINT IF EXISTS event_attendee_responsibilities_event_id_fkey;
-
-ALTER TABLE event_attendees DROP CONSTRAINT event_attendees_pkey;
-ALTER TABLE event_attendees DROP COLUMN user_id;
-ALTER TABLE event_attendees ADD PRIMARY KEY (event_id, profile_id);
-
-ALTER TABLE event_attendee_responsibilities ADD COLUMN profile_id UUID;
-
-UPDATE event_attendee_responsibilities ear
-SET profile_id = p.id
-FROM profiles p
-WHERE p.user_id = ear.user_id;
-
-ALTER TABLE event_attendee_responsibilities ALTER COLUMN profile_id SET NOT NULL;
-
-ALTER TABLE event_attendee_responsibilities DROP CONSTRAINT event_attendee_responsibilities_pkey;
-ALTER TABLE event_attendee_responsibilities DROP COLUMN user_id;
-ALTER TABLE event_attendee_responsibilities ADD PRIMARY KEY (event_id, profile_id, responsibility);
-ALTER TABLE event_attendee_responsibilities ADD FOREIGN KEY (event_id, profile_id) REFERENCES event_attendees(event_id, profile_id) ON DELETE CASCADE;
-
--- +goose StatementEnd
-
 -- +goose Down
--- +goose StatementBegin
-
-ALTER TABLE event_attendee_responsibilities DROP CONSTRAINT IF EXISTS event_attendee_responsibilities_event_id_fkey;
-ALTER TABLE event_attendee_responsibilities DROP CONSTRAINT event_attendee_responsibilities_pkey;
-
-ALTER TABLE event_attendee_responsibilities ADD COLUMN user_id UUID;
-UPDATE event_attendee_responsibilities ear
-SET user_id = p.user_id
-FROM profiles p
-WHERE p.id = ear.profile_id;
-ALTER TABLE event_attendee_responsibilities ALTER COLUMN user_id SET NOT NULL;
-ALTER TABLE event_attendee_responsibilities DROP COLUMN profile_id;
-ALTER TABLE event_attendee_responsibilities ADD PRIMARY KEY (event_id, user_id, responsibility);
-ALTER TABLE event_attendee_responsibilities ADD FOREIGN KEY (event_id, user_id) REFERENCES event_attendees(event_id, user_id) ON DELETE CASCADE;
-
-ALTER TABLE event_attendees DROP CONSTRAINT fk_event_attendees_profile;
-ALTER TABLE event_attendees DROP CONSTRAINT event_attendees_pkey;
-
-ALTER TABLE event_attendees ADD COLUMN user_id UUID;
-UPDATE event_attendees ea
-SET user_id = p.user_id
-FROM profiles p
-WHERE p.id = ea.profile_id;
-ALTER TABLE event_attendees ALTER COLUMN user_id SET NOT NULL;
-ALTER TABLE event_attendees DROP COLUMN profile_id;
-ALTER TABLE event_attendees ADD PRIMARY KEY (event_id, user_id);
 
 ALTER TABLE users ADD COLUMN email TEXT;
 UPDATE users u
@@ -138,5 +78,3 @@ DROP TABLE IF EXISTS scoutbook_sessions;
 DROP TABLE IF EXISTS parent_youth_links;
 DROP TABLE IF EXISTS otp_codes;
 DROP TABLE IF EXISTS profiles;
-
--- +goose StatementEnd

@@ -1,0 +1,16 @@
+services:
+  cockroachdb:
+    image: cockroachdb/cockroach:latest
+    command: start-single-node --insecure --advertise-addr=localhost
+    ports:
+      - "26257:26257"
+    volumes:
+      - cockroach-data:/cockroach/cockroach-data
+    healthcheck:
+      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+volumes:
+  cockroach-data:

@@ -25,7 +25,27 @@ clean:
 
 ci: clean check test build
 
-run: build
+devloop-up:
+	@echo "Starting dev services..."
+	@docker compose up -d cockroachdb
+	@echo "Waiting for database to be ready..."
+	@until docker compose exec -T cockroachdb cockroach sql --insecure -e "SELECT 1" 2>/dev/null; do \
+		sleep 1; \
+	done
+	@docker compose exec -T cockroachdb cockroach sql --insecure -e "CREATE DATABASE IF NOT EXISTS scoutapp"
+	@echo "Dev services ready."
+
+devloop-down:
+	@echo "Stopping dev services..."
+	@docker compose down
+	@echo "Dev services stopped."
+
+devloop-reset:
+	@echo "Resetting dev database..."
+	@docker compose down -v
+	@echo "Data volumes removed. Run 'make devloop-up' to start fresh."
+
+run: build devloop-up
 	./scout-app --env=local.env
 
-.PHONY: build test vet lint check clean ci run
+.PHONY: build test fmt vet lint check clean ci devloop-up devloop-down devloop-reset run
