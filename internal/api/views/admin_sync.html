@@ -1,0 +1,109 @@
+{{define "admin_sync.html"}}
+{{template "base_head" .}}
+{{template "admin_sync_content" .}}
+{{template "base_tail" .}}
+{{end}}
+
+{{define "admin_sync_content"}}
+<div class="admin-card" id="sync-content">
+    <div class="back-link">
+        <a href="/events">&larr; Back to events</a>
+    </div>
+    <h2>Scoutbook Sync</h2>
+    <p style="color:#555;margin-bottom:16px;font-size:0.9rem;">
+        Paste your <code>LOGIN_DATA</code> JSON from <code>advancements.scouting.org</code> localStorage to configure the Scoutbook API token, then sync to import troop members.
+    </p>
+
+    {{if .Error}}
+    <div class="error">{{.Error}}</div>
+    {{end}}
+
+    {{if .HasToken}}
+    <div class="token-status">
+        <span class="badge badge-success">Token configured</span>
+        <span style="font-size:0.85rem;color:#555;margin-left:8px;">
+            Person GUID: {{.PersonGUID}}
+        </span>
+    </div>
+    {{end}}
+
+    {{if not .OrgGUID}}
+    <div class="warning">
+        Organization GUID not configured. Set <code>SCOUTBOOK_ORG_GUID</code> environment variable and restart the app.
+    </div>
+    {{else}}
+    <div style="font-size:0.85rem;color:#555;margin:8px 0;">
+        Org GUID: {{.OrgGUID}}
+    </div>
+    {{end}}
+
+    {{if .HasToken}}
+
+    <div style="margin-top:20px;">
+        <button class="btn-sync" id="sync-btn"
+                hx-post="/admin/sync"
+                hx-target="#sync-content"
+                hx-swap="outerHTML"
+                hx-indicator="#sync-spinner">
+            {{if .Result}}Sync Again{{else}}Start Sync{{end}}
+        </button>
+        <span id="sync-spinner" class="htmx-indicator" style="margin-left:8px;">Syncing...</span>
+    </div>
+
+    {{if .Result}}
+    <div class="sync-result">
+        <h3>Sync Results</h3>
+        <div class="result-grid">
+            <div class="result-item result-created">
+                <span class="result-count">{{.Result.Created}}</span>
+                <span class="result-label">Created</span>
+            </div>
+            <div class="result-item result-updated">
+                <span class="result-count">{{.Result.Updated}}</span>
+                <span class="result-label">Updated</span>
+            </div>
+            <div class="result-item result-deactivated">
+                <span class="result-count">{{.Result.Deactivated}}</span>
+                <span class="result-label">Deactivated</span>
+            </div>
+        </div>
+    </div>
+    {{end}}
+
+    {{else}}
+    <form class="token-form" hx-post="/admin/sync/token" hx-target="#sync-content" hx-swap="outerHTML">
+        <label for="login_data">LOGIN_DATA JSON</label>
+        <textarea id="login_data" name="login_data" rows="6" placeholder='{"token":"eyJ...","personGuid":"abc-123"}'></textarea>
+        <button type="submit" class="btn-save-token">Save Token</button>
+    </form>
+    {{end}}
+</div>
+
+<style>
+    .admin-card { background:#fff; border:1px solid #e0e0e0; border-radius:8px; padding:24px; margin-bottom:24px; }
+    .admin-card h2 { font-size:1.25rem; margin-bottom:16px; color:#16213e; border-bottom:2px solid #e0e0e0; padding-bottom:8px; }
+    .token-status { background:#e8f5e9; border:1px solid #c8e6c9; border-radius:6px; padding:12px 16px; }
+    .badge-success { background:#2e7d32; color:#fff; font-size:0.75rem; font-weight:600; padding:2px 8px; border-radius:12px; text-transform:uppercase; letter-spacing:0.5px; }
+    .btn-sync { background:#1565c0; color:#fff; border:none; border-radius:6px; padding:10px 24px; font-size:1rem; cursor:pointer; }
+    .btn-sync:hover { background:#0d47a1; }
+    .btn-save-token { background:#2e7d32; color:#fff; border:none; border-radius:6px; padding:10px 24px; font-size:1rem; cursor:pointer; margin-top:8px; }
+    .btn-save-token:hover { background:#1b5e20; }
+    .sync-result { margin-top:20px; background:#f5f5f5; border:1px solid #e0e0e0; border-radius:8px; padding:16px; }
+    .sync-result h3 { font-size:1rem; margin-bottom:12px; color:#333; }
+    .result-grid { display:flex; gap:12px; }
+    .result-item { flex:1; text-align:center; padding:16px; border-radius:8px; }
+    .result-count { display:block; font-size:1.75rem; font-weight:700; }
+    .result-label { display:block; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.5px; margin-top:4px; }
+    .result-created { background:#e8f5e9; color:#2e7d32; }
+    .result-updated { background:#e3f2fd; color:#1565c0; }
+    .result-deactivated { background:#fff3e0; color:#e65100; }
+    .error { background:#ffebee; color:#c62828; border:1px solid #ef9a9a; border-radius:6px; padding:10px 14px; margin-bottom:16px; font-size:0.875rem; }
+    .warning { background:#fff8e1; color:#e65100; border:1px solid #ffe082; border-radius:6px; padding:10px 14px; margin-bottom:16px; font-size:0.875rem; }
+    .token-form label { display:block; font-size:0.875rem; font-weight:600; color:#555; margin-bottom:4px; }
+    .token-form textarea { width:100%; padding:10px 12px; border:1px solid #ccc; border-radius:6px; font-size:0.9rem; font-family:monospace; resize:vertical; }
+    .token-form textarea:focus { outline:none; border-color:#1565c0; box-shadow:0 0 0 2px rgba(21,101,192,0.15); }
+    .htmx-indicator { opacity:0; transition:opacity 200ms; }
+    .htmx-request .htmx-indicator { opacity:1; }
+    .htmx-request.htmx-indicator { opacity:1; }
+</style>
+{{end}}

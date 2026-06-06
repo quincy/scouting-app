@@ -5,10 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"strings"
 )
-
-const defaultBaseURL = "https://advancements.scouting.org"
 
 type Client struct {
 	baseURL string
@@ -18,9 +19,6 @@ type Client struct {
 }
 
 func NewClient(baseURL, token, orgGUID string) *Client {
-	if baseURL == "" {
-		baseURL = defaultBaseURL
-	}
 	return &Client{
 		baseURL: baseURL,
 		token:   token,
@@ -55,6 +53,7 @@ func (c *Client) FetchRoster(ctx context.Context, memberType MemberType) ([]Rost
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -63,15 +62,31 @@ func (c *Client) FetchRoster(ctx context.Context, memberType MemberType) ([]Rost
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("unexpected status: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
 	}
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	log.Printf("[sync] FetchRoster %s response (%d bytes): %s", memberType, len(bodyBytes), string(bodyBytes))
+
 	var roster rosterResponse
-	if err := json.NewDecoder(resp.Body).Decode(&roster); err != nil {
+	if err := json.Unmarshal(bodyBytes, &roster); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
+	for _, m := range roster.Data {
+		log.Printf("[sync]   roster member: memberId=%s name=%s %s personGuid=%s", m.MemberID, m.FirstName, m.LastName, m.PersonGUID)
+	}
+
 	return roster.Data, nil
+}
+
+func (c *Client) OrgGUID() string {
+	return c.orgGUID
+}
+
+func (c *Client) SetToken(token string) {
+	c.token = token
 }
 
 func (c *Client) FetchProfile(ctx context.Context, personGUID string) (*PersonProfile, error) {
@@ -82,6 +97,7 @@ func (c *Client) FetchProfile(ctx context.Context, personGUID string) (*PersonPr
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -93,11 +109,15 @@ func (c *Client) FetchProfile(ctx context.Context, personGUID string) (*PersonPr
 		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("unexpected status: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
 	}
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	log.Printf("[sync] FetchProfile %s response (%d bytes): %s", personGUID, len(bodyBytes), string(bodyBytes))
+
 	var profile PersonProfile
-	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
+	if err := json.Unmarshal(bodyBytes, &profile); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 

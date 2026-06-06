@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"scout-app/internal/api"
+	"scout-app/internal/config"
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/event"
 	"scout-app/internal/domain/parentyouthlink"
@@ -29,17 +30,18 @@ import (
 var migrations embed.FS
 
 func main() {
-	useMock := os.Getenv("USE_MOCK_STORAGE") == "true"
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 
 	var db *sql.DB
-	var err error
-	if !useMock {
-		databaseURL := os.Getenv("DATABASE_URL")
-		if databaseURL == "" {
+	if !cfg.UseMockStorage {
+		if cfg.DatabaseURL == "" {
 			log.Fatal("DATABASE_URL environment variable is required")
 		}
 
-		db, err = storage.OpenDB(databaseURL)
+		db, err = storage.OpenDB(cfg.DatabaseURL)
 		if err != nil {
 			log.Fatalf("Failed to connect to database: %v", err)
 		}
@@ -49,21 +51,13 @@ func main() {
 			}
 		}()
 
-		if os.Getenv("AUTO_MIGRATE") == "true" {
+		if cfg.AutoMigrate {
 			log.Println("Running database migrations...")
 			if err := storage.RunMigrations(db, migrations, "migrations"); err != nil {
 				log.Fatalf("Migration failed: %v", err)
 			}
 			log.Println("Migrations complete")
 		}
-	}
-
-	sessionSecret := os.Getenv("SESSION_SECRET")
-	if useMock && sessionSecret == "" {
-		sessionSecret = "dev-secret-key"
-	}
-	if sessionSecret == "" {
-		log.Fatal("SESSION_SECRET environment variable is required")
 	}
 
 	// Repositories
@@ -75,9 +69,9 @@ func main() {
 
 	// Auth
 	hasher := &auth.BCryptHasher{}
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, sessionSecret)
+	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, cfg.SessionSecret)
 
-	if useMock {
+	if cfg.UseMockStorage {
 		ctx := context.Background()
 		if err := rbacRepo.SeedRoles(ctx); err != nil {
 			log.Fatalf("SeedRoles failed: %v", err)
@@ -179,20 +173,17 @@ func main() {
 	}
 
 	// Scoutbook sync
-	scoutbookOrgGUID := os.Getenv("SCOUTBOOK_ORG_GUID")
-	var syncHandler *api.SyncHandler
-	if scoutbookOrgGUID != "" {
-		scoutbookToken := os.Getenv("SCOUTBOOK_TOKEN")
-		scoutbookClient := scoutbook.NewClient("", scoutbookToken, scoutbookOrgGUID)
-		syncSvc := sync.NewService(profileRepo, sync.NewScoutbookClientAdapter(scoutbookClient))
-		syncHandler = api.NewSyncHandler(syncSvc)
-		log.Println("Scoutbook sync service configured")
+	scoutbookClient := scoutbook.NewClient(cfg.ScoutbookAPIBaseURL, cfg.ScoutbookToken, cfg.ScoutbookOrgGUID)
+	syncSvc := sync.NewService(profileRepo, sync.NewScoutbookClientAdapter(scoutbookClient))
+	syncHandler := api.NewSyncHandler(syncSvc, scoutbookClient)
+	if cfg.ScoutbookOrgGUID == "" {
+		log.Fatal("SCOUTBOOK_ORG_GUID must be set")
 	}
 
 	router := mux.NewRouter()
 	router.HandleFunc("/healthcheck", api.HealthCheckHandler).Methods("GET")
 
-	if !useMock {
+	if !cfg.UseMockStorage {
 		router.HandleFunc("/deepcheck", api.DeepCheckHandler(db)).Methods("GET")
 	}
 
@@ -210,12 +201,12 @@ func main() {
 	router.Handle("/events/{id}/signup", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.SignUp)).Methods("POST")
 	router.Handle("/events/{id}/withdraw", api.RequirePermission(authService, rbacRepo, "event:withdraw", eventHandler.Withdraw)).Methods("POST")
 
-	if syncHandler != nil {
-		router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")
-	}
+	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.AdminPage)).Methods("GET")
+	router.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.StoreToken)).Methods("POST")
+	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")
 
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    cfg.Addr,
 		Handler: router,
 	}
 

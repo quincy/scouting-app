@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"log"
 	stdSync "sync"
 	"time"
 
@@ -28,15 +29,31 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch adults: %w", err)
 	}
+	log.Printf("[sync] Fetched %d adults", len(adults))
 
 	youths, err := s.client.FetchRoster(ctx, EndpointYouths)
 	if err != nil {
 		return nil, fmt.Errorf("fetch youths: %w", err)
 	}
+	log.Printf("[sync] Fetched %d youths", len(youths))
 
 	members := deduplicate(adults, youths)
+	log.Printf("[sync] After dedup: %d unique members", len(members))
+	for _, m := range members {
+		log.Printf("[sync]   deduped: memberId=%s name=%s %s personGuid=%s",
+			m.MemberID, m.FirstName, m.LastName, m.PersonGUID)
+	}
 
 	profilesByGUID := s.fetchAllProfiles(ctx, members)
+	log.Printf("[sync] Fetched %d person profiles", len(profilesByGUID))
+	for guid, p := range profilesByGUID {
+		if p != nil {
+			log.Printf("[sync]   profile: personGuid=%s email=%s phone=%s birth=%s",
+				guid, p.Email, p.PrimaryPhone, p.BirthDate)
+		} else {
+			log.Printf("[sync]   profile: personGuid=%s (not found)", guid)
+		}
+	}
 
 	activeBSAIDs := make(map[string]bool, len(members))
 
@@ -49,6 +66,7 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 
 		existing, err := s.profiles.GetByBSAID(ctx, m.MemberID)
 		if err != nil {
+			log.Printf("[sync] CREATE memberId=%s name=%s %s", m.MemberID, m.FirstName, m.LastName)
 			p := &profile.Profile{
 				BSAID:      m.MemberID,
 				FirstName:  m.FirstName,
@@ -66,37 +84,44 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 		} else {
 			updated := false
 			if existing.FirstName != m.FirstName {
+				log.Printf("[sync] UPDATE memberId=%s firstName %q -> %q", m.MemberID, existing.FirstName, m.FirstName)
 				existing.FirstName = m.FirstName
 				updated = true
 			}
 			if existing.LastName != m.LastName {
+				log.Printf("[sync] UPDATE memberId=%s lastName %q -> %q", m.MemberID, existing.LastName, m.LastName)
 				existing.LastName = m.LastName
 				updated = true
 			}
 
 			mt := memberType(m.MemberID, adults, youths)
 			if existing.MemberType != mt {
+				log.Printf("[sync] UPDATE memberId=%s memberType %q -> %q", m.MemberID, existing.MemberType, mt)
 				existing.MemberType = mt
 				updated = true
 			}
 
 			if existing.Status != profile.StatusActive {
+				log.Printf("[sync] UPDATE memberId=%s status %q -> active", m.MemberID, existing.Status)
 				existing.Status = profile.StatusActive
 				updated = true
 			}
 
 			if sbProfile != nil {
 				if sbProfile.Email != "" && sbProfile.Email != existing.Email {
+					log.Printf("[sync] UPDATE memberId=%s email %q -> %q", m.MemberID, existing.Email, sbProfile.Email)
 					existing.Email = sbProfile.Email
 					updated = true
 				}
 				if sbProfile.PrimaryPhone != "" && sbProfile.PrimaryPhone != existing.Phone {
+					log.Printf("[sync] UPDATE memberId=%s phone %q -> %q", m.MemberID, existing.Phone, sbProfile.PrimaryPhone)
 					existing.Phone = sbProfile.PrimaryPhone
 					updated = true
 				}
 				if sbProfile.BirthDate != "" {
 					if parsed, err := time.Parse("2006-01-02", sbProfile.BirthDate); err == nil {
 						if !parsed.Equal(existing.Birthdate) {
+							log.Printf("[sync] UPDATE memberId=%s birthdate %q -> %q", m.MemberID, existing.Birthdate.Format("2006-01-02"), sbProfile.BirthDate)
 							existing.Birthdate = parsed
 							updated = true
 						}
@@ -110,6 +135,9 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 					return nil, fmt.Errorf("update profile %s: %w", m.MemberID, err)
 				}
 				result.Updated++
+				log.Printf("[sync] UPDATED memberId=%s", m.MemberID)
+			} else {
+				log.Printf("[sync] SKIP memberId=%s (no changes)", m.MemberID)
 			}
 		}
 	}
@@ -120,6 +148,7 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 	}
 	for _, p := range allActive {
 		if !activeBSAIDs[p.BSAID] {
+			log.Printf("[sync] DEACTIVATE memberId=%s name=%s %s (not in roster)", p.BSAID, p.FirstName, p.LastName)
 			p.Status = profile.StatusInactive
 			p.UpdatedAt = time.Now()
 			if err := s.profiles.Update(ctx, p); err != nil {
@@ -129,6 +158,7 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 		}
 	}
 
+	log.Printf("[sync] Result: created=%d updated=%d deactivated=%d", result.Created, result.Updated, result.Deactivated)
 	return result, nil
 }
 

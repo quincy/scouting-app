@@ -15,7 +15,7 @@ type RosterMember struct {
 }
 
 type rosterResponse struct {
-	Data []RosterMember `json:"data"`
+	Data []RosterMember `json:"members"`
 }
 
 type PersonProfile struct {
