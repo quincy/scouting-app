@@ -76,7 +76,7 @@ func setupEventTest(t *testing.T) (*mock.ProfileRepository, *mock.EventRepositor
 		t.Fatalf("Create admin profile: %v", err)
 	}
 
-	handler := NewEventHandler(eventRepo, authService, profileRepo, parentYouthLinkRepo)
+	handler := NewEventHandler(eventRepo, authService, profileRepo, parentYouthLinkRepo, "Troop", "077")
 	SetMuxVars(func(r *http.Request) map[string]string {
 		return map[string]string{"id": r.URL.Query().Get("id")}
 	})

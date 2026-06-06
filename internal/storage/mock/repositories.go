@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"scout-app/internal/domain/auth"
+	"scout-app/internal/domain/email"
 	"scout-app/internal/domain/event"
 	"scout-app/internal/domain/otpcode"
 	"scout-app/internal/domain/parentyouthlink"
@@ -623,3 +624,26 @@ func (r *ScoutbookSessionRepository) GetLatest(ctx context.Context) (*scoutbooks
 	}
 	return latest, nil
 }
+
+type EmailService struct {
+	SentOTPs []EmailOTP
+	mu       sync.RWMutex
+}
+
+type EmailOTP struct {
+	To   string
+	Code string
+}
+
+func NewEmailService() *EmailService {
+	return &EmailService{}
+}
+
+func (s *EmailService) SendOTP(ctx context.Context, to, code string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SentOTPs = append(s.SentOTPs, EmailOTP{To: to, Code: code})
+	return nil
+}
+
+var _ email.Service = (*EmailService)(nil)

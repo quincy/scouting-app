@@ -33,6 +33,12 @@ func TestDefaults_DefaultValues(t *testing.T) {
 	if cfg.ScoutbookAPIBaseURL != "https://api.scouting.org" {
 		t.Errorf("expected ScoutbookAPIBaseURL https://api.scouting.org, got %q", cfg.ScoutbookAPIBaseURL)
 	}
+	if cfg.UnitType != "Troop" {
+		t.Errorf("expected UnitType Troop, got %q", cfg.UnitType)
+	}
+	if cfg.UnitNumber != "" {
+		t.Errorf("expected UnitNumber empty, got %q", cfg.UnitNumber)
+	}
 }
 
 func TestEnvTakesPrecedenceOverDotenv(t *testing.T) {
@@ -193,7 +199,7 @@ func unsetAll(t *testing.T) {
 		"ADDR", "USE_MOCK_STORAGE", "DATABASE_URL", "AUTO_MIGRATE",
 		"SESSION_SECRET", "SCOUTBOOK_API_BASE_URL", "SCOUTBOOK_ORG_GUID",
 		"SCOUTBOOK_TOKEN", "SMTP_HOST", "SMTP_PORT", "SMTP_USER",
-		"SMTP_PASS", "SMTP_FROM",
+		"SMTP_PASS", "SMTP_FROM", "UNIT_TYPE", "UNIT_NUMBER",
 	}
 	for _, k := range keys {
 		old := os.Getenv(k)

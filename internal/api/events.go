@@ -26,6 +26,8 @@ type EventHandler struct {
 	profiles        profile.Repository
 	parentYouthLink parentyouthlink.Repository
 	tmpl            *template.Template
+	unitType        string
+	unitNumber      string
 }
 
 type eventsPageData struct {
@@ -88,7 +90,7 @@ type eventListPartialData struct {
 	HasMore    bool
 }
 
-func NewEventHandler(repo event.Repository, auth *auth.AuthService, profiles profile.Repository, parentYouthLink parentyouthlink.Repository) *EventHandler {
+func NewEventHandler(repo event.Repository, auth *auth.AuthService, profiles profile.Repository, parentYouthLink parentyouthlink.Repository, unitType, unitNumber string) *EventHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
@@ -98,6 +100,8 @@ func NewEventHandler(repo event.Repository, auth *auth.AuthService, profiles pro
 		profiles:        profiles,
 		parentYouthLink: parentYouthLink,
 		tmpl:            tmpl,
+		unitType:        unitType,
+		unitNumber:      unitNumber,
 	}
 }
 
@@ -135,8 +139,9 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	upcomingTotal := len(allUpcoming)
 	pastTotal := len(allPast)
 
+	pageTitle := fmt.Sprintf("%s %s Events", h.unitType, h.unitNumber)
 	data := eventsPageData{
-		Title:              "Events",
+		Title:              pageTitle,
 		UpcomingEvents:     upcomingEvents,
 		PastEvents:         pastEvents,
 		UpcomingDisplayed:  len(upcomingEvents),
@@ -237,8 +242,9 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
 	youthVMs, adultVMs := splitAttendeeVMs(attendees)
 
+	detailTitle := fmt.Sprintf("%s %s Events", h.unitType, h.unitNumber)
 	data := eventDetailData{
-		Title:          "Events",
+		Title:          detailTitle,
 		Event:          event,
 		CostDisplay:    costDisplay,
 		YouthAttendees: youthVMs,

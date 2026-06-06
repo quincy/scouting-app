@@ -19,6 +19,7 @@ import (
 	"scout-app/internal/domain/parentyouthlink"
 	"scout-app/internal/domain/profile"
 	"scout-app/internal/domain/sync"
+	appemail "scout-app/internal/email"
 	"scout-app/internal/scoutbook"
 	"scout-app/internal/storage"
 	"scout-app/internal/storage/mock"
@@ -180,6 +181,14 @@ func main() {
 		log.Fatal("SCOUTBOOK_ORG_GUID must be set")
 	}
 
+	emailTmpl, err := appemail.NewTemplates()
+	if err != nil {
+		log.Fatalf("Failed to load email templates: %v", err)
+	}
+	emailSvc := appemail.NewSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom, cfg.UnitType, cfg.UnitNumber, emailTmpl)
+
+	_ = emailSvc
+
 	router := mux.NewRouter()
 	router.HandleFunc("/healthcheck", api.HealthCheckHandler).Methods("GET")
 
@@ -192,7 +201,7 @@ func main() {
 	router.HandleFunc("/login", authHandler.Login).Methods("POST")
 	router.HandleFunc("/logout", api.RequireAuth(authService, authHandler.Logout)).Methods("POST")
 
-	eventHandler := api.NewEventHandler(eventRepo, authService, profileRepo, parentYouthLinkRepo)
+	eventHandler := api.NewEventHandler(eventRepo, authService, profileRepo, parentYouthLinkRepo, cfg.UnitType, cfg.UnitNumber)
 	api.SetMuxVars(mux.Vars)
 	router.Handle("/events", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListEvents)).Methods("GET")
 	router.Handle("/events/upcoming", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListUpcoming)).Methods("GET")

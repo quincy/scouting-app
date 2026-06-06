@@ -22,6 +22,8 @@ type Config struct {
 	SMTPUser            string
 	SMTPPass            string
 	SMTPFrom            string
+	UnitType            string
+	UnitNumber          string
 }
 
 func Load() (*Config, error) {
@@ -50,6 +52,8 @@ func ConfigFromEnv() (*Config, error) {
 		SMTPUser:            getEnv("SMTP_USER", ""),
 		SMTPPass:            getEnv("SMTP_PASS", ""),
 		SMTPFrom:            getEnv("SMTP_FROM", ""),
+		UnitType:            getEnv("UNIT_TYPE", "Troop"),
+		UnitNumber:          getEnv("UNIT_NUMBER", ""),
 	}
 	if cfg.SessionSecret == "" {
 		return nil, fmt.Errorf("SESSION_SECRET is required")
@@ -76,6 +80,9 @@ func loadFile(path string) error {
 		}
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
+		if len(value) > 1 && (value[0] == '"' && value[len(value)-1] == '"' || value[0] == '\'' && value[len(value)-1] == '\'') {
+			value = value[1 : len(value)-1]
+		}
 		if key == "" {
 			continue
 		}
