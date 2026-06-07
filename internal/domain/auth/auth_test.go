@@ -118,7 +118,8 @@ func TestMockHasher_Verify_Wrong(t *testing.T) {
 func TestAuthService_Login_WrongPassword(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
 	hasher := &MockHasher{}
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, "test-secret-key")
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
 
 	u := &user.User{
 		ID:           "user-1",
@@ -140,7 +141,8 @@ func TestAuthService_Login_WrongPassword(t *testing.T) {
 func TestAuthService_Login_UnknownEmail(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
 	hasher := &MockHasher{}
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, "test-secret-key")
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
 
 	req := httptest.NewRequest("POST", "/login", nil)
 	rr := httptest.NewRecorder()
@@ -154,7 +156,8 @@ func TestAuthService_Login_UnknownEmail(t *testing.T) {
 func TestAuthService_GetAuthenticatedUser_NoSession(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
 	hasher := &MockHasher{}
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, "test-secret-key")
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
 
 	req := httptest.NewRequest("GET", "/events", nil)
 
@@ -170,7 +173,8 @@ func TestAuthService_GetAuthenticatedUser_NoSession(t *testing.T) {
 func TestAuthService_GetAuthenticatedUser_ValidSession(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
 	hasher := &MockHasher{}
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, "test-secret-key")
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
 
 	u := &user.User{
 		ID:           "user-1",
@@ -210,7 +214,8 @@ func TestAuthService_GetAuthenticatedUser_ValidSession(t *testing.T) {
 func TestAuthService_Logout(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
 	hasher := &MockHasher{}
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, "test-secret-key")
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
 
 	u := &user.User{
 		ID:           "user-1",
@@ -255,7 +260,8 @@ func TestAuthService_Logout(t *testing.T) {
 func TestAuthService_Login_ValidCredentials(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
 	hasher := &MockHasher{}
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, "test-secret-key")
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
 
 	u := &user.User{
 		ID:           "user-1",

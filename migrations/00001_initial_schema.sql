@@ -102,6 +102,17 @@ INSERT INTO permissions (name) VALUES
     ('event:withdraw')
 ON CONFLICT (name) DO NOTHING;
 
+-- Link permissions to roles
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r, permissions p
+WHERE (r.name = 'admin' AND p.name IN ('event:create', 'event:view', 'event:signup', 'event:withdraw'))
+   OR (r.name = 'scoutmaster' AND p.name IN ('event:create', 'event:view', 'event:signup', 'event:withdraw'))
+   OR (r.name = 'asst_scoutmaster' AND p.name IN ('event:create', 'event:view', 'event:signup', 'event:withdraw'))
+   OR (r.name = 'scout' AND p.name IN ('event:view', 'event:signup', 'event:withdraw'))
+   OR (r.name = 'parent' AND p.name IN ('event:view', 'event:signup', 'event:withdraw'))
+ON CONFLICT DO NOTHING;
+
 -- +goose Down
 
 DROP TABLE IF EXISTS event_attendee_responsibilities;

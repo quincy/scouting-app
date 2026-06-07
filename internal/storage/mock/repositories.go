@@ -498,30 +498,79 @@ func (r *OTPCodeRepository) Create(ctx context.Context, otp *otpcode.OTPCode) er
 		otp.ID = newUUID()
 	}
 	clone := *otp
+	clone.Used = false
+	clone.Attempts = 0
 	r.codes[clone.ID] = &clone
 	return nil
 }
 
-func (r *OTPCodeRepository) GetByEmailAndCode(ctx context.Context, email string, code string) (*otpcode.OTPCode, error) {
+func (r *OTPCodeRepository) GetByID(ctx context.Context, id string) (*otpcode.OTPCode, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, c := range r.codes {
-		if c.Email == email && c.Code == code && !c.Used && !c.IsExpired() {
-			clone := *c
-			return &clone, nil
-		}
+	c, ok := r.codes[id]
+	if !ok {
+		return nil, errors.New("otp not found")
 	}
-	return nil, errors.New("otp not found, already used, or expired")
+	clone := *c
+	return &clone, nil
 }
 
-func (r *OTPCodeRepository) MarkUsed(ctx context.Context, id string) error {
+func (r *OTPCodeRepository) CountByEmailSince(ctx context.Context, email string, since time.Time) (int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var count int
+	for _, c := range r.codes {
+		if c.Email == email && c.CreatedAt.After(since) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (r *OTPCodeRepository) MarkUsedIfUnused(ctx context.Context, id string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	c, ok := r.codes[id]
 	if !ok {
-		return errors.New("otp not found")
+		return false, nil
+	}
+	if c.Used {
+		return false, nil
 	}
 	c.Used = true
+	return true, nil
+}
+
+func (r *OTPCodeRepository) IncrementAttempts(ctx context.Context, id string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c, ok := r.codes[id]
+	if !ok {
+		return 0, errors.New("otp not found")
+	}
+	c.Attempts++
+	return c.Attempts, nil
+}
+
+func (r *OTPCodeRepository) InvalidateByEmail(ctx context.Context, email string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, c := range r.codes {
+		if c.Email == email && !c.Used && !c.IsExpired() {
+			c.Used = true
+		}
+	}
+	return nil
+}
+
+func (r *OTPCodeRepository) DeleteExpired(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, c := range r.codes {
+		if c.IsExpired() {
+			delete(r.codes, id)
+		}
+	}
 	return nil
 }
 
@@ -653,18 +702,19 @@ type EmailService struct {
 }
 
 type EmailOTP struct {
-	To   string
-	Code string
+	To    string
+	Code  string
+	OTPID string
 }
 
 func NewEmailService() *EmailService {
 	return &EmailService{}
 }
 
-func (s *EmailService) SendOTP(ctx context.Context, to, code string) error {
+func (s *EmailService) SendOTP(ctx context.Context, to, code string, otpID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.SentOTPs = append(s.SentOTPs, EmailOTP{To: to, Code: code})
+	s.SentOTPs = append(s.SentOTPs, EmailOTP{To: to, Code: code, OTPID: otpID})
 	return nil
 }
 

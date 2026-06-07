@@ -15,7 +15,9 @@ import (
 	"scout-app/internal/api"
 	"scout-app/internal/config"
 	"scout-app/internal/domain/auth"
+	"scout-app/internal/domain/email"
 	"scout-app/internal/domain/event"
+	"scout-app/internal/domain/otpcode"
 	"scout-app/internal/domain/parentyouthlink"
 	"scout-app/internal/domain/profile"
 	"scout-app/internal/domain/rbac"
@@ -64,6 +66,8 @@ func main() {
 		}
 	}
 
+	sessionStore := auth.NewCookieStore(cfg.SessionSecret)
+
 	// Repositories
 	var (
 		userRepo            user.Repository
@@ -71,6 +75,8 @@ func main() {
 		parentYouthLinkRepo parentyouthlink.Repository
 		rbacRepo            rbac.Repository
 		eventRepo           event.Repository
+		otpRepo             otpcode.Repository
+		emailSvc            email.Service
 	)
 
 	if cfg.UseMockStorage {
@@ -79,12 +85,16 @@ func main() {
 		mockParentYouthLinkRepo := mock.NewParentYouthLinkRepository()
 		mockRBACRepo := mock.NewRBACRepository()
 		mockEventRepo := mock.NewEventRepository(mockProfileRepo)
+		mockOTPRepo := mock.NewOTPCodeRepository()
+		mockEmailSvc := mock.NewEmailService()
 
 		userRepo = mockUserRepo
 		profileRepo = mockProfileRepo
 		parentYouthLinkRepo = mockParentYouthLinkRepo
 		rbacRepo = mockRBACRepo
 		eventRepo = mockEventRepo
+		otpRepo = mockOTPRepo
+		emailSvc = mockEmailSvc
 
 		ctx := context.Background()
 		if err := mockRBACRepo.SeedRoles(ctx); err != nil {
@@ -92,7 +102,7 @@ func main() {
 		}
 
 		hasher := &auth.MockHasher{}
-		authService := auth.NewAuthService(userRepo, rbacRepo, hasher, cfg.SessionSecret)
+		authService := auth.NewAuthService(userRepo, rbacRepo, hasher, sessionStore)
 
 		if err := authService.SeedAdminUser(ctx); err != nil {
 			log.Fatalf("SeedAdminUser failed: %v", err)
@@ -188,6 +198,7 @@ func main() {
 		parentYouthLinkRepo = store.ParentYouthLink
 		rbacRepo = store.RBAC
 		eventRepo = store.Event
+		otpRepo = postgres.NewOTPCodeRepository(db)
 
 		if cfg.SeedDevData {
 			ctx := context.Background()
@@ -305,7 +316,7 @@ func main() {
 
 	// Auth
 	hasher := &auth.BCryptHasher{}
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, cfg.SessionSecret)
+	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, sessionStore)
 
 	// Scoutbook sync
 	scoutbookClient := scoutbook.NewClient(cfg.ScoutbookAPIBaseURL, cfg.ScoutbookToken, cfg.ScoutbookOrgGUID)
@@ -317,13 +328,17 @@ func main() {
 
 	adminHandler := api.NewAdminHandler(profileRepo, parentYouthLinkRepo)
 
-	emailTmpl, err := appemail.NewTemplates()
-	if err != nil {
-		log.Fatalf("Failed to load email templates: %v", err)
+	if emailSvc == nil {
+		emailTmpl, err := appemail.NewTemplates()
+		if err != nil {
+			log.Fatalf("Failed to load email templates: %v", err)
+		}
+		emailSvc = appemail.NewSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom, cfg.UnitType, cfg.UnitNumber, emailTmpl)
 	}
-	emailSvc := appemail.NewSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom, cfg.UnitType, cfg.UnitNumber, emailTmpl)
 
-	_ = emailSvc
+	regHandler := api.NewRegistrationHandler(
+		profileRepo, otpRepo, userRepo, rbacRepo, emailSvc, hasher, sessionStore,
+	)
 
 	router := mux.NewRouter()
 	router.HandleFunc("/healthcheck", api.HealthCheckHandler).Methods("GET")
@@ -337,7 +352,14 @@ func main() {
 	router.HandleFunc("/login", authHandler.Login).Methods("POST")
 	router.HandleFunc("/logout", api.RequireAuth(authService, authHandler.Logout)).Methods("POST")
 
-	eventHandler := api.NewEventHandler(eventRepo, authService, profileRepo, parentYouthLinkRepo, cfg.UnitType, cfg.UnitNumber)
+	router.HandleFunc("/register", regHandler.RegisterPage).Methods("GET")
+	router.HandleFunc("/register", regHandler.Register).Methods("POST")
+	router.HandleFunc("/register/verify", regHandler.VerifyPage).Methods("GET")
+	router.HandleFunc("/register/verify", regHandler.Verify).Methods("POST")
+	router.HandleFunc("/register/complete", regHandler.CompletePage).Methods("GET")
+	router.HandleFunc("/register/complete", regHandler.Complete).Methods("POST")
+
+	eventHandler := api.NewEventHandler(eventRepo, authService, rbacRepo, profileRepo, parentYouthLinkRepo, cfg.UnitType, cfg.UnitNumber)
 	api.SetMuxVars(mux.Vars)
 	router.Handle("/events", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListEvents)).Methods("GET")
 	router.Handle("/events/upcoming", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListUpcoming)).Methods("GET")
@@ -351,6 +373,20 @@ func main() {
 	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.AdminPage)).Methods("GET")
 	router.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.StoreToken)).Methods("POST")
 	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")
+
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				ctx := context.Background()
+				if err := otpRepo.DeleteExpired(ctx); err != nil {
+					log.Printf("OTP cleanup: %v", err)
+				}
+			}
+		}
+	}()
 
 	srv := &http.Server{
 		Addr:    cfg.Addr,

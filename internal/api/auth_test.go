@@ -24,7 +24,8 @@ func setupAuthTest(t *testing.T) (*AuthHandler, *auth.AuthService, *mock.UserRep
 		t.Fatalf("SeedRoles: %v", err)
 	}
 
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, "test-secret-key")
+	store := auth.NewCookieStore("test-secret-key")
+	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, store)
 	authHandler := NewAuthHandler(authService)
 	return authHandler, authService, userRepo, rbacRepo
 }

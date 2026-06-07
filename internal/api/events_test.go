@@ -50,7 +50,8 @@ func setupEventTest(t *testing.T) (*mock.ProfileRepository, *mock.EventRepositor
 	eventRepo := mock.NewEventRepository(profileRepo)
 
 	hasher := &auth.MockHasher{}
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, "test-secret-key")
+	store := auth.NewCookieStore("test-secret-key")
+	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, store)
 
 	ctx := t.Context()
 	if err := rbacRepo.SeedRoles(ctx); err != nil {
@@ -76,7 +77,7 @@ func setupEventTest(t *testing.T) (*mock.ProfileRepository, *mock.EventRepositor
 		t.Fatalf("Create admin profile: %v", err)
 	}
 
-	handler := NewEventHandler(eventRepo, authService, profileRepo, parentYouthLinkRepo, "Troop", "077")
+	handler := NewEventHandler(eventRepo, authService, rbacRepo, profileRepo, parentYouthLinkRepo, "Troop", "077")
 	SetMuxVars(func(r *http.Request) map[string]string {
 		return map[string]string{"id": r.URL.Query().Get("id")}
 	})

@@ -13,6 +13,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var _ Hasher = (*BCryptHasher)(nil)
+var _ Hasher = (*MockHasher)(nil)
+
 type Hasher interface {
 	Hash(password string) (string, error)
 	Verify(password, hash string) error
@@ -45,7 +48,7 @@ func (h *MockHasher) Verify(password, hash string) error {
 	return nil
 }
 
-const sessionName = "session"
+const SessionName = "session"
 const sessionUserIDKey = "user_id"
 
 type AuthService struct {
@@ -55,7 +58,16 @@ type AuthService struct {
 	session *sessions.CookieStore
 }
 
-func NewAuthService(users user.Repository, rbac rbac.Repository, hasher Hasher, sessionSecret string) *AuthService {
+func NewAuthService(users user.Repository, rbac rbac.Repository, hasher Hasher, store *sessions.CookieStore) *AuthService {
+	return &AuthService{
+		users:   users,
+		rbac:    rbac,
+		hasher:  hasher,
+		session: store,
+	}
+}
+
+func NewCookieStore(sessionSecret string) *sessions.CookieStore {
 	store := sessions.NewCookieStore([]byte(sessionSecret))
 	store.Options = &sessions.Options{
 		Path:     "/",
@@ -63,12 +75,7 @@ func NewAuthService(users user.Repository, rbac rbac.Repository, hasher Hasher, 
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	}
-	return &AuthService{
-		users:   users,
-		rbac:    rbac,
-		hasher:  hasher,
-		session: store,
-	}
+	return store
 }
 
 func (s *AuthService) Login(w http.ResponseWriter, r *http.Request, email, password string) (*user.User, error) {
@@ -82,7 +89,7 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request, email, passw
 	if err := s.hasher.Verify(password, u.PasswordHash); err != nil {
 		return nil, errors.New("invalid credentials")
 	}
-	sess, err := s.session.Get(r, sessionName)
+	sess, err := s.session.Get(r, SessionName)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +102,7 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request, email, passw
 }
 
 func (s *AuthService) GetAuthenticatedUser(r *http.Request) (*user.User, error) {
-	sess, err := s.session.Get(r, sessionName)
+	sess, err := s.session.Get(r, SessionName)
 	if err != nil {
 		return nil, nil
 	}
@@ -111,7 +118,7 @@ func (s *AuthService) GetAuthenticatedUser(r *http.Request) (*user.User, error) 
 }
 
 func (s *AuthService) Logout(w http.ResponseWriter, r *http.Request) error {
-	sess, err := s.session.Get(r, sessionName)
+	sess, err := s.session.Get(r, SessionName)
 	if err != nil {
 		return err
 	}

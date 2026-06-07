@@ -19,6 +19,8 @@ type otpData struct {
 	Code       string
 	UnitType   string
 	UnitNumber string
+	OTPID      string
+	VerifyURL  string
 }
 
 func NewTemplates() (*Templates, error) {
@@ -29,9 +31,15 @@ func NewTemplates() (*Templates, error) {
 	return &Templates{otpTemplate: otp}, nil
 }
 
-func (t *Templates) RenderOTP(code, unitType, unitNumber string) (subject, body string, err error) {
+func (t *Templates) RenderOTP(code, unitType, unitNumber, otpID string) (subject, body string, err error) {
 	var buf bytes.Buffer
-	if err := t.otpTemplate.Execute(&buf, otpData{Code: code, UnitType: unitType, UnitNumber: unitNumber}); err != nil {
+	if err := t.otpTemplate.Execute(&buf, otpData{
+		Code:       code,
+		UnitType:   unitType,
+		UnitNumber: unitNumber,
+		OTPID:      otpID,
+		VerifyURL:  "http://localhost:8080/register/verify?otp_id=" + otpID,
+	}); err != nil {
 		return "", "", fmt.Errorf("render OTP email: %w", err)
 	}
 	// First line is Subject: header, rest is body

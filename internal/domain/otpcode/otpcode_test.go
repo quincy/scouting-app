@@ -28,18 +28,24 @@ func TestGenerateCode_Numeric(t *testing.T) {
 }
 
 func TestNewOTPCode(t *testing.T) {
-	otp, err := NewOTPCode("test@scout.local")
+	plainCode, otp, err := NewOTPCode("test@scout.local")
 	if err != nil {
 		t.Fatalf("NewOTPCode failed: %v", err)
 	}
 	if otp.Email != "test@scout.local" {
 		t.Errorf("expected email test@scout.local, got %s", otp.Email)
 	}
-	if len(otp.Code) != 6 {
-		t.Errorf("expected code length 6, got %d", len(otp.Code))
+	if len(plainCode) != 6 {
+		t.Errorf("expected plain code length 6, got %d", len(plainCode))
+	}
+	if len(otp.CodeHash) == 0 {
+		t.Error("expected CodeHash to be set")
 	}
 	if otp.Used {
 		t.Error("expected new OTP to not be used")
+	}
+	if otp.Attempts != 0 {
+		t.Errorf("expected Attempts to be 0, got %d", otp.Attempts)
 	}
 	if otp.CreatedAt.IsZero() {
 		t.Error("expected CreatedAt to be set")

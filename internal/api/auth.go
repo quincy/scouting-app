@@ -11,7 +11,8 @@ import (
 
 // loginPageData is passed to the login template.
 type loginPageData struct {
-	Error string
+	Error   string
+	Success string
 }
 
 // AuthHandler serves login and logout endpoints.
@@ -37,6 +38,9 @@ func (h *AuthHandler) LoginPage(w http.ResponseWriter, r *http.Request) {
 	data := loginPageData{}
 	if errMsg := r.URL.Query().Get("error"); errMsg != "" {
 		data.Error = errMsg
+	}
+	if regMsg := r.URL.Query().Get("registered"); regMsg == "1" {
+		data.Success = "Account created successfully! Please sign in with your new password."
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

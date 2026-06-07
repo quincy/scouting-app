@@ -33,8 +33,8 @@ func NewSender(host, port, user, pass, from, unitType, unitNumber string, templa
 	}
 }
 
-func (s *Sender) SendOTP(ctx context.Context, to, code string) error {
-	subject, body, err := s.templates.RenderOTP(code, s.unitType, s.unitNumber)
+func (s *Sender) SendOTP(ctx context.Context, to, code string, otpID string) error {
+	subject, body, err := s.templates.RenderOTP(code, s.unitType, s.unitNumber, otpID)
 	if err != nil {
 		return err
 	}

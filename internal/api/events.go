@@ -15,6 +15,7 @@ import (
 	"scout-app/internal/domain/event"
 	"scout-app/internal/domain/parentyouthlink"
 	"scout-app/internal/domain/profile"
+	"scout-app/internal/domain/rbac"
 )
 
 //go:embed views/*.html
@@ -23,6 +24,7 @@ var viewsFS embed.FS
 type EventHandler struct {
 	repo            event.Repository
 	auth            *auth.AuthService
+	rbac            rbac.Repository
 	profiles        profile.Repository
 	parentYouthLink parentyouthlink.Repository
 	tmpl            *template.Template
@@ -32,6 +34,7 @@ type EventHandler struct {
 
 type eventsPageData struct {
 	Title              string
+	IsAdmin            bool
 	UpcomingEvents     []*event.ListItem
 	PastEvents         []*event.ListItem
 	UpcomingDisplayed  int
@@ -52,6 +55,7 @@ type profileSignUpVM struct {
 
 type eventDetailData struct {
 	Title          string
+	IsAdmin        bool
 	Event          *event.Event
 	CostDisplay    string
 	YouthAttendees []attendeeViewModel
@@ -90,19 +94,37 @@ type eventListPartialData struct {
 	HasMore    bool
 }
 
-func NewEventHandler(repo event.Repository, auth *auth.AuthService, profiles profile.Repository, parentYouthLink parentyouthlink.Repository, unitType, unitNumber string) *EventHandler {
+func NewEventHandler(repo event.Repository, auth *auth.AuthService, rbac rbac.Repository, profiles profile.Repository, parentYouthLink parentyouthlink.Repository, unitType, unitNumber string) *EventHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
 	return &EventHandler{
 		repo:            repo,
 		auth:            auth,
+		rbac:            rbac,
 		profiles:        profiles,
 		parentYouthLink: parentYouthLink,
 		tmpl:            tmpl,
 		unitType:        unitType,
 		unitNumber:      unitNumber,
 	}
+}
+
+func (h *EventHandler) isAdmin(ctx context.Context, r *http.Request) bool {
+	user, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || user == nil {
+		return false
+	}
+	perms, err := h.rbac.GetUserPermissions(ctx, user.ID)
+	if err != nil {
+		return false
+	}
+	for _, p := range perms {
+		if p.Name == "event:create" {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +164,7 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	pageTitle := fmt.Sprintf("%s %s Events", h.unitType, h.unitNumber)
 	data := eventsPageData{
 		Title:              pageTitle,
+		IsAdmin:            h.isAdmin(ctx, r),
 		UpcomingEvents:     upcomingEvents,
 		PastEvents:         pastEvents,
 		UpcomingDisplayed:  len(upcomingEvents),
@@ -245,6 +268,7 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	detailTitle := fmt.Sprintf("%s %s Events", h.unitType, h.unitNumber)
 	data := eventDetailData{
 		Title:          detailTitle,
+		IsAdmin:        h.isAdmin(ctx, r),
 		Event:          event,
 		CostDisplay:    costDisplay,
 		YouthAttendees: youthVMs,

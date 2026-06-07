@@ -19,7 +19,7 @@ func TestSendOTP_ViaSMTPServer(t *testing.T) {
 
 	sender := NewSender("localhost", server.port, "user", "pass", "sender@test.com", "Troop", "077", tmpl)
 
-	err = sender.SendOTP(context.Background(), "recipient@test.com", "654321")
+	err = sender.SendOTP(context.Background(), "recipient@test.com", "654321", "otp-uuid-456")
 	if err != nil {
 		t.Fatalf("SendOTP failed: %v", err)
 	}
@@ -40,6 +40,9 @@ func TestSendOTP_ViaSMTPServer(t *testing.T) {
 	}
 	if !strings.Contains(raw, "Content-Type: text/plain; charset=UTF-8") {
 		t.Error("missing Content-Type header")
+	}
+	if !strings.Contains(raw, "otp-uuid-456") {
+		t.Error("missing OTP ID in email body")
 	}
 }
 

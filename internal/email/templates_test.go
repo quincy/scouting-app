@@ -21,7 +21,7 @@ func TestRenderOTP(t *testing.T) {
 		t.Fatalf("NewTemplates failed: %v", err)
 	}
 
-	subject, body, err := tmpl.RenderOTP("123456", "Troop", "077")
+	subject, body, err := tmpl.RenderOTP("123456", "Troop", "077", "otp-uuid-123")
 	if err != nil {
 		t.Fatalf("RenderOTP failed: %v", err)
 	}
@@ -38,8 +38,12 @@ func TestRenderOTP(t *testing.T) {
 		t.Errorf("expected body to contain unit info, got: %s", body)
 	}
 
-	if !strings.Contains(body, "15 minutes") {
-		t.Errorf("expected body to mention expiry, got: %s", body)
+	if !strings.Contains(body, "30 minutes") {
+		t.Errorf("expected body to mention 30 minute expiry, got: %s", body)
+	}
+
+	if !strings.Contains(body, "/register/verify?otp_id=otp-uuid-123") {
+		t.Errorf("expected body to contain verify link, got: %s", body)
 	}
 }
 

@@ -58,6 +58,9 @@ A chronological list of **Past Events** (historical events).
 ### EventListItem
 An **Event** summary projected for list views, containing the core event fields plus the number of signed-up **Attendees**.
 
+### Registration
+The process by which an unclaimed **Profile** becomes linked to a **User**. Three-step flow: email entry and **OTP** generation, OTP verification, and password creation. The OTP email includes a link to `/register/verify?otp_id=<uuid>`, using the OTP record's UUID to identify the user (not their email). The unauthenticated **Session** tracks progress — the email is stored after OTP generation, and a `verified_email` flag is set after successful OTP validation. If no **Profile** exists for the email, the user is told no account was found and directed to check their Scoutbook email or contact the Troop Webmaster. If the **Profile** is already linked to a **User**, the user is shown an error with a link to the login page. After password creation, the user is redirected to `/login?registered=1` which displays a persistent success banner. When the **User** is created, they are assigned the **Role** `parent` if their **Profile** has **Member Type** `adult`, or `scout` if their **Profile** has **Member Type** `youth`.
+
 ### Authentication
 The process of verifying a **User**'s identity by finding a **Profile** by email, resolving the linked **User**, and checking the provided password against the stored **Password Hash**.
 
@@ -83,7 +86,7 @@ The action of linking a **Profile** to a **User**, establishing ownership. An ad
 A join record connecting a parent's **Profile** to a youth's **Profile**, allowing the parent to sign up or withdraw the youth for **Events**. Has status `pending`, `approved`, or `rejected`. Requires admin approval to activate.
 
 ### OTP (One-Time Passcode)
-A 6-digit code sent via email to verify a user's identity during **Claim**. Stored in `otp_codes` with an expiry timestamp and a `used` flag. Valid for a limited time window.
+A 6-digit code sent via email to verify a user's identity during **Registration**. Stored in `otp_codes` with an expiry timestamp (30 minutes) and a `used` flag. Requesting a new OTP invalidates any existing unused OTP for the same email. Rate-limited to 5 requests per hour per email (counted by existing OTP records in that window). Expired OTP codes are cleaned up by a background goroutine that runs every 24 hours. After the OTP is verified and marked used, the user proceeds to password creation. The OTP email includes a link to `/register/verify?otp_id=<uuid>` so the user can navigate directly from their email.
 
 ### Scoutbook Session
 An encrypted record of a Bearer JWT token obtained from Scoutbook, stored so the app can call the Scoutbook API on behalf of an admin. Includes the `personGuid`, `expires_at` timestamp, and the encrypted token.
