@@ -315,6 +315,8 @@ func main() {
 		log.Fatal("SCOUTBOOK_ORG_GUID must be set")
 	}
 
+	adminHandler := api.NewAdminHandler(profileRepo, parentYouthLinkRepo)
+
 	emailTmpl, err := appemail.NewTemplates()
 	if err != nil {
 		log.Fatalf("Failed to load email templates: %v", err)
@@ -344,6 +346,8 @@ func main() {
 	router.Handle("/events/{id}/signup", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.SignUp)).Methods("POST")
 	router.Handle("/events/{id}/withdraw", api.RequirePermission(authService, rbacRepo, "event:withdraw", eventHandler.Withdraw)).Methods("POST")
 
+	router.Handle("/admin", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.AdminPage)).Methods("GET")
+	router.Handle("/admin/roster", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RosterPage)).Methods("GET")
 	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.AdminPage)).Methods("GET")
 	router.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.StoreToken)).Methods("POST")
 	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")

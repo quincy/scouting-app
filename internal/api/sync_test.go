@@ -41,6 +41,9 @@ func (m *mockSyncRepo) GetByBSAID(ctx context.Context, bsaID string) (*profile.P
 func (m *mockSyncRepo) GetByUserID(ctx context.Context, userID string) (*profile.Profile, error) {
 	return nil, errors.New("not found")
 }
+func (m *mockSyncRepo) ListAll(ctx context.Context) ([]*profile.Profile, error) {
+	return nil, nil
+}
 func (m *mockSyncRepo) ListByStatus(ctx context.Context, status profile.Status) ([]*profile.Profile, error) {
 	return nil, nil
 }

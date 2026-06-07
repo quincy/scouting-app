@@ -42,6 +42,26 @@ func (r *ParentYouthLinkRepository) GetByID(ctx context.Context, id string) (*pa
 	return l, err
 }
 
+func (r *ParentYouthLinkRepository) ListAll(ctx context.Context) ([]*parentyouthlink.ParentYouthConnection, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, parent_profile_id, youth_profile_id, status, requested_at, approved_at, approved_by, created_at
+		 FROM parent_youth_links`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*parentyouthlink.ParentYouthConnection
+	for rows.Next() {
+		l := &parentyouthlink.ParentYouthConnection{}
+		if err := rows.Scan(&l.ID, &l.ParentProfileID, &l.YouthProfileID, &l.Status, &l.RequestedAt, &l.ApprovedAt, &l.ApprovedBy, &l.CreatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, l)
+	}
+	return result, rows.Err()
+}
+
 func (r *ParentYouthLinkRepository) ListByParent(ctx context.Context, parentProfileID string) ([]*parentyouthlink.ParentYouthConnection, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, parent_profile_id, youth_profile_id, status, requested_at, approved_at, approved_by, created_at

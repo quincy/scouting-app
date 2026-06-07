@@ -86,6 +86,27 @@ func (r *ProfileRepository) GetByUserID(ctx context.Context, userID string) (*pr
 	return p, err
 }
 
+func (r *ProfileRepository) ListAll(ctx context.Context) ([]*profile.Profile, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, bsa_id, first_name, last_name, email, phone, birthdate, member_type, status, user_id, created_at, updated_at
+		 FROM profiles`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*profile.Profile
+	for rows.Next() {
+		p := &profile.Profile{}
+		if err := rows.Scan(&p.ID, &p.BSAID, &p.FirstName, &p.LastName, &p.Email, &p.Phone,
+			&p.Birthdate, &p.MemberType, &p.Status, &p.UserID, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, p)
+	}
+	return result, rows.Err()
+}
+
 func (r *ProfileRepository) ListByStatus(ctx context.Context, status profile.Status) ([]*profile.Profile, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, bsa_id, first_name, last_name, email, phone, birthdate, member_type, status, user_id, created_at, updated_at

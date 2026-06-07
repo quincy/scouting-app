@@ -65,24 +65,24 @@ func (h *SyncHandler) syncPageData() syncPageData {
 }
 
 func (h *SyncHandler) AdminPage(w http.ResponseWriter, r *http.Request) {
+	data := h.syncPageData()
 	h.mu.RLock()
-	hasToken := h.token != nil && h.token.expiresAt.After(time.Now())
-	personGUID := ""
-	if hasToken {
-		personGUID = h.token.personGUID
+	data.HasToken = h.token != nil && h.token.expiresAt.After(time.Now())
+	if data.HasToken {
+		data.PersonGUID = h.token.personGUID
 	}
 	h.mu.RUnlock()
 
-	data := h.syncPageData()
-	data.HasToken = hasToken
-	data.PersonGUID = personGUID
 	if errMsg := r.URL.Query().Get("error"); errMsg != "" {
 		data.Error = errMsg
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.tmpl.ExecuteTemplate(w, "admin_sync.html", data); err != nil {
-		log.Printf("admin_sync template: %v", err)
+
+	if r.Header.Get("HX-Request") != "" {
+		h.renderPage(w, data)
+		return
 	}
+
+	renderAdminLayout(w, h.tmpl, "admin_sync_content", data)
 }
 
 func (h *SyncHandler) renderPage(w http.ResponseWriter, data syncPageData) {
@@ -90,7 +90,8 @@ func (h *SyncHandler) renderPage(w http.ResponseWriter, data syncPageData) {
 		data.OrgGUID = h.client.OrgGUID()
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.tmpl.ExecuteTemplate(w, "admin_sync_content", data); err != nil {
+	t := template.Must(h.tmpl.Clone())
+	if err := t.ExecuteTemplate(w, "admin_sync_content", data); err != nil {
 		log.Printf("admin_sync template: %v", err)
 	}
 }

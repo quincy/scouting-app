@@ -445,6 +445,17 @@ func (r *ProfileRepository) GetByUserID(ctx context.Context, userID string) (*pr
 	return nil, errors.New("profile not found for user")
 }
 
+func (r *ProfileRepository) ListAll(ctx context.Context) ([]*profile.Profile, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []*profile.Profile
+	for _, p := range r.profiles {
+		clone := *p
+		result = append(result, &clone)
+	}
+	return result, nil
+}
+
 func (r *ProfileRepository) ListByStatus(ctx context.Context, status profile.Status) ([]*profile.Profile, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -545,6 +556,17 @@ func (r *ParentYouthLinkRepository) GetByID(ctx context.Context, id string) (*pa
 	}
 	clone := *l
 	return &clone, nil
+}
+
+func (r *ParentYouthLinkRepository) ListAll(ctx context.Context) ([]*parentyouthlink.ParentYouthConnection, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []*parentyouthlink.ParentYouthConnection
+	for _, l := range r.links {
+		clone := *l
+		result = append(result, &clone)
+	}
+	return result, nil
 }
 
 func (r *ParentYouthLinkRepository) ListByParent(ctx context.Context, parentProfileID string) ([]*parentyouthlink.ParentYouthConnection, error) {

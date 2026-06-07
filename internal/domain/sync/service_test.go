@@ -461,6 +461,17 @@ func (r *mockProfileRepository) GetByUserID(ctx context.Context, userID string) 
 	return nil, errors.New("not found")
 }
 
+func (r *mockProfileRepository) ListAll(ctx context.Context) ([]*profile.Profile, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []*profile.Profile
+	for _, p := range r.profiles {
+		clone := *p
+		result = append(result, &clone)
+	}
+	return result, nil
+}
+
 func (r *mockProfileRepository) ListByStatus(ctx context.Context, status profile.Status) ([]*profile.Profile, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

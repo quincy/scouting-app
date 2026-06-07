@@ -1,0 +1,103 @@
+{{define "admin_roster"}}
+<div style="margin-bottom:20px;padding:16px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;">
+    <form hx-get="/admin/roster" hx-target="#admin-content" hx-swap="innerHTML" style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;">
+        <div>
+            <label style="display:block;font-size:0.8rem;font-weight:600;color:#555;margin-bottom:4px;">Search</label>
+            <input type="text" name="search" value="{{.Search}}" placeholder="Name or email..." style="padding:8px 12px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;width:220px;">
+        </div>
+        <div>
+            <label style="display:block;font-size:0.8rem;font-weight:600;color:#555;margin-bottom:4px;">Claimed</label>
+            <select name="claimed" style="padding:8px 12px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;">
+                <option value="" {{if eq .Claimed ""}}selected{{end}}>All</option>
+                <option value="true" {{if eq .Claimed "true"}}selected{{end}}>Claimed</option>
+                <option value="false" {{if eq .Claimed "false"}}selected{{end}}>Unclaimed</option>
+            </select>
+        </div>
+        <div>
+            <label style="display:block;font-size:0.8rem;font-weight:600;color:#555;margin-bottom:4px;">Status</label>
+            <select name="status" style="padding:8px 12px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;">
+                <option value="" {{if eq .Status ""}}selected{{end}}>All</option>
+                <option value="active" {{if eq .Status "active"}}selected{{end}}>Active</option>
+                <option value="inactive" {{if eq .Status "inactive"}}selected{{end}}>Inactive</option>
+            </select>
+        </div>
+        <div>
+            <button type="submit" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-size:0.875rem;cursor:pointer;">Filter</button>
+        </div>
+    </form>
+</div>
+
+<section style="margin-bottom:32px;">
+    <h2 style="font-size:1.25rem;margin-bottom:8px;color:#16213e;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">Adults ({{len .Adults}})</h2>
+    {{if .Adults}}
+    <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+        <thead>
+            <tr style="background:#f5f5f5;text-align:left;">
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Name</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Email</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Status</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Claimed</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Youth Links</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Adults}}
+            <tr style="border-top:1px solid #f0f0f0;">
+                <td style="padding:10px 14px;font-weight:500;">{{.Name}}</td>
+                <td style="padding:10px 14px;color:#555;font-size:0.875rem;">{{.Email}}</td>
+                <td style="padding:10px 14px;font-size:0.875rem;">
+                    {{if eq .Status "active"}}<span style="color:#2e7d32;">Active</span>{{else}}<span style="color:#c62828;">Inactive</span>{{end}}
+                </td>
+                <td style="padding:10px 14px;font-size:0.875rem;">
+                    {{if .Claimed}}<span style="color:#2e7d32;font-weight:600;">Claimed</span>{{else}}<span style="color:#999;">—</span>{{end}}
+                </td>
+                <td style="padding:10px 14px;font-size:0.875rem;color:#555;">
+                    {{if .Links}}{{range $i, $name := .Links}}{{if $i}}, {{end}}{{$name}}{{end}}{{else}}—{{end}}
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p style="color:#999;padding:16px;">No adults match the current filters.</p>
+    {{end}}
+</section>
+
+<section>
+    <h2 style="font-size:1.25rem;margin-bottom:8px;color:#16213e;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">Youth ({{len .Youth}})</h2>
+    {{if .Youth}}
+    <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+        <thead>
+            <tr style="background:#f5f5f5;text-align:left;">
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Name</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Email</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Status</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Claimed</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Linked Adult</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Youth}}
+            <tr style="border-top:1px solid #f0f0f0;">
+                <td style="padding:10px 14px;font-weight:500;">{{.Name}}</td>
+                <td style="padding:10px 14px;color:#555;font-size:0.875rem;">{{.Email}}</td>
+                <td style="padding:10px 14px;font-size:0.875rem;">
+                    {{if eq .Status "active"}}<span style="color:#2e7d32;">Active</span>{{else}}<span style="color:#c62828;">Inactive</span>{{end}}
+                </td>
+                <td style="padding:10px 14px;font-size:0.875rem;">
+                    {{if .Claimed}}<span style="color:#2e7d32;font-weight:600;">Claimed</span>{{else}}<span style="color:#999;">—</span>{{end}}
+                </td>
+                <td style="padding:10px 14px;font-size:0.875rem;color:#555;">
+                    {{if .Links}}{{index .Links 0}}{{else}}—{{end}}
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p style="color:#999;padding:16px;">No youth match the current filters.</p>
+    {{end}}
+</section>
+
+<p style="margin-top:20px;font-size:0.8rem;color:#999;">Total: {{.Total}} profiles</p>
+{{end}}
