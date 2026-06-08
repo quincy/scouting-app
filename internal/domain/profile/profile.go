@@ -33,3 +33,10 @@ type Profile struct {
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
+
+func (p *Profile) DisplayName() string {
+	if p.Nickname != "" {
+		return p.Nickname + " (" + p.FirstName + ") " + p.LastName
+	}
+	return p.FirstName + " " + p.LastName
+}

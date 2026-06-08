@@ -301,7 +301,7 @@ func (h *EventHandler) buildProfileSignUps(ctx context.Context, currentUserID st
 		}
 		adultVMs = append(adultVMs, profileSignUpVM{
 			ProfileID:   userProfile.ID,
-			ProfileName: userProfile.FirstName + " " + userProfile.LastName,
+			ProfileName: userProfile.DisplayName(),
 			IsAttending: isAttending,
 		})
 	}
@@ -326,7 +326,7 @@ func (h *EventHandler) buildProfileSignUps(ctx context.Context, currentUserID st
 				}
 				youthVMs = append(youthVMs, profileSignUpVM{
 					ProfileID:   youthProfile.ID,
-					ProfileName: youthProfile.FirstName + " " + youthProfile.LastName,
+					ProfileName: youthProfile.DisplayName(),
 					IsAttending: isAttending,
 				})
 			}
@@ -529,7 +529,7 @@ func splitAttendeeVMs(attendees []*profile.Profile) ([]attendeeViewModel, []atte
 	var youthVMs []attendeeViewModel
 	var adultVMs []attendeeViewModel
 	for _, p := range attendees {
-		vm := attendeeViewModel{ProfileName: p.FirstName + " " + p.LastName}
+		vm := attendeeViewModel{ProfileName: p.DisplayName()}
 		if p.MemberType == profile.MemberTypeYouth {
 			youthVMs = append(youthVMs, vm)
 		} else {

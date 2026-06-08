@@ -115,16 +115,17 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 
 	profileNames := make(map[string]string)
 	for _, p := range allProfiles {
-		profileNames[p.ID] = p.FirstName + " " + p.LastName
+		profileNames[p.ID] = p.DisplayName()
 	}
 
 	var adults, youth []rosterRow
 	for _, p := range allProfiles {
 		if search != "" {
 			needle := strings.ToLower(search)
-			name := strings.ToLower(p.FirstName + " " + p.LastName)
+			displayName := strings.ToLower(p.DisplayName())
 			email := strings.ToLower(p.Email)
-			if !strings.Contains(name, needle) && !strings.Contains(email, needle) {
+			nickname := strings.ToLower(p.Nickname)
+			if !strings.Contains(displayName, needle) && !strings.Contains(email, needle) && !strings.Contains(nickname, needle) {
 				continue
 			}
 		}
@@ -141,7 +142,7 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 
 		row := rosterRow{
 			ID:      p.ID,
-			Name:    p.FirstName + " " + p.LastName,
+			Name:    p.DisplayName(),
 			Email:   p.Email,
 			Status:  string(p.Status),
 			Claimed: claimed,

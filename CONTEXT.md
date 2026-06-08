@@ -14,7 +14,10 @@ A specific type of **Event** that typically spans multiple days.
 A security principal authenticated via password. A User has no PII and no inherent email — personal information lives on the linked **Profile**. Users have **Roles** that determine their **Permissions**. A User links to exactly one **Profile**.
 
 ### Profile
-A PII record synced from Scoutbook, identified by its **BSA ID**. Contains first name, last name, email, phone, birthdate, and **Member Type**. A Profile links to exactly zero or one **User**. When linked, the Profile is "claimed." Profiles are the entities that sign up for events as **Attendees**.
+A PII record synced from Scoutbook, identified by its **BSA ID**. Contains first name, last name, nickname, email, phone, birthdate, and **Member Type**. A Profile links to exactly zero or one **User**. When linked, the Profile is "claimed." Profiles are the entities that sign up for events as **Attendees**.
+
+### Display Name
+A formatted name for a **Profile**, returned by `Profile.DisplayName()`. When the Profile has a non-empty **Nickname**, the format is `Nickname (FirstName) LastName`. Otherwise it falls back to `FirstName LastName`. Used consistently across all UI contexts.
 
 ### Role
 A designation assigned to a **User** that determines their permissions. A **User** can have multiple **Roles**.
