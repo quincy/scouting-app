@@ -5,21 +5,21 @@ import "context"
 type MemberType string
 
 const (
-	EndpointAdults MemberType = "orgAdults"
-	EndpointYouths MemberType = "orgYouths"
+	EndpointAdults MemberType = "adults"
+	EndpointYouths MemberType = "youths"
 )
 
 type Member struct {
 	MemberID   string
 	FirstName  string
 	LastName   string
+	Nickname   string
+	Gender     string
 	PersonGUID string
-}
-
-type PersonProfile struct {
-	Email        string
-	PrimaryPhone string
-	BirthDate    string
+	Email      string
+	Phone      string
+	BirthDate  string
+	Positions  string
 }
 
 type Result struct {
@@ -30,5 +30,4 @@ type Result struct {
 
 type Client interface {
 	FetchRoster(ctx context.Context, memberType MemberType) ([]Member, error)
-	FetchProfile(ctx context.Context, personGUID string) (*PersonProfile, error)
 }

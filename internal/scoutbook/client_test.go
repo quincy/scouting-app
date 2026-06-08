@@ -1,7 +1,7 @@
 package scoutbook
 
 import (
-	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,15 +9,23 @@ import (
 
 func TestFetchAdults(t *testing.T) {
 	ctx := t.Context()
-	adults := []RosterMember{
-		{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-adult-1"},
-		{MemberID: "101", FirstName: "Jane", LastName: "Smith", PersonGUID: "guid-adult-2"},
-	}
-	server := newRosterTestServer(t, "/organizations/v2/org-123/orgAdults", adults)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/organizations/v2/units/org-123/adults" {
+			t.Errorf("expected path /organizations/v2/units/org-123/adults, got %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"users":[
+			{"memberId":100,"firstName":"John","lastName":"Doe","nickName":"Johnny","gender":"M","personGuid":"guid-adult-1","email":"john@example.com","homePhone":"555-0100","dateOfBirth":"1990-01-15","isAdult":true,"positions":[{"position":"Scoutmaster"},{"position":"Troop Admin"}]},
+			{"memberId":101,"firstName":"Jane","lastName":"Smith","personGuid":"guid-adult-2","email":"jane@example.com","isAdult":true}
+		]}`)
+	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-token", "org-123")
-	result, err := client.FetchRoster(ctx, EndpointAdults)
+	result, err := client.FetchRoster(ctx, EndpointUnitAdults)
 	if err != nil {
 		t.Fatalf("FetchRoster failed: %v", err)
 	}
@@ -28,18 +36,47 @@ func TestFetchAdults(t *testing.T) {
 	if result[0].MemberID != "100" || result[0].FirstName != "John" {
 		t.Errorf("unexpected first member: %+v", result[0])
 	}
+	if result[0].Email != "john@example.com" {
+		t.Errorf("expected email, got %s", result[0].Email)
+	}
+	if result[0].HomePhone != "555-0100" {
+		t.Errorf("expected home phone, got %s", result[0].HomePhone)
+	}
+	if result[0].BirthDate != "1990-01-15" {
+		t.Errorf("expected birthdate, got %s", result[0].BirthDate)
+	}
+	if !result[0].IsAdult {
+		t.Errorf("expected IsAdult=true")
+	}
+	if result[0].NickName != "Johnny" {
+		t.Errorf("expected nickName Johnny, got %s", result[0].NickName)
+	}
+	if result[0].Gender != "M" {
+		t.Errorf("expected gender M, got %s", result[0].Gender)
+	}
+	if result[0].Positions != "Scoutmaster, Troop Admin" {
+		t.Errorf("expected positions, got %s", result[0].Positions)
+	}
 }
 
 func TestFetchYouths(t *testing.T) {
 	ctx := t.Context()
-	youths := []RosterMember{
-		{MemberID: "200", FirstName: "Jimmy", LastName: "Jones", PersonGUID: "guid-youth-1"},
-	}
-	server := newRosterTestServer(t, "/organizations/v2/org-123/orgYouths", youths)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/organizations/v2/units/org-123/youths" {
+			t.Errorf("expected path /organizations/v2/units/org-123/youths, got %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"users":[
+			{"memberId":200,"firstName":"Jimmy","lastName":"Jones","personGuid":"guid-youth-1","isAdult":false}
+		]}`)
+	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-token", "org-123")
-	result, err := client.FetchRoster(ctx, EndpointYouths)
+	result, err := client.FetchRoster(ctx, EndpointUnitYouths)
 	if err != nil {
 		t.Fatalf("FetchRoster failed: %v", err)
 	}
@@ -50,49 +87,8 @@ func TestFetchYouths(t *testing.T) {
 	if result[0].MemberID != "200" {
 		t.Errorf("unexpected member: %+v", result[0])
 	}
-}
-
-func TestFetchProfile(t *testing.T) {
-	ctx := t.Context()
-	profile := PersonProfile{
-		Email:        "john@example.com",
-		PrimaryPhone: "555-0100",
-		BirthDate:    "1990-01-15",
-	}
-	server := newProfileTestServer(t, "/persons/v2/guid-adult-1/personprofile", profile)
-	defer server.Close()
-
-	client := NewClient(server.URL, "test-token", "org-123")
-	result, err := client.FetchProfile(ctx, "guid-adult-1")
-	if err != nil {
-		t.Fatalf("FetchProfile failed: %v", err)
-	}
-
-	if result.Email != "john@example.com" {
-		t.Errorf("expected email john@example.com, got %s", result.Email)
-	}
-	if result.PrimaryPhone != "555-0100" {
-		t.Errorf("expected phone 555-0100, got %s", result.PrimaryPhone)
-	}
-	if result.BirthDate != "1990-01-15" {
-		t.Errorf("expected birthdate 1990-01-15, got %s", result.BirthDate)
-	}
-}
-
-func TestFetchProfile_NilWhenNotFound(t *testing.T) {
-	ctx := t.Context()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "test-token", "org-123")
-	result, err := client.FetchProfile(ctx, "guid-adult-1")
-	if err != nil {
-		t.Fatalf("FetchProfile failed: %v", err)
-	}
-	if result != nil {
-		t.Errorf("expected nil profile, got %+v", result)
+	if result[0].IsAdult {
+		t.Errorf("expected IsAdult=false for youth")
 	}
 }
 
@@ -113,36 +109,8 @@ func TestClient_ServerError(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-token", "org-123")
-	_, err := client.FetchRoster(ctx, EndpointAdults)
+	_, err := client.FetchRoster(ctx, EndpointUnitAdults)
 	if err == nil {
 		t.Fatal("expected error for server error, got nil")
 	}
-}
-
-func newRosterTestServer(t *testing.T, expectedPath string, members []RosterMember) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
-		if r.URL.Path != expectedPath {
-			t.Errorf("expected path %s, got %s", expectedPath, r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(rosterResponse{Data: members})
-	}))
-}
-
-func newProfileTestServer(t *testing.T, expectedPath string, profile PersonProfile) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("expected GET, got %s", r.Method)
-		}
-		if r.URL.Path != expectedPath {
-			t.Errorf("expected path %s, got %s", expectedPath, r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(profile)
-	}))
 }

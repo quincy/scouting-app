@@ -18,9 +18,9 @@ func (a *scoutbookAdapter) FetchRoster(ctx context.Context, memberType MemberTyp
 	var sbType scoutbook.MemberType
 	switch memberType {
 	case EndpointAdults:
-		sbType = scoutbook.EndpointAdults
+		sbType = scoutbook.EndpointUnitAdults
 	case EndpointYouths:
-		sbType = scoutbook.EndpointYouths
+		sbType = scoutbook.EndpointUnitYouths
 	default:
 		return nil, nil
 	}
@@ -32,27 +32,22 @@ func (a *scoutbookAdapter) FetchRoster(ctx context.Context, memberType MemberTyp
 
 	result := make([]Member, len(members))
 	for i, m := range members {
+		phone := m.HomePhone
+		if phone == "" {
+			phone = m.MobilePhone
+		}
 		result[i] = Member{
 			MemberID:   m.MemberID,
 			FirstName:  m.FirstName,
 			LastName:   m.LastName,
+			Nickname:   m.NickName,
+			Gender:     m.Gender,
 			PersonGUID: m.PersonGUID,
+			Email:      m.Email,
+			Phone:      phone,
+			BirthDate:  m.BirthDate,
+			Positions:  m.Positions,
 		}
 	}
 	return result, nil
-}
-
-func (a *scoutbookAdapter) FetchProfile(ctx context.Context, personGUID string) (*PersonProfile, error) {
-	p, err := a.inner.FetchProfile(ctx, personGUID)
-	if err != nil {
-		return nil, err
-	}
-	if p == nil {
-		return nil, nil
-	}
-	return &PersonProfile{
-		Email:        p.Email,
-		PrimaryPhone: p.PrimaryPhone,
-		BirthDate:    p.BirthDate,
-	}, nil
 }

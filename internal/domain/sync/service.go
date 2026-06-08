@@ -4,13 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	stdSync "sync"
 	"time"
 
 	"scout-app/internal/domain/profile"
 )
-
-const profileFetchConcurrency = 5
 
 type Service struct {
 	profiles profile.Repository
@@ -40,19 +37,8 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 	members := deduplicate(adults, youths)
 	log.Printf("[sync] After dedup: %d unique members", len(members))
 	for _, m := range members {
-		log.Printf("[sync]   deduped: memberId=%s name=%s %s personGuid=%s",
-			m.MemberID, m.FirstName, m.LastName, m.PersonGUID)
-	}
-
-	profilesByGUID := s.fetchAllProfiles(ctx, members)
-	log.Printf("[sync] Fetched %d person profiles", len(profilesByGUID))
-	for guid, p := range profilesByGUID {
-		if p != nil {
-			log.Printf("[sync]   profile: personGuid=%s email=%s phone=%s birth=%s",
-				guid, p.Email, p.PrimaryPhone, p.BirthDate)
-		} else {
-			log.Printf("[sync]   profile: personGuid=%s (not found)", guid)
-		}
+		log.Printf("[sync]   deduped: memberId=%s name=%s %s personGuid=%s email=%s phone=%s birth=%s",
+			m.MemberID, m.FirstName, m.LastName, m.PersonGUID, m.Email, m.Phone, m.BirthDate)
 	}
 
 	activeBSAIDs := make(map[string]bool, len(members))
@@ -62,8 +48,6 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 	for _, m := range members {
 		activeBSAIDs[m.MemberID] = true
 
-		sbProfile := profilesByGUID[m.PersonGUID]
-
 		existing, err := s.profiles.GetByBSAID(ctx, m.MemberID)
 		if err != nil {
 			log.Printf("[sync] CREATE memberId=%s name=%s %s", m.MemberID, m.FirstName, m.LastName)
@@ -71,11 +55,14 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 				BSAID:      m.MemberID,
 				FirstName:  m.FirstName,
 				LastName:   m.LastName,
+				Nickname:   m.Nickname,
+				Gender:     m.Gender,
+				Positions:  m.Positions,
 				MemberType: memberType(m.MemberID, adults, youths),
 				Status:     profile.StatusActive,
 			}
 
-			applyPersonProfile(sbProfile, p)
+			applyRosterData(m, p)
 
 			if err := s.profiles.Create(ctx, p); err != nil {
 				return nil, fmt.Errorf("create profile %s: %w", m.MemberID, err)
@@ -93,6 +80,21 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 				existing.LastName = m.LastName
 				updated = true
 			}
+			if existing.Nickname != m.Nickname {
+				log.Printf("[sync] UPDATE memberId=%s nickname %q -> %q", m.MemberID, existing.Nickname, m.Nickname)
+				existing.Nickname = m.Nickname
+				updated = true
+			}
+			if existing.Gender != m.Gender {
+				log.Printf("[sync] UPDATE memberId=%s gender %q -> %q", m.MemberID, existing.Gender, m.Gender)
+				existing.Gender = m.Gender
+				updated = true
+			}
+			if existing.Positions != m.Positions {
+				log.Printf("[sync] UPDATE memberId=%s positions %q -> %q", m.MemberID, existing.Positions, m.Positions)
+				existing.Positions = m.Positions
+				updated = true
+			}
 
 			mt := memberType(m.MemberID, adults, youths)
 			if existing.MemberType != mt {
@@ -107,24 +109,22 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 				updated = true
 			}
 
-			if sbProfile != nil {
-				if sbProfile.Email != "" && sbProfile.Email != existing.Email {
-					log.Printf("[sync] UPDATE memberId=%s email %q -> %q", m.MemberID, existing.Email, sbProfile.Email)
-					existing.Email = sbProfile.Email
-					updated = true
-				}
-				if sbProfile.PrimaryPhone != "" && sbProfile.PrimaryPhone != existing.Phone {
-					log.Printf("[sync] UPDATE memberId=%s phone %q -> %q", m.MemberID, existing.Phone, sbProfile.PrimaryPhone)
-					existing.Phone = sbProfile.PrimaryPhone
-					updated = true
-				}
-				if sbProfile.BirthDate != "" {
-					if parsed, err := time.Parse("2006-01-02", sbProfile.BirthDate); err == nil {
-						if !parsed.Equal(existing.Birthdate) {
-							log.Printf("[sync] UPDATE memberId=%s birthdate %q -> %q", m.MemberID, existing.Birthdate.Format("2006-01-02"), sbProfile.BirthDate)
-							existing.Birthdate = parsed
-							updated = true
-						}
+			if m.Email != "" && m.Email != existing.Email {
+				log.Printf("[sync] UPDATE memberId=%s email %q -> %q", m.MemberID, existing.Email, m.Email)
+				existing.Email = m.Email
+				updated = true
+			}
+			if m.Phone != "" && m.Phone != existing.Phone {
+				log.Printf("[sync] UPDATE memberId=%s phone %q -> %q", m.MemberID, existing.Phone, m.Phone)
+				existing.Phone = m.Phone
+				updated = true
+			}
+			if m.BirthDate != "" {
+				if parsed, err := time.Parse("2006-01-02", m.BirthDate); err == nil {
+					if !parsed.Equal(existing.Birthdate) {
+						log.Printf("[sync] UPDATE memberId=%s birthdate %q -> %q", m.MemberID, existing.Birthdate.Format("2006-01-02"), m.BirthDate)
+						existing.Birthdate = parsed
+						updated = true
 					}
 				}
 			}
@@ -162,48 +162,6 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 	return result, nil
 }
 
-func (s *Service) fetchAllProfiles(ctx context.Context, members []Member) map[string]*PersonProfile {
-	type job struct {
-		personGUID string
-		result     *PersonProfile
-	}
-
-	jobs := make(chan job, len(members))
-	sem := make(chan struct{}, profileFetchConcurrency)
-	var wg stdSync.WaitGroup
-
-	for _, m := range members {
-		if m.PersonGUID == "" {
-			continue
-		}
-		wg.Add(1)
-		memberGUID := m.PersonGUID
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			p, err := s.client.FetchProfile(ctx, memberGUID)
-			if err != nil {
-				return
-			}
-			jobs <- job{personGUID: memberGUID, result: p}
-		}()
-	}
-
-	go func() {
-		wg.Wait()
-		close(jobs)
-	}()
-
-	profilesByGUID := make(map[string]*PersonProfile, len(members))
-	for j := range jobs {
-		profilesByGUID[j.personGUID] = j.result
-	}
-
-	return profilesByGUID
-}
-
 func deduplicate(adults, youths []Member) []Member {
 	seen := make(map[string]*Member, len(adults)+len(youths))
 
@@ -213,7 +171,13 @@ func deduplicate(adults, youths []Member) []Member {
 			MemberID:   m.MemberID,
 			FirstName:  m.FirstName,
 			LastName:   m.LastName,
+			Nickname:   m.Nickname,
+			Gender:     m.Gender,
 			PersonGUID: m.PersonGUID,
+			Email:      m.Email,
+			Phone:      m.Phone,
+			BirthDate:  m.BirthDate,
+			Positions:  m.Positions,
 		}
 	}
 
@@ -224,7 +188,13 @@ func deduplicate(adults, youths []Member) []Member {
 				MemberID:   m.MemberID,
 				FirstName:  m.FirstName,
 				LastName:   m.LastName,
+				Nickname:   m.Nickname,
+				Gender:     m.Gender,
 				PersonGUID: m.PersonGUID,
+				Email:      m.Email,
+				Phone:      m.Phone,
+				BirthDate:  m.BirthDate,
+				Positions:  m.Positions,
 			}
 		}
 	}
@@ -245,18 +215,15 @@ func memberType(bsaID string, adults, youths []Member) profile.MemberType {
 	return profile.MemberTypeYouth
 }
 
-func applyPersonProfile(sbProfile *PersonProfile, p *profile.Profile) {
-	if sbProfile == nil {
-		return
+func applyRosterData(m Member, p *profile.Profile) {
+	if m.Email != "" {
+		p.Email = m.Email
 	}
-	if sbProfile.Email != "" {
-		p.Email = sbProfile.Email
+	if m.Phone != "" {
+		p.Phone = m.Phone
 	}
-	if sbProfile.PrimaryPhone != "" {
-		p.Phone = sbProfile.PrimaryPhone
-	}
-	if sbProfile.BirthDate != "" {
-		if parsed, err := time.Parse("2006-01-02", sbProfile.BirthDate); err == nil {
+	if m.BirthDate != "" {
+		if parsed, err := time.Parse("2006-01-02", m.BirthDate); err == nil {
 			p.Birthdate = parsed
 		}
 	}

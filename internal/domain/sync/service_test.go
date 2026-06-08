@@ -12,9 +12,8 @@ import (
 )
 
 type mockClient struct {
-	adults   []Member
-	youths   []Member
-	profiles map[string]*PersonProfile
+	adults []Member
+	youths []Member
 }
 
 func (m *mockClient) FetchRoster(ctx context.Context, memberType MemberType) ([]Member, error) {
@@ -24,28 +23,14 @@ func (m *mockClient) FetchRoster(ctx context.Context, memberType MemberType) ([]
 	return m.youths, nil
 }
 
-func (m *mockClient) FetchProfile(ctx context.Context, personGUID string) (*PersonProfile, error) {
-	if m.profiles == nil {
-		return nil, nil
-	}
-	p, ok := m.profiles[personGUID]
-	if !ok {
-		return nil, nil
-	}
-	return p, nil
-}
-
 func TestSync_CreatesNewProfiles(t *testing.T) {
 	ctx := t.Context()
 	repo := newMockProfileRepository()
 	client := &mockClient{
 		adults: []Member{
-			{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1"},
+			{MemberID: "100", FirstName: "John", LastName: "Doe", Nickname: "Johnny", Gender: "M", PersonGUID: "guid-1", Email: "john@example.com", Phone: "555-0100", BirthDate: "1990-01-15", Positions: "Scoutmaster, Troop Admin"},
 		},
 		youths: nil,
-		profiles: map[string]*PersonProfile{
-			"guid-1": {Email: "john@example.com", PrimaryPhone: "555-0100", BirthDate: "1990-01-15"},
-		},
 	}
 
 	svc := NewService(repo, client)
@@ -71,6 +56,12 @@ func TestSync_CreatesNewProfiles(t *testing.T) {
 	if p.FirstName != "John" || p.LastName != "Doe" {
 		t.Errorf("unexpected name: %s %s", p.FirstName, p.LastName)
 	}
+	if p.Nickname != "Johnny" {
+		t.Errorf("expected nickname Johnny, got %s", p.Nickname)
+	}
+	if p.Gender != "M" {
+		t.Errorf("expected gender M, got %s", p.Gender)
+	}
 	if p.Email != "john@example.com" {
 		t.Errorf("expected email john@example.com, got %s", p.Email)
 	}
@@ -82,6 +73,9 @@ func TestSync_CreatesNewProfiles(t *testing.T) {
 	}
 	if p.Status != profile.StatusActive {
 		t.Errorf("expected active, got %s", p.Status)
+	}
+	if p.Positions != "Scoutmaster, Troop Admin" {
+		t.Errorf("expected positions, got %s", p.Positions)
 	}
 }
 
@@ -120,13 +114,10 @@ func TestSync_DedupAdult(t *testing.T) {
 
 	client := &mockClient{
 		adults: []Member{
-			{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1"},
+			{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1", Email: "john@example.com"},
 		},
 		youths: []Member{
-			{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1"},
-		},
-		profiles: map[string]*PersonProfile{
-			"guid-1": {Email: "john@example.com"},
+			{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1", Email: "john@example.com"},
 		},
 	}
 
@@ -158,10 +149,13 @@ func TestSync_UpdatesExistingProfiles(t *testing.T) {
 		BSAID:      "100",
 		FirstName:  "OldFirst",
 		LastName:   "OldLast",
+		Nickname:   "OldNick",
+		Gender:     "F",
 		Email:      "old@example.com",
 		MemberType: profile.MemberTypeAdult,
 		Status:     profile.StatusActive,
 		Birthdate:  birthdate,
+		Positions:  "Old Position",
 	}
 	if err := repo.Create(ctx, existing); err != nil {
 		t.Fatalf("Create existing profile: %v", err)
@@ -169,10 +163,7 @@ func TestSync_UpdatesExistingProfiles(t *testing.T) {
 
 	client := &mockClient{
 		adults: []Member{
-			{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1"},
-		},
-		profiles: map[string]*PersonProfile{
-			"guid-1": {Email: "new@example.com", PrimaryPhone: "555-9999", BirthDate: "1990-01-15"},
+			{MemberID: "100", FirstName: "John", LastName: "Doe", Nickname: "Johnny", Gender: "M", PersonGUID: "guid-1", Email: "new@example.com", Phone: "555-9999", BirthDate: "1990-01-15", Positions: "Scoutmaster"},
 		},
 	}
 
@@ -196,8 +187,17 @@ func TestSync_UpdatesExistingProfiles(t *testing.T) {
 	if p.FirstName != "John" {
 		t.Errorf("expected first name John, got %s", p.FirstName)
 	}
+	if p.Nickname != "Johnny" {
+		t.Errorf("expected nickname Johnny, got %s", p.Nickname)
+	}
+	if p.Gender != "M" {
+		t.Errorf("expected gender M, got %s", p.Gender)
+	}
 	if p.Email != "new@example.com" {
 		t.Errorf("expected email new@example.com, got %s", p.Email)
+	}
+	if p.Positions != "Scoutmaster" {
+		t.Errorf("expected positions Scoutmaster, got %s", p.Positions)
 	}
 }
 
@@ -220,10 +220,7 @@ func TestSync_EmailSyncRule(t *testing.T) {
 
 		client := &mockClient{
 			adults: []Member{
-				{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1"},
-			},
-			profiles: map[string]*PersonProfile{
-				"guid-1": {Email: "new@example.com"},
+				{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1", Email: "new@example.com"},
 			},
 		}
 
@@ -257,42 +254,6 @@ func TestSync_EmailSyncRule(t *testing.T) {
 			adults: []Member{
 				{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1"},
 			},
-			profiles: map[string]*PersonProfile{
-				"guid-1": {Email: ""},
-			},
-		}
-
-		svc := NewService(repo, client)
-		_, err := svc.Sync(ctx)
-		if err != nil {
-			t.Fatalf("Sync failed: %v", err)
-		}
-
-		p, _ := repo.GetByBSAID(ctx, "100")
-		if p.Email != "local@example.com" {
-			t.Errorf("expected local@example.com preserved, got %s", p.Email)
-		}
-	})
-
-	t.Run("local_preserved_when_no_personprofile", func(t *testing.T) {
-		repo := newMockProfileRepository()
-		existing := &profile.Profile{
-			BSAID:      "100",
-			FirstName:  "John",
-			LastName:   "Doe",
-			Email:      "local@example.com",
-			MemberType: profile.MemberTypeAdult,
-			Status:     profile.StatusActive,
-		}
-		if err := repo.Create(ctx, existing); err != nil {
-			t.Fatalf("Create existing profile: %v", err)
-		}
-
-		client := &mockClient{
-			adults: []Member{
-				{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1"},
-			},
-			profiles: nil,
 		}
 
 		svc := NewService(repo, client)
@@ -326,10 +287,7 @@ func TestSync_MarksMissingInactive(t *testing.T) {
 
 	client := &mockClient{
 		adults: []Member{
-			{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1"},
-		},
-		profiles: map[string]*PersonProfile{
-			"guid-1": {Email: "john@example.com"},
+			{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1", Email: "john@example.com"},
 		},
 	}
 
@@ -360,10 +318,7 @@ func TestSync_Idempotent(t *testing.T) {
 	repo := newMockProfileRepository()
 	client := &mockClient{
 		adults: []Member{
-			{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1"},
-		},
-		profiles: map[string]*PersonProfile{
-			"guid-1": {Email: "john@example.com"},
+			{MemberID: "100", FirstName: "John", LastName: "Doe", PersonGUID: "guid-1", Email: "john@example.com"},
 		},
 	}
 

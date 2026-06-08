@@ -22,10 +22,6 @@ func (m *mockSyncClient) FetchRoster(ctx context.Context, memberType sync.Member
 	return nil, nil
 }
 
-func (m *mockSyncClient) FetchProfile(ctx context.Context, personGUID string) (*sync.PersonProfile, error) {
-	return nil, nil
-}
-
 type mockSyncRepo struct{}
 
 func (m *mockSyncRepo) Create(ctx context.Context, p *profile.Profile) error { return nil }

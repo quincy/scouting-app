@@ -21,12 +21,15 @@ type Profile struct {
 	BSAID      string
 	FirstName  string
 	LastName   string
+	Nickname   string
+	Gender     string
 	Email      string
 	Phone      string
 	Birthdate  time.Time
 	MemberType MemberType
 	Status     Status
 	UserID     *string
+	Positions  string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
