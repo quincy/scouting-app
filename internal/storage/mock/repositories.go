@@ -631,6 +631,19 @@ func (r *ParentYouthLinkRepository) ListByParent(ctx context.Context, parentProf
 	return result, nil
 }
 
+func (r *ParentYouthLinkRepository) ListByYouth(ctx context.Context, youthProfileID string) ([]*parentyouthlink.ParentYouthConnection, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var result []*parentyouthlink.ParentYouthConnection
+	for _, l := range r.links {
+		if l.YouthProfileID == youthProfileID {
+			clone := *l
+			result = append(result, &clone)
+		}
+	}
+	return result, nil
+}
+
 func (r *ParentYouthLinkRepository) ListByStatus(ctx context.Context, status parentyouthlink.Status) ([]*parentyouthlink.ParentYouthConnection, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

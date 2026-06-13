@@ -340,6 +340,8 @@ func main() {
 		profileRepo, otpRepo, userRepo, rbacRepo, emailSvc, hasher, sessionStore,
 	)
 
+	familyConnectionsHandler := api.NewFamilyConnectionsHandler(profileRepo, parentYouthLinkRepo, authService, rbacRepo)
+
 	router := mux.NewRouter()
 	router.HandleFunc("/healthcheck", api.HealthCheckHandler).Methods("GET")
 
@@ -358,6 +360,9 @@ func main() {
 	router.HandleFunc("/register/verify", regHandler.Verify).Methods("POST")
 	router.HandleFunc("/register/complete", regHandler.CompletePage).Methods("GET")
 	router.HandleFunc("/register/complete", regHandler.Complete).Methods("POST")
+
+	router.Handle("/family-connections", api.RequireAuth(authService, familyConnectionsHandler.FamilyConnectionsPage)).Methods("GET")
+	router.Handle("/family-connections", api.RequireAuth(authService, familyConnectionsHandler.AddConnection)).Methods("POST")
 
 	eventHandler := api.NewEventHandler(eventRepo, authService, rbacRepo, profileRepo, parentYouthLinkRepo, cfg.UnitType, cfg.UnitNumber)
 	api.SetMuxVars(mux.Vars)
