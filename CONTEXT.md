@@ -86,7 +86,7 @@ A classification of a **Profile** as either `adult` or `youth`. Determined durin
 The action of linking a **Profile** to a **User**, establishing ownership. An adult claims their own Profile via email verification (OTP) and password creation. A parent claims a youth's Profile via BSA ID with admin approval.
 
 ### Parent Youth Connection
-A join record connecting a parent's **Profile** to a youth's **Profile**, allowing the parent to sign up or withdraw the youth for **Events**. Has status `pending`, `approved`, or `rejected`. Requires admin approval to activate.
+A join record connecting a parent's **Profile** to a youth's **Profile**, allowing the parent to sign up or withdraw the youth for **Events**. Has status `pending`, `approved`, `rejected`, or `revoked`. Requires admin approval to activate. An admin can revoke an active connection from the Connections Manager.
 
 ### OTP (One-Time Passcode)
 A 6-digit code sent via email to verify a user's identity during **Registration**. Stored in `otp_codes` with an expiry timestamp (30 minutes) and a `used` flag. Requesting a new OTP invalidates any existing unused OTP for the same email. Rate-limited to 5 requests per hour per email (counted by existing OTP records in that window). Expired OTP codes are cleaned up by a background goroutine that runs every 24 hours. After the OTP is verified and marked used, the user proceeds to password creation. The OTP email includes a link to `/register/verify?otp_id=<uuid>` so the user can navigate directly from their email.

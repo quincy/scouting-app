@@ -326,7 +326,7 @@ func main() {
 		log.Fatal("SCOUTBOOK_ORG_GUID must be set")
 	}
 
-	adminHandler := api.NewAdminHandler(profileRepo, parentYouthLinkRepo)
+	adminHandler := api.NewAdminHandler(profileRepo, parentYouthLinkRepo, authService)
 
 	if emailSvc == nil {
 		emailTmpl, err := appemail.NewTemplates()
@@ -375,6 +375,11 @@ func main() {
 
 	router.Handle("/admin", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.AdminPage)).Methods("GET")
 	router.Handle("/admin/roster", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RosterPage)).Methods("GET")
+	router.Handle("/admin/connections", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ConnectionsPage)).Methods("GET")
+	router.Handle("/admin/connections/{id}/approve", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ApproveConnection)).Methods("POST")
+	router.Handle("/admin/connections/{id}/reject", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RejectConnection)).Methods("POST")
+	router.Handle("/admin/connections/{id}/remove", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RemoveConnection)).Methods("POST")
+
 	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.AdminPage)).Methods("GET")
 	router.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.StoreToken)).Methods("POST")
 	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")

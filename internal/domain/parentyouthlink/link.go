@@ -8,6 +8,7 @@ const (
 	StatusPending  Status = "pending"
 	StatusApproved Status = "approved"
 	StatusRejected Status = "rejected"
+	StatusRevoked  Status = "revoked"
 )
 
 type ParentYouthConnection struct {

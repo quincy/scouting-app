@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/parentyouthlink"
 	"scout-app/internal/domain/profile"
 )
@@ -36,16 +37,18 @@ type adminPageData struct {
 type AdminHandler struct {
 	profileRepo         profile.Repository
 	parentYouthLinkRepo parentyouthlink.Repository
+	auth                *auth.AuthService
 	tmpl                *template.Template
 }
 
-func NewAdminHandler(profileRepo profile.Repository, parentYouthLinkRepo parentyouthlink.Repository) *AdminHandler {
+func NewAdminHandler(profileRepo profile.Repository, parentYouthLinkRepo parentyouthlink.Repository, auth *auth.AuthService) *AdminHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
 	return &AdminHandler{
 		profileRepo:         profileRepo,
 		parentYouthLinkRepo: parentYouthLinkRepo,
+		auth:                auth,
 		tmpl:                tmpl,
 	}
 }
@@ -74,6 +77,220 @@ func renderAdminLayout(w http.ResponseWriter, tmpl *template.Template, contentTm
 	t := template.Must(template.Must(tmpl.Clone()).Parse(def))
 	if err := t.ExecuteTemplate(w, "admin_layout.html", data); err != nil {
 		log.Printf("admin_layout template: %v", err)
+	}
+}
+
+type pendingLinkRow struct {
+	ID          string
+	ParentName  string
+	YouthName   string
+	YouthBSAID  string
+	RequestedAt string
+}
+
+type activeConnectionRow struct {
+	ID         string
+	ParentName string
+	YouthName  string
+	YouthBSAID string
+	Status     string
+	ApprovedAt string
+	ApprovedBy string
+}
+
+type adminConnectionsPageData struct {
+	Title        string
+	Pending      []pendingLinkRow
+	Active       []activeConnectionRow
+	Search       string
+	PendingTotal int
+	ActiveTotal  int
+}
+
+func (h *AdminHandler) ConnectionsPage(w http.ResponseWriter, r *http.Request) {
+	data := h.buildConnectionsData(r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if r.Header.Get("HX-Request") != "" {
+		t := template.Must(h.tmpl.Clone())
+		if err := t.ExecuteTemplate(w, "admin_connections", data); err != nil {
+			log.Printf("admin_connections template: %v", err)
+		}
+		return
+	}
+	renderAdminLayout(w, h.tmpl, "admin_connections", data)
+}
+
+func (h *AdminHandler) ApproveConnection(w http.ResponseWriter, r *http.Request) {
+	h.updateLinkStatus(w, r, parentyouthlink.StatusApproved)
+}
+
+func (h *AdminHandler) RejectConnection(w http.ResponseWriter, r *http.Request) {
+	h.updateLinkStatus(w, r, parentyouthlink.StatusRejected)
+}
+
+func (h *AdminHandler) RemoveConnection(w http.ResponseWriter, r *http.Request) {
+	h.updateLinkStatus(w, r, parentyouthlink.StatusRevoked)
+}
+
+func (h *AdminHandler) updateLinkStatus(w http.ResponseWriter, r *http.Request, newStatus parentyouthlink.Status) {
+	user, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	id := extractIDFromPath(r.URL.Path)
+	if id == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	link, err := h.parentYouthLinkRepo.GetByID(ctx, id)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	if link == nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.parentYouthLinkRepo.UpdateStatus(ctx, id, newStatus, user.ID); err != nil {
+		log.Printf("UpdateStatus: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	data := h.buildConnectionsData(r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "admin_connections", data); err != nil {
+		log.Printf("admin_connections template: %v", err)
+	}
+}
+
+func extractIDFromPath(path string) string {
+	parts := strings.Split(strings.TrimRight(path, "/"), "/")
+	for i, p := range parts {
+		if p == "connections" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
+func (h *AdminHandler) buildConnectionsData(r *http.Request) adminConnectionsPageData {
+	search := strings.ToLower(r.URL.Query().Get("search"))
+	ctx := r.Context()
+
+	allProfiles, err := h.profileRepo.ListAll(ctx)
+	if err != nil {
+		log.Printf("ListAll profiles: %v", err)
+		return adminConnectionsPageData{Title: "Admin: Connections"}
+	}
+
+	profileMap := make(map[string]*profile.Profile)
+	for _, p := range allProfiles {
+		profileMap[p.ID] = p
+	}
+
+	userIDToName := make(map[string]string)
+	for _, p := range allProfiles {
+		if p.UserID != nil {
+			userIDToName[*p.UserID] = p.DisplayName()
+		}
+	}
+
+	allLinks, err := h.parentYouthLinkRepo.ListAll(ctx)
+	if err != nil {
+		log.Printf("ListAll links: %v", err)
+		return adminConnectionsPageData{Title: "Admin: Connections"}
+	}
+
+	var pending []pendingLinkRow
+	var active []activeConnectionRow
+
+	resolveName := func(id string) string {
+		if p, ok := profileMap[id]; ok {
+			return p.DisplayName()
+		}
+		return id
+	}
+
+	resolveBSAID := func(id string) string {
+		if p, ok := profileMap[id]; ok {
+			return p.BSAID
+		}
+		return ""
+	}
+
+	for _, link := range allLinks {
+		switch link.Status {
+		case parentyouthlink.StatusPending:
+			pending = append(pending, pendingLinkRow{
+				ID:          link.ID,
+				ParentName:  resolveName(link.ParentProfileID),
+				YouthName:   resolveName(link.YouthProfileID),
+				YouthBSAID:  resolveBSAID(link.YouthProfileID),
+				RequestedAt: link.RequestedAt.Format("Jan 2, 2006 3:04 PM"),
+			})
+		case parentyouthlink.StatusApproved, parentyouthlink.StatusRevoked:
+			parentName := resolveName(link.ParentProfileID)
+			youthName := resolveName(link.YouthProfileID)
+
+			if search != "" {
+				needle := strings.ToLower(search)
+				if !strings.Contains(strings.ToLower(parentName), needle) &&
+					!strings.Contains(strings.ToLower(youthName), needle) {
+					continue
+				}
+			}
+
+			approvedBy := ""
+			if link.ApprovedBy != nil {
+				if name, ok := userIDToName[*link.ApprovedBy]; ok {
+					approvedBy = name
+				} else {
+					approvedBy = *link.ApprovedBy
+				}
+			}
+			approvedAt := ""
+			if link.ApprovedAt != nil {
+				approvedAt = link.ApprovedAt.Format("Jan 2, 2006 3:04 PM")
+			}
+
+			displayStatus := "Active"
+			if link.Status == parentyouthlink.StatusRevoked {
+				displayStatus = "Revoked"
+			}
+
+			active = append(active, activeConnectionRow{
+				ID:         link.ID,
+				ParentName: parentName,
+				YouthName:  youthName,
+				YouthBSAID: resolveBSAID(link.YouthProfileID),
+				Status:     displayStatus,
+				ApprovedAt: approvedAt,
+				ApprovedBy: approvedBy,
+			})
+		}
+	}
+
+	if pending == nil {
+		pending = []pendingLinkRow{}
+	}
+	if active == nil {
+		active = []activeConnectionRow{}
+	}
+
+	return adminConnectionsPageData{
+		Title:        "Admin: Connections",
+		Pending:      pending,
+		Active:       active,
+		Search:       r.URL.Query().Get("search"),
+		PendingTotal: len(pending),
+		ActiveTotal:  len(active),
 	}
 }
 

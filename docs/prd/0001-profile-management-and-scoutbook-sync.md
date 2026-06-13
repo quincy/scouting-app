@@ -68,8 +68,9 @@ Introduce a **Profile** domain model synced from Scoutbook via Bearer token, an 
 2. Enters youth's BSA ID.
 3. System validates no existing User linked, and youth Profile exists.
 4. Creates `parent_youth_links` record with `status: pending`.
-5. Admin reviews in `/admin/links` and approves/rejects.
-6. Once approved, parent sees youth in their event detail profile list.
+5. Admin reviews in `/admin/connections` (Connections Manager) — shows pending queue for approval/rejection, plus a filterable table of active connections.
+6. Admin can also revoke an active connection, setting status to `revoked`.
+7. Once approved, parent sees youth in their event detail profile list.
 
 ### Event Detail UI
 

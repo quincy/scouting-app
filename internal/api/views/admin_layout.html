@@ -41,11 +41,16 @@
     </div>
     <div class="admin-body">
         <nav class="admin-sidebar">
-            <a href="/admin/roster" class="active"
+            <a href="/admin/roster"
                hx-get="/admin/roster"
                hx-target="#admin-content"
                hx-swap="innerHTML"
                hx-push-url="true">Roster</a>
+            <a href="/admin/connections"
+               hx-get="/admin/connections"
+               hx-target="#admin-content"
+               hx-swap="innerHTML"
+               hx-push-url="true">Connections</a>
             <a href="/admin/sync"
                hx-get="/admin/sync"
                hx-target="#admin-content"

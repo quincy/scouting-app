@@ -1,0 +1,110 @@
+{{define "admin_connections"}}
+<div id="connections-content">
+    <h2 style="font-size:1.25rem;margin-bottom:16px;color:#16213e;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">
+        Pending Requests ({{.PendingTotal}})
+    </h2>
+
+    {{if .Pending}}
+    <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:32px;">
+        <thead>
+            <tr style="background:#f5f5f5;text-align:left;">
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Parent</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Youth</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Youth BSA ID</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Requested</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Pending}}
+            <tr style="border-top:1px solid #f0f0f0;">
+                <td style="padding:10px 14px;font-weight:500;">{{.ParentName}}</td>
+                <td style="padding:10px 14px;">{{.YouthName}}</td>
+                <td style="padding:10px 14px;font-family:monospace;font-size:0.875rem;color:#555;">{{.YouthBSAID}}</td>
+                <td style="padding:10px 14px;font-size:0.875rem;color:#555;">{{.RequestedAt}}</td>
+                <td style="padding:10px 14px;">
+                    <button style="background:#2e7d32;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:0.8rem;cursor:pointer;margin-right:6px;"
+                            hx-post="/admin/connections/{{.ID}}/approve"
+                            hx-target="#connections-content"
+                            hx-swap="outerHTML"
+                            hx-indicator="#pending-indicator">Approve</button>
+                    <button style="background:#c62828;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:0.8rem;cursor:pointer;"
+                            hx-post="/admin/connections/{{.ID}}/reject"
+                            hx-target="#connections-content"
+                            hx-swap="outerHTML"
+                            hx-indicator="#pending-indicator">Reject</button>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p style="color:#999;padding:16px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;margin-bottom:32px;">No pending requests.</p>
+    {{end}}
+
+    <span id="pending-indicator" class="htmx-indicator" style="display:inline-block;margin-bottom:16px;font-size:0.9rem;color:#555;">Updating...</span>
+
+    <h2 style="font-size:1.25rem;margin-bottom:16px;color:#16213e;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">
+        All Connections ({{.ActiveTotal}})
+    </h2>
+
+    <div style="margin-bottom:16px;">
+        <form hx-get="/admin/connections" hx-target="#connections-content" hx-swap="outerHTML" style="display:flex;gap:12px;align-items:end;">
+            <div>
+                <label style="display:block;font-size:0.8rem;font-weight:600;color:#555;margin-bottom:4px;">Search</label>
+                <input type="text" name="search" value="{{.Search}}" placeholder="Parent or youth name..." style="padding:8px 12px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;width:260px;">
+            </div>
+            <div>
+                <button type="submit" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-size:0.875rem;cursor:pointer;">Filter</button>
+            </div>
+        </form>
+    </div>
+
+    {{if .Active}}
+    <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+        <thead>
+            <tr style="background:#f5f5f5;text-align:left;">
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Parent</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Youth</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Youth BSA ID</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Status</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Approved</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Approved By</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Active}}
+            <tr style="border-top:1px solid #f0f0f0;">
+                <td style="padding:10px 14px;font-weight:500;">{{.ParentName}}</td>
+                <td style="padding:10px 14px;">{{.YouthName}}</td>
+                <td style="padding:10px 14px;font-family:monospace;font-size:0.875rem;color:#555;">{{.YouthBSAID}}</td>
+                <td style="padding:10px 14px;font-size:0.875rem;">
+                    {{if eq .Status "Active"}}
+                    <span style="color:#2e7d32;font-weight:600;">Active</span>
+                    {{else}}
+                    <span style="color:#e65100;font-weight:600;">Revoked</span>
+                    {{end}}
+                </td>
+                <td style="padding:10px 14px;font-size:0.875rem;color:#555;">{{.ApprovedAt}}</td>
+                <td style="padding:10px 14px;font-size:0.875rem;color:#555;">{{.ApprovedBy}}</td>
+                <td style="padding:10px 14px;">
+                    {{if eq .Status "Active"}}
+                    <button style="background:#e65100;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:0.8rem;cursor:pointer;"
+                            hx-post="/admin/connections/{{.ID}}/remove"
+                            hx-target="#connections-content"
+                            hx-swap="outerHTML"
+                            hx-indicator="#active-indicator">Remove</button>
+                    {{end}}
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p style="color:#999;padding:16px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;">No connections found.</p>
+    {{end}}
+
+    <span id="active-indicator" class="htmx-indicator" style="display:inline-block;margin-top:8px;font-size:0.9rem;color:#555;">Updating...</span>
+</div>
+{{end}}
