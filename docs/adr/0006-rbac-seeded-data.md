@@ -1,5 +1,7 @@
 # 0006-rbac-seeded-data
 
+Status: superseded by ADR-0008
+
 Role and permission definitions are seeded data (inserted in an idempotent migration), not dynamic runtime records. The application does not expose admin CRUD for roles or permissions in the MVP.
 
 ### Context

@@ -11,19 +11,23 @@ A planned social or troop activity with a title, description, location, and timi
 A specific type of **Event** that typically spans multiple days.
 
 ### User
-A security principal authenticated via password. A User has no PII and no inherent email — personal information lives on the linked **Profile**. Users have **Roles** that determine their **Permissions**. A User links to exactly one **Profile**.
+A security principal authenticated via password. A User has no PII and no inherent email — personal information lives on the linked **Profile**. Users have **Roles** that determine their **Permissions**. Roles are assigned from three sources: **Registration** assigns **Parent** or **Scouts BSA**; **Scoutbook Sync** reconciles position-derived roles; and **Admin** can assign privileged roles like **Admin**. A User links to exactly one **Profile**.
 
 ### Profile
-A PII record synced from Scoutbook, identified by its **BSA ID**. Contains first name, last name, nickname, email, phone, birthdate, and **Member Type**. A Profile links to exactly zero or one **User**. When linked, the Profile is "claimed." Profiles are the entities that sign up for events as **Attendees**.
+A PII record synced from Scoutbook, identified by its **BSA ID**. Contains first name, last name, nickname, email, phone, birthdate, **Member Type**, and **Positions**. A Profile links to exactly zero or one **User**. When linked, the Profile is "claimed." Profiles are the entities that sign up for events as **Attendees**.
 
 ### Display Name
 A formatted name for a **Profile**, returned by `Profile.DisplayName()`. When the Profile has a non-empty **Nickname**, the format is `Nickname (FirstName) LastName`. Otherwise it falls back to `FirstName LastName`. Used consistently across all UI contexts.
 
 ### Role
-A designation assigned to a **User** that determines their permissions. A **User** can have multiple **Roles**.
+A designation assigned to a **User** that determines their permissions. A **User** can have multiple **Roles**. Roles come from three sources:
+- **Status roles** — assigned at **Registration** (e.g., **Parent** for adults). Never touched by **Scoutbook Sync**.
+- **Position-based roles** — derived from a **Profile**'s **Positions** field. Reconciled every **Scoutbook Sync**: roles matching current positions are added, roles no longer held are removed.
+- **Privileged roles** — assigned by an **Admin** (e.g., **Admin**). Never touched by **Scoutbook Sync**.
+A **User** has a permission if **any** of their roles grants it.
 
 ### Permission
-A specific action that a **User** is allowed to perform (e.g., "Create Event", "Sign up for Event"). Permissions are mapped to **Roles**.
+A specific action that a **User** is allowed to perform (e.g., `event:create`, `event:signup`). Permissions are mapped to **Roles** via a run-time admin interface.
 
 ### Attendee
 A **Profile** that has been signed up to participate in a specific **Event**. An Attendee has a status (`signed_up`, `canceled`) and may hold one or more **Responsibilities** for that Event.
@@ -49,6 +53,9 @@ An **Event** whose end time has not yet passed.
 ### Past Event
 An **Event** whose end time has passed.
 
+### Position
+A Scoutbook-assigned title held by a **Profile** (e.g., `Scoutmaster`, `Patrol Leader`, `Scribe`). Stored as a comma-separated string on the **Profile**. Each **Position** corresponds to a **Role** of the same name. When a **Profile** is linked to a **User**, the **Scoutbook Sync** reconciles the user's position-based roles to match their current positions.
+
 ### Event Cost
 The amount in currency required for a **User** to participate in an **Event**. For the MVP, this is a fixed value per **Event** for informational purposes.
 
@@ -62,7 +69,7 @@ A chronological list of **Past Events** (historical events).
 An **Event** summary projected for list views, containing the core event fields plus the number of signed-up **Attendees**.
 
 ### Registration
-The process by which an unclaimed **Profile** becomes linked to a **User**. Three-step flow: email entry and **OTP** generation, OTP verification, and password creation. The OTP email includes a link to `/register/verify?otp_id=<uuid>`, using the OTP record's UUID to identify the user (not their email). The unauthenticated **Session** tracks progress — the email is stored after OTP generation, and a `verified_email` flag is set after successful OTP validation. If no **Profile** exists for the email, the user is told no account was found and directed to check their Scoutbook email or contact the Troop Webmaster. If the **Profile** is already linked to a **User**, the user is shown an error with a link to the login page. After password creation, the user is redirected to `/login?registered=1` which displays a persistent success banner. When the **User** is created, they are assigned the **Role** `parent` if their **Profile** has **Member Type** `adult`, or `scout` if their **Profile** has **Member Type** `youth`.
+The process by which an unclaimed **Profile** becomes linked to a **User**. Three-step flow: email entry and **OTP** generation, OTP verification, and password creation. The OTP email includes a link to `/register/verify?otp_id=<uuid>`, using the OTP record's UUID to identify the user (not their email). The unauthenticated **Session** tracks progress — the email is stored after OTP generation, and a `verified_email` flag is set after successful OTP validation. If no **Profile** exists for the email, the user is told no account was found and directed to check their Scoutbook email or contact the Troop Webmaster. If the **Profile** is already linked to a **User**, the user is shown an error with a link to the login page. After password creation, the user is redirected to `/login?registered=1` which displays a persistent success banner. When the **User** is created, they are assigned the **Role** `parent` if their **Profile** has **Member Type** `adult`. If the **Profile** already has **Positions** at registration time, those are also assigned as **Roles** (same logic as **Scoutbook Sync**). Position-based roles are later kept in sync by subsequent **Scoutbook Sync** runs.
 
 ### Authentication
 The process of verifying a **User**'s identity by finding a **Profile** by email, resolving the linked **User**, and checking the provided password against the stored **Password Hash**.
@@ -96,3 +103,5 @@ An encrypted record of a Bearer JWT token obtained from Scoutbook, stored so the
 
 ### Scoutbook Sync
 The process of importing roster data from Scoutbook into the app's **Profile** table. An admin pastes their Bearer JWT (obtained from the SPA at `advancements.scouting.org`), and the app calls the Scoutbook API at `api.scouting.org` (`POST /organizations/v2/{orgGuid}/orgAdults` and `POST /organizations/v2/{orgGuid}/orgYouths` with body `{includeRegistrationDetails:true, includeExpired:true}`), deduplicates by **BSA ID**, fetches email via `personprofile`, and upserts local **Profile** records. Profiles that no longer appear in Scoutbook are marked `inactive`.
+
+When a **Profile** is linked to a **User** and its **Positions** have changed, **Scoutbook Sync** reconciles the user's position-based **Roles** to match. Roles matching current positions are added; position-based roles no longer held are removed. **Status roles** (e.g., **Parent**) and **Privileged roles** (e.g., **Admin**) are never touched.
