@@ -158,6 +158,19 @@ func (r *RBACRepository) LinkPermissionToRole(ctx context.Context, roleID string
 	return nil
 }
 
+func (r *RBACRepository) RemoveRoleFromUser(ctx context.Context, userID string, roleID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rids := r.userRoles[userID]
+	for i, rid := range rids {
+		if rid == roleID {
+			r.userRoles[userID] = append(rids[:i], rids[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
 func (r *RBACRepository) GetUserRoles(ctx context.Context, userID string) ([]*rbac.Role, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

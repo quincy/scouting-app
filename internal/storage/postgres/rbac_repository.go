@@ -49,6 +49,14 @@ func (r *RBACRepository) AssignRoleToUser(ctx context.Context, userID string, ro
 	return err
 }
 
+func (r *RBACRepository) RemoveRoleFromUser(ctx context.Context, userID string, roleID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM user_roles WHERE user_id = $1 AND role_id = $2`,
+		userID, roleID,
+	)
+	return err
+}
+
 func (r *RBACRepository) LinkPermissionToRole(ctx context.Context, roleID string, permID string) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO role_permissions (role_id, permission_id, created_at) VALUES ($1, $2, NOW())

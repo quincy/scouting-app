@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"scout-app/internal/domain/profile"
+	"scout-app/internal/domain/rbac"
 	"scout-app/internal/domain/sync"
 	"scout-app/internal/scoutbook"
 )
@@ -45,8 +46,32 @@ func (m *mockSyncRepo) ListByStatus(ctx context.Context, status profile.Status) 
 }
 func (m *mockSyncRepo) Update(ctx context.Context, p *profile.Profile) error { return nil }
 
+type mockRBACRepo struct{}
+
+func (m *mockRBACRepo) SeedRoles(ctx context.Context) error                               { return nil }
+func (m *mockRBACRepo) CreateRole(ctx context.Context, r *rbac.Role) error                { return nil }
+func (m *mockRBACRepo) CreatePermission(ctx context.Context, p *rbac.Permission) error    { return nil }
+func (m *mockRBACRepo) AssignRoleToUser(ctx context.Context, userID, roleID string) error { return nil }
+func (m *mockRBACRepo) RemoveRoleFromUser(ctx context.Context, userID, roleID string) error {
+	return nil
+}
+func (m *mockRBACRepo) LinkPermissionToRole(ctx context.Context, roleID, permID string) error {
+	return nil
+}
+func (m *mockRBACRepo) GetUserRoles(ctx context.Context, userID string) ([]*rbac.Role, error) {
+	return nil, nil
+}
+func (m *mockRBACRepo) GetUserPermissions(ctx context.Context, userID string) ([]*rbac.Permission, error) {
+	return nil, nil
+}
+func (m *mockRBACRepo) GetRoleByName(ctx context.Context, name string) (*rbac.Role, error) {
+	return nil, nil
+}
+
+var mockRBAC = &mockRBACRepo{}
+
 func TestSyncHandler_AdminPage_NoToken(t *testing.T) {
-	svc := sync.NewService(&mockSyncRepo{}, &mockSyncClient{})
+	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
 	handler := NewSyncHandler(svc, client)
 
@@ -63,7 +88,7 @@ func TestSyncHandler_AdminPage_NoToken(t *testing.T) {
 }
 
 func TestSyncHandler_AdminPage_WithToken(t *testing.T) {
-	svc := sync.NewService(&mockSyncRepo{}, &mockSyncClient{})
+	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
 	handler := NewSyncHandler(svc, client)
 
@@ -91,7 +116,7 @@ func TestSyncHandler_AdminPage_WithToken(t *testing.T) {
 }
 
 func TestSyncHandler_StoreToken_FormEncoded(t *testing.T) {
-	svc := sync.NewService(&mockSyncRepo{}, &mockSyncClient{})
+	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
 	handler := NewSyncHandler(svc, client)
 
@@ -110,7 +135,7 @@ func TestSyncHandler_StoreToken_FormEncoded(t *testing.T) {
 }
 
 func TestSyncHandler_StoreToken_JSON(t *testing.T) {
-	svc := sync.NewService(&mockSyncRepo{}, &mockSyncClient{})
+	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
 	handler := NewSyncHandler(svc, client)
 
@@ -129,7 +154,7 @@ func TestSyncHandler_StoreToken_JSON(t *testing.T) {
 }
 
 func TestSyncHandler_StoreToken_MissingToken(t *testing.T) {
-	svc := sync.NewService(&mockSyncRepo{}, &mockSyncClient{})
+	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
 	handler := NewSyncHandler(svc, client)
 
@@ -148,7 +173,7 @@ func TestSyncHandler_StoreToken_MissingToken(t *testing.T) {
 }
 
 func TestSyncHandler_StoreToken_InvalidInnerJSON(t *testing.T) {
-	svc := sync.NewService(&mockSyncRepo{}, &mockSyncClient{})
+	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
 	handler := NewSyncHandler(svc, client)
 
@@ -167,7 +192,7 @@ func TestSyncHandler_StoreToken_InvalidInnerJSON(t *testing.T) {
 }
 
 func TestSyncHandler_Sync_NoToken(t *testing.T) {
-	svc := sync.NewService(&mockSyncRepo{}, &mockSyncClient{})
+	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
 	handler := NewSyncHandler(svc, client)
 
@@ -184,7 +209,7 @@ func TestSyncHandler_Sync_NoToken(t *testing.T) {
 }
 
 func TestSyncHandler_Sync_WithToken(t *testing.T) {
-	svc := sync.NewService(&mockSyncRepo{}, &mockSyncClient{})
+	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
 	handler := NewSyncHandler(svc, client)
 
@@ -209,7 +234,7 @@ func TestSyncHandler_Sync_WithToken(t *testing.T) {
 }
 
 func TestSyncHandler_Sync_ExpiredToken(t *testing.T) {
-	svc := sync.NewService(&mockSyncRepo{}, &mockSyncClient{})
+	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
 	handler := NewSyncHandler(svc, client)
 

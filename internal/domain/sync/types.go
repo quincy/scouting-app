@@ -23,9 +23,11 @@ type Member struct {
 }
 
 type Result struct {
-	Created     int
-	Updated     int
-	Deactivated int
+	Created      int
+	Updated      int
+	Deactivated  int
+	RolesAdded   int
+	RolesRemoved int
 }
 
 type Client interface {

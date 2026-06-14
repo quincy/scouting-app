@@ -320,7 +320,7 @@ func main() {
 
 	// Scoutbook sync
 	scoutbookClient := scoutbook.NewClient(cfg.ScoutbookAPIBaseURL, cfg.ScoutbookToken, cfg.ScoutbookOrgGUID)
-	syncSvc := sync.NewService(profileRepo, sync.NewScoutbookClientAdapter(scoutbookClient))
+	syncSvc := sync.NewService(profileRepo, rbacRepo, sync.NewScoutbookClientAdapter(scoutbookClient))
 	syncHandler := api.NewSyncHandler(syncSvc, scoutbookClient)
 	if cfg.ScoutbookOrgGUID == "" {
 		log.Fatal("SCOUTBOOK_ORG_GUID must be set")

@@ -4,19 +4,23 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"scout-app/internal/domain/profile"
+	"scout-app/internal/domain/rbac"
 )
 
 type Service struct {
 	profiles profile.Repository
+	rbac     rbac.Repository
 	client   Client
 }
 
-func NewService(profiles profile.Repository, client Client) *Service {
+func NewService(profiles profile.Repository, rbac rbac.Repository, client Client) *Service {
 	return &Service{
 		profiles: profiles,
+		rbac:     rbac,
 		client:   client,
 	}
 }
@@ -68,6 +72,12 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 				return nil, fmt.Errorf("create profile %s: %w", m.MemberID, err)
 			}
 			result.Created++
+			added, removed, err := s.reconcileRoles(ctx, p.ID, p.UserID, p.Positions)
+			if err != nil {
+				return nil, fmt.Errorf("reconcile roles for %s: %w", m.MemberID, err)
+			}
+			result.RolesAdded += added
+			result.RolesRemoved += removed
 		} else {
 			updated := false
 			if existing.FirstName != m.FirstName {
@@ -139,6 +149,13 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 			} else {
 				log.Printf("[sync] SKIP memberId=%s (no changes)", m.MemberID)
 			}
+
+			added, removed, err := s.reconcileRoles(ctx, existing.ID, existing.UserID, existing.Positions)
+			if err != nil {
+				return nil, fmt.Errorf("reconcile roles for %s: %w", m.MemberID, err)
+			}
+			result.RolesAdded += added
+			result.RolesRemoved += removed
 		}
 	}
 
@@ -158,7 +175,7 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 		}
 	}
 
-	log.Printf("[sync] Result: created=%d updated=%d deactivated=%d", result.Created, result.Updated, result.Deactivated)
+	log.Printf("[sync] Result: created=%d updated=%d deactivated=%d rolesAdded=%d rolesRemoved=%d", result.Created, result.Updated, result.Deactivated, result.RolesAdded, result.RolesRemoved)
 	return result, nil
 }
 
@@ -204,6 +221,64 @@ func deduplicate(adults, youths []Member) []Member {
 		result = append(result, *m)
 	}
 	return result
+}
+
+func (s *Service) reconcileRoles(ctx context.Context, profileID string, userID *string, positions string) (added, removed int, err error) {
+	if userID == nil {
+		return 0, 0, nil
+	}
+
+	currentRoles, err := s.rbac.GetUserRoles(ctx, *userID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("get user roles: %w", err)
+	}
+
+	currentRoleNames := make(map[string]bool)
+	for _, role := range currentRoles {
+		if role.Name != "parent" && role.Name != "admin" {
+			currentRoleNames[role.Name] = true
+		}
+	}
+
+	targetPositions := make(map[string]bool)
+	if positions != "" {
+		for _, pos := range strings.Split(positions, ", ") {
+			targetPositions[pos] = true
+		}
+	}
+
+	for pos := range targetPositions {
+		if !currentRoleNames[pos] {
+			role, err := s.rbac.GetRoleByName(ctx, pos)
+			if err != nil {
+				role = &rbac.Role{Name: pos}
+				if err := s.rbac.CreateRole(ctx, role); err != nil {
+					return 0, 0, fmt.Errorf("create role %q: %w", pos, err)
+				}
+			}
+			if err := s.rbac.AssignRoleToUser(ctx, *userID, role.ID); err != nil {
+				return 0, 0, fmt.Errorf("assign role %q: %w", pos, err)
+			}
+			log.Printf("[sync] ROLE ADDED memberId=%s role=%s", profileID, pos)
+			added++
+		}
+	}
+
+	for roleName := range currentRoleNames {
+		if !targetPositions[roleName] {
+			role, err := s.rbac.GetRoleByName(ctx, roleName)
+			if err != nil {
+				continue
+			}
+			if err := s.rbac.RemoveRoleFromUser(ctx, *userID, role.ID); err != nil {
+				return 0, 0, fmt.Errorf("remove role %q: %w", roleName, err)
+			}
+			log.Printf("[sync] ROLE REMOVED memberId=%s role=%s", profileID, roleName)
+			removed++
+		}
+	}
+
+	return added, removed, nil
 }
 
 func memberType(bsaID string, adults, youths []Member) profile.MemberType {
