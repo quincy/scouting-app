@@ -679,13 +679,13 @@ func TestRegistrationHandler_Complete_Youth_ScoutRole(t *testing.T) {
 	}
 	hasScoutRole := false
 	for _, role := range roles {
-		if role.Name == "scout" {
+		if role.Name == "Scouts BSA" {
 			hasScoutRole = true
 			break
 		}
 	}
 	if !hasScoutRole {
-		t.Error("expected user to have 'scout' role")
+		t.Error("expected user to have 'Scouts BSA' role")
 	}
 }
 

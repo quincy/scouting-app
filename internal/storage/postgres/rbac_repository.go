@@ -21,7 +21,8 @@ func (r *RBACRepository) CreateRole(ctx context.Context, role *rbac.Role) error 
 		role.ID = newUUID()
 	}
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO roles (id, name, created_at, updated_at) VALUES ($1, $2, NOW(), NOW())`,
+		`INSERT INTO roles (id, name, created_at, updated_at) VALUES ($1, $2, NOW(), NOW())
+		 ON CONFLICT (name) DO NOTHING`,
 		role.ID, role.Name,
 	)
 	return err
@@ -32,7 +33,8 @@ func (r *RBACRepository) CreatePermission(ctx context.Context, perm *rbac.Permis
 		perm.ID = newUUID()
 	}
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO permissions (id, name, created_at, updated_at) VALUES ($1, $2, NOW(), NOW())`,
+		`INSERT INTO permissions (id, name, created_at, updated_at) VALUES ($1, $2, NOW(), NOW())
+		 ON CONFLICT (name) DO NOTHING`,
 		perm.ID, perm.Name,
 	)
 	return err

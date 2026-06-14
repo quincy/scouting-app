@@ -98,7 +98,8 @@ func (r *RBACRepository) CreateRole(ctx context.Context, role *rbac.Role) error 
 	defer r.mu.Unlock()
 	for _, rl := range r.roles {
 		if rl.Name == role.Name {
-			return fmt.Errorf("role %q already exists", role.Name)
+			role.ID = rl.ID
+			return nil
 		}
 	}
 	if role.ID == "" {
@@ -113,7 +114,8 @@ func (r *RBACRepository) CreatePermission(ctx context.Context, perm *rbac.Permis
 	defer r.mu.Unlock()
 	for _, p := range r.permissions {
 		if p.Name == perm.Name {
-			return fmt.Errorf("permission %q already exists", perm.Name)
+			perm.ID = p.ID
+			return nil
 		}
 	}
 	if perm.ID == "" {

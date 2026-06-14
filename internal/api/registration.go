@@ -366,7 +366,7 @@ func (h *RegistrationHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	if prof.MemberType == profile.MemberTypeAdult {
 		roleName = "parent"
 	} else {
-		roleName = "scout"
+		roleName = "Scouts BSA"
 	}
 
 	role, err := h.rbacRepo.GetRoleByName(ctx, roleName)

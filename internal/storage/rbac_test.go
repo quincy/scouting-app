@@ -25,10 +25,14 @@ func TestRBACRepository_RolesAndPermissions(t *testing.T) {
 		t.Error("expected admin role to have generated UUID ID")
 	}
 
-	// Try creating duplicate role
-	err = repo.CreateRole(ctx, &rbac.Role{Name: "Admin"})
-	if err == nil {
-		t.Error("expected error when creating duplicate role, got nil")
+	// Creating duplicate role returns existing ID (idempotent)
+	dupRole := &rbac.Role{Name: "Admin"}
+	err = repo.CreateRole(ctx, dupRole)
+	if err != nil {
+		t.Fatalf("expected no error for duplicate role (idempotent), got: %v", err)
+	}
+	if dupRole.ID != adminRole.ID {
+		t.Error("expected duplicate role to get the existing role's ID")
 	}
 
 	// 2. Create Permissions

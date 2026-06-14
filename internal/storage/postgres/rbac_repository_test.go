@@ -80,12 +80,12 @@ func TestPostgresRBACRepository_GetRoleByName(t *testing.T) {
 	repo := NewRBACRepository(testDB)
 	ctx := context.Background()
 
-	role := &rbac.Role{Name: "scoutmaster"}
+	role := &rbac.Role{Name: "TestRole"}
 	if err := repo.CreateRole(ctx, role); err != nil {
 		t.Fatalf("CreateRole: %v", err)
 	}
 
-	fetched, err := repo.GetRoleByName(ctx, "scoutmaster")
+	fetched, err := repo.GetRoleByName(ctx, "TestRole")
 	if err != nil {
 		t.Fatalf("GetRoleByName: %v", err)
 	}
