@@ -1,0 +1,12 @@
+{{define "header"}}
+<div class="header">
+    <h1>{{.Title}}</h1>
+    <nav class="header-nav">
+        <a href="/family-connections" class="nav-link">Family</a>
+        {{if .IsAdmin}}<a href="/admin" class="nav-link">Admin</a>{{end}}
+        <form method="POST" action="/logout">
+            <button type="submit" class="btn-logout">Log out</button>
+        </form>
+    </nav>
+</div>
+{{end}}

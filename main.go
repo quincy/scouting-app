@@ -349,6 +349,8 @@ func main() {
 		router.HandleFunc("/deepcheck", api.DeepCheckHandler(db)).Methods("GET")
 	}
 
+	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
 	authHandler := api.NewAuthHandler(authService)
 	router.HandleFunc("/login", authHandler.LoginPage).Methods("GET")
 	router.HandleFunc("/login", authHandler.Login).Methods("POST")

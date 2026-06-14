@@ -29,6 +29,8 @@ type connectionVM struct {
 }
 
 type familyConnectionsPageData struct {
+	Title       string
+	IsAdmin     bool
 	Connections []connectionVM
 	IsAdult     bool
 	Error       string
@@ -42,7 +44,7 @@ func NewFamilyConnectionsHandler(
 	rbac rbac.Repository,
 ) *FamilyConnectionsHandler {
 	tmpl := template.Must(
-		template.New("").ParseFS(viewsFS, "views/family_connections.html"),
+		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
 	return &FamilyConnectionsHandler{
 		profileRepo: profileRepo,
@@ -53,7 +55,26 @@ func NewFamilyConnectionsHandler(
 	}
 }
 
-func (h *FamilyConnectionsHandler) renderPage(w http.ResponseWriter, data familyConnectionsPageData) {
+func (h *FamilyConnectionsHandler) isAdmin(ctx context.Context, r *http.Request) bool {
+	user, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || user == nil {
+		return false
+	}
+	perms, err := h.rbac.GetUserPermissions(ctx, user.ID)
+	if err != nil {
+		return false
+	}
+	for _, p := range perms {
+		if p.Name == "event:create" {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *FamilyConnectionsHandler) renderPage(w http.ResponseWriter, r *http.Request, data familyConnectionsPageData) {
+	data.Title = "Family Connections"
+	data.IsAdmin = h.isAdmin(r.Context(), r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl.ExecuteTemplate(w, "family_connections.html", data); err != nil {
 		log.Printf("family_connections template execution: %v", err)
@@ -115,7 +136,7 @@ func (h *FamilyConnectionsHandler) FamilyConnectionsPage(w http.ResponseWriter, 
 	isAdult := userProfile.MemberType == profile.MemberTypeAdult
 	conns := h.buildConnections(ctx, userProfile.ID, isAdult)
 
-	h.renderPage(w, familyConnectionsPageData{
+	h.renderPage(w, r, familyConnectionsPageData{
 		Connections: conns,
 		IsAdult:     isAdult,
 	})
@@ -136,7 +157,7 @@ func (h *FamilyConnectionsHandler) AddConnection(w http.ResponseWriter, r *http.
 
 	bsaID := strings.TrimSpace(r.FormValue("bsa_id"))
 	if bsaID == "" {
-		h.renderPage(w, familyConnectionsPageData{
+		h.renderPage(w, r, familyConnectionsPageData{
 			Error: "Please enter the youth's BSA ID.",
 		})
 		return
@@ -147,7 +168,7 @@ func (h *FamilyConnectionsHandler) AddConnection(w http.ResponseWriter, r *http.
 	parentProfile, err := h.profileRepo.GetByUserID(ctx, user.ID)
 	if err != nil {
 		log.Printf("GetByUserID: %v", err)
-		h.renderPage(w, familyConnectionsPageData{Error: "Could not find your profile. Please contact support."})
+		h.renderPage(w, r, familyConnectionsPageData{Error: "Could not find your profile. Please contact support."})
 		return
 	}
 
@@ -156,7 +177,7 @@ func (h *FamilyConnectionsHandler) AddConnection(w http.ResponseWriter, r *http.
 	youthProfile, err := h.profileRepo.GetByBSAID(ctx, bsaID)
 	if err != nil {
 		conns := h.buildConnections(ctx, parentProfile.ID, isAdult)
-		h.renderPage(w, familyConnectionsPageData{
+		h.renderPage(w, r, familyConnectionsPageData{
 			Connections: conns,
 			IsAdult:     isAdult,
 			Error:       "No profile found with that BSA ID.",
@@ -166,7 +187,7 @@ func (h *FamilyConnectionsHandler) AddConnection(w http.ResponseWriter, r *http.
 
 	if youthProfile.MemberType != profile.MemberTypeYouth {
 		conns := h.buildConnections(ctx, parentProfile.ID, isAdult)
-		h.renderPage(w, familyConnectionsPageData{
+		h.renderPage(w, r, familyConnectionsPageData{
 			Connections: conns,
 			IsAdult:     isAdult,
 			Error:       "That BSA ID belongs to an adult, not a youth.",
@@ -176,7 +197,7 @@ func (h *FamilyConnectionsHandler) AddConnection(w http.ResponseWriter, r *http.
 
 	if youthProfile.UserID != nil {
 		conns := h.buildConnections(ctx, parentProfile.ID, isAdult)
-		h.renderPage(w, familyConnectionsPageData{
+		h.renderPage(w, r, familyConnectionsPageData{
 			Connections: conns,
 			IsAdult:     isAdult,
 			Error:       "This youth already has a linked account.",
@@ -189,7 +210,7 @@ func (h *FamilyConnectionsHandler) AddConnection(w http.ResponseWriter, r *http.
 		for _, l := range existingLinks {
 			if l.YouthProfileID == youthProfile.ID && l.Status == parentyouthlink.StatusPending {
 				conns := h.buildConnections(ctx, parentProfile.ID, isAdult)
-				h.renderPage(w, familyConnectionsPageData{
+				h.renderPage(w, r, familyConnectionsPageData{
 					Connections: conns,
 					IsAdult:     isAdult,
 					Error:       "You already have a pending request for this youth.",
@@ -208,7 +229,7 @@ func (h *FamilyConnectionsHandler) AddConnection(w http.ResponseWriter, r *http.
 	if err := h.linkRepo.Create(ctx, link); err != nil {
 		log.Printf("Create link: %v", err)
 		conns := h.buildConnections(ctx, parentProfile.ID, isAdult)
-		h.renderPage(w, familyConnectionsPageData{
+		h.renderPage(w, r, familyConnectionsPageData{
 			Connections: conns,
 			IsAdult:     isAdult,
 			Error:       "An error occurred. Please try again.",
@@ -217,7 +238,7 @@ func (h *FamilyConnectionsHandler) AddConnection(w http.ResponseWriter, r *http.
 	}
 
 	conns := h.buildConnections(ctx, parentProfile.ID, isAdult)
-	h.renderPage(w, familyConnectionsPageData{
+	h.renderPage(w, r, familyConnectionsPageData{
 		Connections: conns,
 		IsAdult:     isAdult,
 		Success:     "Request sent! An admin will review the link request.",
