@@ -14,4 +14,9 @@ scout-app
 .antigravitycli
 .agent-scratch
 .agent-scratch/**
+.opencode
+
 *.env
+
+.DS_Store
+
