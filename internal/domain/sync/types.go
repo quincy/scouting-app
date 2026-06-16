@@ -1,6 +1,11 @@
 package sync
 
-import "context"
+import (
+	"context"
+	"time"
+
+	"scout-app/internal/domain/profile"
+)
 
 type MemberType string
 
@@ -22,12 +27,38 @@ type Member struct {
 	Positions  string
 }
 
+type ProfileSnapshot struct {
+	BSAID      string
+	FirstName  string
+	LastName   string
+	Nickname   string
+	Gender     string
+	Email      string
+	Phone      string
+	Birthdate  time.Time
+	MemberType profile.MemberType
+	Status     profile.Status
+	Positions  string
+	UserID     *string
+}
+
+type ProfileReport struct {
+	MemberID     string
+	Name         string
+	Status       string // "created" | "updated" | "deactivated"
+	Old          *ProfileSnapshot
+	New          ProfileSnapshot
+	RolesAdded   []string
+	RolesRemoved []string
+}
+
 type Result struct {
 	Created      int
 	Updated      int
 	Deactivated  int
 	RolesAdded   int
 	RolesRemoved int
+	Profiles     []ProfileReport
 }
 
 type Client interface {

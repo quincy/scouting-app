@@ -215,6 +215,19 @@ func TestSync_CreatesNewProfiles(t *testing.T) {
 		t.Errorf("expected 0 deactivated, got %d", result.Deactivated)
 	}
 
+	if len(result.Profiles) != 1 {
+		t.Fatalf("expected 1 profile in report, got %d", len(result.Profiles))
+	}
+	if result.Profiles[0].Status != "created" {
+		t.Errorf("expected status created, got %s", result.Profiles[0].Status)
+	}
+	if result.Profiles[0].Old != nil {
+		t.Errorf("expected Old to be nil for created profile")
+	}
+	if result.Profiles[0].New.FirstName != "John" {
+		t.Errorf("expected snapshot FirstName John, got %s", result.Profiles[0].New.FirstName)
+	}
+
 	p, err := repo.GetByBSAID(ctx, "100")
 	if err != nil {
 		t.Fatalf("GetByBSAID failed: %v", err)
@@ -264,6 +277,10 @@ func TestSync_CreatesYouthProfiles(t *testing.T) {
 
 	if result.Created != 1 {
 		t.Fatalf("expected 1 created, got %d", result.Created)
+	}
+
+	if len(result.Profiles) != 1 || result.Profiles[0].Status != "created" {
+		t.Errorf("expected 1 created profile in report, got %d", len(result.Profiles))
 	}
 
 	p, err := repo.GetByBSAID(ctx, "200")
@@ -347,6 +364,23 @@ func TestSync_UpdatesExistingProfiles(t *testing.T) {
 	}
 	if result.Updated != 1 {
 		t.Errorf("expected 1 updated, got %d", result.Updated)
+	}
+
+	if len(result.Profiles) != 1 {
+		t.Fatalf("expected 1 profile in report, got %d", len(result.Profiles))
+	}
+	rep := result.Profiles[0]
+	if rep.Status != "updated" {
+		t.Errorf("expected status updated, got %s", rep.Status)
+	}
+	if rep.Old == nil {
+		t.Fatal("expected Old snapshot for updated profile")
+	}
+	if rep.Old.FirstName != "OldFirst" {
+		t.Errorf("expected old first name OldFirst, got %s", rep.Old.FirstName)
+	}
+	if rep.New.FirstName != "John" {
+		t.Errorf("expected new first name John, got %s", rep.New.FirstName)
 	}
 
 	p, err := repo.GetByBSAID(ctx, "100")
@@ -475,6 +509,28 @@ func TestSync_MarksMissingInactive(t *testing.T) {
 		t.Errorf("expected 1 created, got %d", result.Created)
 	}
 
+	if len(result.Profiles) != 2 {
+		t.Fatalf("expected 2 profiles in report, got %d", len(result.Profiles))
+	}
+	var deactivated *ProfileReport
+	for i := range result.Profiles {
+		if result.Profiles[i].Status == "deactivated" {
+			deactivated = &result.Profiles[i]
+		}
+	}
+	if deactivated == nil {
+		t.Fatal("expected deactivated profile in report")
+	}
+	if deactivated.Old == nil {
+		t.Fatal("expected Old snapshot for deactivated profile")
+	}
+	if deactivated.Old.Status != profile.StatusActive {
+		t.Errorf("expected old status active, got %s", deactivated.Old.Status)
+	}
+	if deactivated.New.Status != profile.StatusInactive {
+		t.Errorf("expected new status inactive, got %s", deactivated.New.Status)
+	}
+
 	p, err := repo.GetByBSAID(ctx, "999")
 	if err != nil {
 		t.Fatalf("GetByBSAID failed: %v", err)
@@ -513,6 +569,9 @@ func TestSync_Idempotent(t *testing.T) {
 	}
 	if result2.Deactivated != 0 {
 		t.Errorf("expected 0 deactivated on second sync, got %d", result2.Deactivated)
+	}
+	if len(result2.Profiles) != 0 {
+		t.Errorf("expected 0 profiles in report on idempotent sync, got %d", len(result2.Profiles))
 	}
 }
 
@@ -651,6 +710,24 @@ func TestSync_ReconcileRoles_AddsPositionRoles(t *testing.T) {
 		t.Errorf("expected 0 roles removed, got %d", result.RolesRemoved)
 	}
 
+	if len(result.Profiles) != 1 {
+		t.Fatalf("expected 1 profile in report, got %d", len(result.Profiles))
+	}
+	rep := result.Profiles[0]
+	if len(rep.RolesAdded) != 2 {
+		t.Errorf("expected 2 roles added in report, got %d", len(rep.RolesAdded))
+	}
+	addedSet := make(map[string]bool)
+	for _, r := range rep.RolesAdded {
+		addedSet[r] = true
+	}
+	if !addedSet["Scoutmaster"] {
+		t.Error("expected Scoutmaster in RolesAdded")
+	}
+	if !addedSet["Committee Chair"] {
+		t.Error("expected Committee Chair in RolesAdded")
+	}
+
 	roles, err := rbac.GetUserRoles(ctx, uid)
 	if err != nil {
 		t.Fatalf("GetUserRoles failed: %v", err)
@@ -712,6 +789,14 @@ func TestSync_ReconcileRoles_RemovesStaleRoles(t *testing.T) {
 	}
 	if result.RolesRemoved != 1 {
 		t.Errorf("expected 1 role removed, got %d", result.RolesRemoved)
+	}
+
+	if len(result.Profiles) != 1 {
+		t.Fatalf("expected 1 profile in report, got %d", len(result.Profiles))
+	}
+	rep := result.Profiles[0]
+	if len(rep.RolesRemoved) != 1 || rep.RolesRemoved[0] != "Troop Admin" {
+		t.Errorf("expected Troop Admin in RolesRemoved, got %v", rep.RolesRemoved)
 	}
 
 	roles, err := rbac.GetUserRoles(ctx, uid)
@@ -777,6 +862,14 @@ func TestSync_ReconcileRoles_DoesNotTouchProtectedRoles(t *testing.T) {
 		t.Errorf("expected 1 role removed (Scoutmaster only), got %d", result.RolesRemoved)
 	}
 
+	if len(result.Profiles) != 1 {
+		t.Fatalf("expected 1 profile in report, got %d", len(result.Profiles))
+	}
+	rep := result.Profiles[0]
+	if len(rep.RolesRemoved) != 1 || rep.RolesRemoved[0] != "Scoutmaster" {
+		t.Errorf("expected Scoutmaster in RolesRemoved, got %v", rep.RolesRemoved)
+	}
+
 	roles, err := rbac.GetUserRoles(ctx, uid)
 	if err != nil {
 		t.Fatalf("GetUserRoles failed: %v", err)
@@ -829,6 +922,14 @@ func TestSync_ReconcileRoles_AutoCreatesUnknownPosition(t *testing.T) {
 		t.Errorf("expected 1 role added, got %d", result.RolesAdded)
 	}
 
+	if len(result.Profiles) != 1 {
+		t.Fatalf("expected 1 profile in report, got %d", len(result.Profiles))
+	}
+	rep := result.Profiles[0]
+	if len(rep.RolesAdded) != 1 || rep.RolesAdded[0] != "New Unknown Position" {
+		t.Errorf("expected New Unknown Position in RolesAdded, got %v", rep.RolesAdded)
+	}
+
 	role, err := rbac.GetRoleByName(ctx, "New Unknown Position")
 	if err != nil {
 		t.Fatalf("expected role %q to be auto-created, but GetRoleByName failed: %v", "New Unknown Position", err)
@@ -871,5 +972,238 @@ func TestSync_ReconcileRoles_NoopWhenNoUserID(t *testing.T) {
 	}
 	if result.RolesRemoved != 0 {
 		t.Errorf("expected 0 roles removed (no userID), got %d", result.RolesRemoved)
+	}
+}
+
+func TestRevert_RestoresProfileFields(t *testing.T) {
+	ctx := t.Context()
+	repo := newMockProfileRepository()
+	rbac := newMockRBACRepository()
+
+	birthdate := time.Date(1990, 1, 15, 0, 0, 0, 0, time.UTC)
+	existing := &profile.Profile{
+		ID:         "p1",
+		BSAID:      "100",
+		FirstName:  "John",
+		LastName:   "Doe",
+		Email:      "john@example.com",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+		Birthdate:  birthdate,
+	}
+	if err := repo.Create(ctx, existing); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+
+	svc := NewService(repo, rbac, &mockClient{})
+
+	oldSnapshot := ProfileSnapshot{
+		BSAID:      "100",
+		FirstName:  "Reverted",
+		LastName:   "Name",
+		Nickname:   "Nick",
+		Gender:     "M",
+		Email:      "reverted@example.com",
+		Phone:      "555-0000",
+		Birthdate:  birthdate,
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+		Positions:  "Scoutmaster",
+	}
+
+	if err := svc.Revert(ctx, oldSnapshot, nil, nil); err != nil {
+		t.Fatalf("Revert failed: %v", err)
+	}
+
+	p, err := repo.GetByBSAID(ctx, "100")
+	if err != nil {
+		t.Fatalf("GetByBSAID failed: %v", err)
+	}
+	if p.FirstName != "Reverted" {
+		t.Errorf("expected FirstName Reverted, got %s", p.FirstName)
+	}
+	if p.LastName != "Name" {
+		t.Errorf("expected LastName Name, got %s", p.LastName)
+	}
+	if p.Nickname != "Nick" {
+		t.Errorf("expected Nickname Nick, got %s", p.Nickname)
+	}
+	if p.Gender != "M" {
+		t.Errorf("expected Gender M, got %s", p.Gender)
+	}
+	if p.Email != "reverted@example.com" {
+		t.Errorf("expected Email reverted@example.com, got %s", p.Email)
+	}
+	if p.Phone != "555-0000" {
+		t.Errorf("expected Phone 555-0000, got %s", p.Phone)
+	}
+	if p.Positions != "Scoutmaster" {
+		t.Errorf("expected Positions Scoutmaster, got %s", p.Positions)
+	}
+	if p.Status != profile.StatusActive {
+		t.Errorf("expected Status active, got %s", p.Status)
+	}
+}
+
+func TestRevert_ReversesRoleChanges(t *testing.T) {
+	ctx := t.Context()
+	repo := newMockProfileRepository()
+	rbac := newMockRBACRepository()
+
+	uid := "user-1"
+	existing := &profile.Profile{
+		ID:         "p1",
+		BSAID:      "100",
+		FirstName:  "John",
+		LastName:   "Doe",
+		Email:      "john@example.com",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+		UserID:     &uid,
+		Positions:  "Scoutmaster, Committee Chair",
+	}
+	if err := repo.Create(ctx, existing); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+
+	scoutmasterRole, _ := rbac.GetRoleByName(ctx, "Scoutmaster")
+	chairRole, _ := rbac.GetRoleByName(ctx, "Committee Chair")
+	_ = rbac.AssignRoleToUser(ctx, uid, scoutmasterRole.ID)
+	_ = rbac.AssignRoleToUser(ctx, uid, chairRole.ID)
+
+	svc := NewService(repo, rbac, &mockClient{})
+
+	oldSnapshot := ProfileSnapshot{
+		BSAID:      "100",
+		FirstName:  "John",
+		LastName:   "Doe",
+		Email:      "john@example.com",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+		UserID:     &uid,
+		Positions:  "",
+	}
+
+	rolesAdded := []string{"Scoutmaster", "Committee Chair"}
+
+	if err := svc.Revert(ctx, oldSnapshot, rolesAdded, nil); err != nil {
+		t.Fatalf("Revert failed: %v", err)
+	}
+
+	roles, err := rbac.GetUserRoles(ctx, uid)
+	if err != nil {
+		t.Fatalf("GetUserRoles failed: %v", err)
+	}
+	for _, r := range roles {
+		if r.Name == "Scoutmaster" || r.Name == "Committee Chair" {
+			t.Errorf("expected role %s to be removed by revert, but it still exists", r.Name)
+		}
+	}
+}
+
+func TestRevert_ReactivateAndRestoreRoles(t *testing.T) {
+	ctx := t.Context()
+	repo := newMockProfileRepository()
+	rbac := newMockRBACRepository()
+
+	uid := "user-1"
+	birthdate := time.Date(1990, 1, 15, 0, 0, 0, 0, time.UTC)
+	existing := &profile.Profile{
+		ID:         "p1",
+		BSAID:      "100",
+		FirstName:  "John",
+		LastName:   "Doe",
+		Email:      "john@example.com",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusInactive,
+		UserID:     &uid,
+		Birthdate:  birthdate,
+	}
+	if err := repo.Create(ctx, existing); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+
+	svc := NewService(repo, rbac, &mockClient{})
+
+	oldSnapshot := ProfileSnapshot{
+		BSAID:      "100",
+		FirstName:  "John",
+		LastName:   "Doe",
+		Email:      "john@example.com",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+		Birthdate:  birthdate,
+		UserID:     &uid,
+		Positions:  "Scoutmaster",
+	}
+
+	rolesRemoved := []string{"Scoutmaster"}
+
+	if err := svc.Revert(ctx, oldSnapshot, nil, rolesRemoved); err != nil {
+		t.Fatalf("Revert failed: %v", err)
+	}
+
+	p, err := repo.GetByBSAID(ctx, "100")
+	if err != nil {
+		t.Fatalf("GetByBSAID failed: %v", err)
+	}
+	if p.Status != profile.StatusActive {
+		t.Errorf("expected profile to be reactivated, got %s", p.Status)
+	}
+
+	roles, err := rbac.GetUserRoles(ctx, uid)
+	if err != nil {
+		t.Fatalf("GetUserRoles failed: %v", err)
+	}
+	hasScoutmaster := false
+	for _, r := range roles {
+		if r.Name == "Scoutmaster" {
+			hasScoutmaster = true
+		}
+	}
+	if !hasScoutmaster {
+		t.Error("expected Scoutmaster role to be restored by revert")
+	}
+}
+
+func TestRevert_NoUserID(t *testing.T) {
+	ctx := t.Context()
+	repo := newMockProfileRepository()
+	rbac := newMockRBACRepository()
+
+	existing := &profile.Profile{
+		ID:         "p1",
+		BSAID:      "100",
+		FirstName:  "John",
+		LastName:   "Doe",
+		Email:      "john@example.com",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+	}
+	if err := repo.Create(ctx, existing); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+
+	svc := NewService(repo, rbac, &mockClient{})
+
+	oldSnapshot := ProfileSnapshot{
+		BSAID:      "100",
+		FirstName:  "Reverted",
+		LastName:   "Name",
+		Email:      "john@example.com",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+	}
+
+	if err := svc.Revert(ctx, oldSnapshot, []string{"Scoutmaster"}, nil); err != nil {
+		t.Fatalf("Revert failed: %v", err)
+	}
+
+	p, err := repo.GetByBSAID(ctx, "100")
+	if err != nil {
+		t.Fatalf("GetByBSAID failed: %v", err)
+	}
+	if p.FirstName != "Reverted" {
+		t.Errorf("expected FirstName Reverted, got %s", p.FirstName)
 	}
 }

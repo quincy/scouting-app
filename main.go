@@ -385,6 +385,7 @@ func main() {
 	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.AdminPage)).Methods("GET")
 	router.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.StoreToken)).Methods("POST")
 	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")
+	router.Handle("/admin/sync/revert", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Revert)).Methods("POST")
 
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)

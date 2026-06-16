@@ -11,6 +11,8 @@
         Paste your <code>LOGIN_DATA</code> JSON from <code>advancements.scouting.org</code> localStorage to configure the Scoutbook API token, then sync to import troop members.
     </p>
 
+    <div id="toast"></div>
+
     {{if .Error}}
     <div class="error">{{.Error}}</div>
     {{end}}
@@ -64,7 +66,181 @@
                 <span class="result-label">Deactivated</span>
             </div>
         </div>
+        {{if .Result.RolesAdded}}
+        <div style="margin-top:8px;font-size:0.9rem;color:#1565c0;">
+            Roles added: {{.Result.RolesAdded}}
+        </div>
+        {{end}}
+        {{if .Result.RolesRemoved}}
+        <div style="margin-top:4px;font-size:0.9rem;color:#e65100;">
+            Roles removed: {{.Result.RolesRemoved}}
+        </div>
+        {{end}}
     </div>
+
+    {{if .Result.Profiles}}
+    <div class="sync-report">
+        <h3>Profile Details</h3>
+        {{if .AdultProfiles}}
+        <h4 class="section-heading">Adults</h4>
+        {{range .AdultProfiles}}
+        <div class="profile-card" id="profile-{{.MemberID}}">
+            <div class="profile-header">
+                <span class="profile-name">{{.Name}}</span>
+                <span class="profile-id">BSA ID: {{.MemberID}}</span>
+                <span class="status-badge status-{{.Status}}">{{.Status}}</span>
+            </div>
+            <div class="diff-scroll">
+            <table class="profile-diff">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>First Name</th>
+                        <th>Last Name</th>
+                        <th>Nickname</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Positions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="diff-before">
+                        <td class="diff-label">Before</td>
+                        <td{{if and .Old (ne .Old.FirstName .New.FirstName)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.FirstName}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.LastName .New.LastName)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.LastName}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.Nickname .New.Nickname)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.Nickname}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.Email .New.Email)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.Email}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.Phone .New.Phone)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.Phone}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.MemberType .New.MemberType)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.MemberType}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.Status .New.Status)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.Status}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.Positions .New.Positions)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.Positions}}{{else}}—{{end}}</td>
+                    </tr>
+                    <tr class="diff-after">
+                        <td class="diff-label">After</td>
+                        <td{{if and .Old (ne .Old.FirstName .New.FirstName)}} class="changed-after"{{end}}>{{.New.FirstName}}</td>
+                        <td{{if and .Old (ne .Old.LastName .New.LastName)}} class="changed-after"{{end}}>{{.New.LastName}}</td>
+                        <td{{if and .Old (ne .Old.Nickname .New.Nickname)}} class="changed-after"{{end}}>{{.New.Nickname}}</td>
+                        <td{{if and .Old (ne .Old.Email .New.Email)}} class="changed-after"{{end}}>{{.New.Email}}</td>
+                        <td{{if and .Old (ne .Old.Phone .New.Phone)}} class="changed-after"{{end}}>{{.New.Phone}}</td>
+                        <td{{if and .Old (ne .Old.MemberType .New.MemberType)}} class="changed-after"{{end}}>{{.New.MemberType}}</td>
+                        <td{{if and .Old (ne .Old.Status .New.Status)}} class="changed-after"{{end}}>{{.New.Status}}</td>
+                        <td{{if and .Old (ne .Old.Positions .New.Positions)}} class="changed-after"{{end}}>{{.New.Positions}}</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+            {{if or .RolesAdded .RolesRemoved}}
+            <div class="role-changes">
+                {{if .RolesAdded}}<span class="role-change role-added">+{{range .RolesAdded}}{{.}} {{end}}</span>{{end}}
+                {{if .RolesRemoved}}<span class="role-change role-removed">−{{range .RolesRemoved}}{{.}} {{end}}</span>{{end}}
+            </div>
+            {{end}}
+            {{if .Old}}
+            <form class="revert-form" hx-post="/admin/sync/revert" hx-target="#profile-{{.MemberID}}" hx-swap="outerHTML" hx-disabled-elt="button">
+                <input type="hidden" name="member_id" value="{{.MemberID}}">
+                <input type="hidden" name="name" value="{{.Name}}">
+                <input type="hidden" name="old_bsa_id" value="{{.Old.BSAID}}">
+                <input type="hidden" name="old_first_name" value="{{.Old.FirstName}}">
+                <input type="hidden" name="old_last_name" value="{{.Old.LastName}}">
+                <input type="hidden" name="old_nickname" value="{{.Old.Nickname}}">
+                <input type="hidden" name="old_gender" value="{{.Old.Gender}}">
+                <input type="hidden" name="old_email" value="{{.Old.Email}}">
+                <input type="hidden" name="old_phone" value="{{.Old.Phone}}">
+                <input type="hidden" name="old_birthdate" value="{{if not .Old.Birthdate.IsZero}}{{.Old.Birthdate.Format "2006-01-02"}}{{end}}">
+                <input type="hidden" name="old_member_type" value="{{.Old.MemberType}}">
+                <input type="hidden" name="old_status" value="{{.Old.Status}}">
+                <input type="hidden" name="old_positions" value="{{.Old.Positions}}">
+                {{range .RolesAdded}}<input type="hidden" name="added_role" value="{{.}}">{{end}}
+                {{range .RolesRemoved}}<input type="hidden" name="removed_role" value="{{.}}">{{end}}
+                <button type="submit" class="btn-revert">Revert</button>
+            </form>
+            {{end}}
+        </div>
+        {{end}}
+        {{end}}
+        {{if .YouthProfiles}}
+        <h4 class="section-heading">Youth</h4>
+        {{range .YouthProfiles}}
+        <div class="profile-card" id="profile-{{.MemberID}}">
+            <div class="profile-header">
+                <span class="profile-name">{{.Name}}</span>
+                <span class="profile-id">BSA ID: {{.MemberID}}</span>
+                <span class="status-badge status-{{.Status}}">{{.Status}}</span>
+            </div>
+            <div class="diff-scroll">
+            <table class="profile-diff">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>First Name</th>
+                        <th>Last Name</th>
+                        <th>Nickname</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Positions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="diff-before">
+                        <td class="diff-label">Before</td>
+                        <td{{if and .Old (ne .Old.FirstName .New.FirstName)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.FirstName}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.LastName .New.LastName)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.LastName}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.Nickname .New.Nickname)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.Nickname}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.Email .New.Email)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.Email}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.Phone .New.Phone)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.Phone}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.MemberType .New.MemberType)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.MemberType}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.Status .New.Status)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.Status}}{{else}}—{{end}}</td>
+                        <td{{if and .Old (ne .Old.Positions .New.Positions)}} class="changed-before"{{end}}>{{if .Old}}{{.Old.Positions}}{{else}}—{{end}}</td>
+                    </tr>
+                    <tr class="diff-after">
+                        <td class="diff-label">After</td>
+                        <td{{if and .Old (ne .Old.FirstName .New.FirstName)}} class="changed-after"{{end}}>{{.New.FirstName}}</td>
+                        <td{{if and .Old (ne .Old.LastName .New.LastName)}} class="changed-after"{{end}}>{{.New.LastName}}</td>
+                        <td{{if and .Old (ne .Old.Nickname .New.Nickname)}} class="changed-after"{{end}}>{{.New.Nickname}}</td>
+                        <td{{if and .Old (ne .Old.Email .New.Email)}} class="changed-after"{{end}}>{{.New.Email}}</td>
+                        <td{{if and .Old (ne .Old.Phone .New.Phone)}} class="changed-after"{{end}}>{{.New.Phone}}</td>
+                        <td{{if and .Old (ne .Old.MemberType .New.MemberType)}} class="changed-after"{{end}}>{{.New.MemberType}}</td>
+                        <td{{if and .Old (ne .Old.Status .New.Status)}} class="changed-after"{{end}}>{{.New.Status}}</td>
+                        <td{{if and .Old (ne .Old.Positions .New.Positions)}} class="changed-after"{{end}}>{{.New.Positions}}</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+            {{if or .RolesAdded .RolesRemoved}}
+            <div class="role-changes">
+                {{if .RolesAdded}}<span class="role-change role-added">+{{range .RolesAdded}}{{.}} {{end}}</span>{{end}}
+                {{if .RolesRemoved}}<span class="role-change role-removed">−{{range .RolesRemoved}}{{.}} {{end}}</span>{{end}}
+            </div>
+            {{end}}
+            {{if .Old}}
+            <form class="revert-form" hx-post="/admin/sync/revert" hx-target="#profile-{{.MemberID}}" hx-swap="outerHTML" hx-disabled-elt="button">
+                <input type="hidden" name="member_id" value="{{.MemberID}}">
+                <input type="hidden" name="name" value="{{.Name}}">
+                <input type="hidden" name="old_bsa_id" value="{{.Old.BSAID}}">
+                <input type="hidden" name="old_first_name" value="{{.Old.FirstName}}">
+                <input type="hidden" name="old_last_name" value="{{.Old.LastName}}">
+                <input type="hidden" name="old_nickname" value="{{.Old.Nickname}}">
+                <input type="hidden" name="old_gender" value="{{.Old.Gender}}">
+                <input type="hidden" name="old_email" value="{{.Old.Email}}">
+                <input type="hidden" name="old_phone" value="{{.Old.Phone}}">
+                <input type="hidden" name="old_birthdate" value="{{if not .Old.Birthdate.IsZero}}{{.Old.Birthdate.Format "2006-01-02"}}{{end}}">
+                <input type="hidden" name="old_member_type" value="{{.Old.MemberType}}">
+                <input type="hidden" name="old_status" value="{{.Old.Status}}">
+                <input type="hidden" name="old_positions" value="{{.Old.Positions}}">
+                {{range .RolesAdded}}<input type="hidden" name="added_role" value="{{.}}">{{end}}
+                {{range .RolesRemoved}}<input type="hidden" name="removed_role" value="{{.}}">{{end}}
+                <button type="submit" class="btn-revert">Revert</button>
+            </form>
+            {{end}}
+        </div>
+        {{end}}
+        {{end}}
+    </div>
+    {{end}}
     {{end}}
 
     {{else}}
@@ -75,4 +251,16 @@
     </form>
     {{end}}
 </div>
+{{end}}
+
+{{define "sync_reverted_card"}}
+<div class="profile-card reverted" id="profile-{{.MemberID}}">
+    <div class="profile-header">
+        <span class="profile-name">{{.Name}}</span>
+        <span class="profile-id">BSA ID: {{.MemberID}}</span>
+        <span class="status-badge status-reverted">reverted</span>
+    </div>
+    <div class="reverted-message">This profile has been reverted to its pre-sync state. Run Sync Again to pull the latest from Scoutbook.</div>
+</div>
+<div id="toast" hx-swap-oob="true" class="toast">Profile reverted</div>
 {{end}}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -71,15 +72,25 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 			if err := s.profiles.Create(ctx, p); err != nil {
 				return nil, fmt.Errorf("create profile %s: %w", m.MemberID, err)
 			}
-			result.Created++
-			added, removed, err := s.reconcileRoles(ctx, p.ID, p.UserID, p.Positions)
+
+			newSnapshot := snapshotFromProfile(p)
+			addedNames, removedNames, err := s.reconcileRoles(ctx, p.ID, p.UserID, p.Positions)
 			if err != nil {
 				return nil, fmt.Errorf("reconcile roles for %s: %w", m.MemberID, err)
 			}
-			result.RolesAdded += added
-			result.RolesRemoved += removed
+
+			result.Profiles = append(result.Profiles, ProfileReport{
+				MemberID:     m.MemberID,
+				Name:         p.DisplayName(),
+				Status:       "created",
+				New:          newSnapshot,
+				RolesAdded:   addedNames,
+				RolesRemoved: removedNames,
+			})
 		} else {
+			oldSnapshot := snapshotFromProfile(existing)
 			updated := false
+
 			if existing.FirstName != m.FirstName {
 				log.Printf("[sync] UPDATE memberId=%s firstName %q -> %q", m.MemberID, existing.FirstName, m.FirstName)
 				existing.FirstName = m.FirstName
@@ -139,23 +150,38 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 				}
 			}
 
+			addedNames, removedNames, err := s.reconcileRoles(ctx, existing.ID, existing.UserID, existing.Positions)
+			if err != nil {
+				return nil, fmt.Errorf("reconcile roles for %s: %w", m.MemberID, err)
+			}
+
+			status := "updated"
+			if !updated && len(addedNames) == 0 && len(removedNames) == 0 {
+				log.Printf("[sync] SKIP memberId=%s (no changes)", m.MemberID)
+				continue
+			}
+
 			if updated {
 				existing.UpdatedAt = time.Now()
 				if err := s.profiles.Update(ctx, existing); err != nil {
 					return nil, fmt.Errorf("update profile %s: %w", m.MemberID, err)
 				}
-				result.Updated++
 				log.Printf("[sync] UPDATED memberId=%s", m.MemberID)
 			} else {
-				log.Printf("[sync] SKIP memberId=%s (no changes)", m.MemberID)
+				status = "skipped-with-role-changes"
+				log.Printf("[sync] PARTIAL memberId=%s (roles changed, fields unchanged)", m.MemberID)
 			}
 
-			added, removed, err := s.reconcileRoles(ctx, existing.ID, existing.UserID, existing.Positions)
-			if err != nil {
-				return nil, fmt.Errorf("reconcile roles for %s: %w", m.MemberID, err)
-			}
-			result.RolesAdded += added
-			result.RolesRemoved += removed
+			newSnapshot := snapshotFromProfile(existing)
+			result.Profiles = append(result.Profiles, ProfileReport{
+				MemberID:     m.MemberID,
+				Name:         existing.DisplayName(),
+				Status:       status,
+				Old:          &oldSnapshot,
+				New:          newSnapshot,
+				RolesAdded:   addedNames,
+				RolesRemoved: removedNames,
+			})
 		}
 	}
 
@@ -165,18 +191,78 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 	}
 	for _, p := range allActive {
 		if !activeBSAIDs[p.BSAID] {
+			if p.BSAID == "" {
+				log.Printf("[sync] SKIP deactivate member with empty BSAID (name=%s)", p.DisplayName())
+				continue
+			}
 			log.Printf("[sync] DEACTIVATE memberId=%s name=%s %s (not in roster)", p.BSAID, p.FirstName, p.LastName)
+			oldSnapshot := snapshotFromProfile(p)
 			p.Status = profile.StatusInactive
 			p.UpdatedAt = time.Now()
 			if err := s.profiles.Update(ctx, p); err != nil {
 				return nil, fmt.Errorf("deactivate profile %s: %w", p.BSAID, err)
 			}
-			result.Deactivated++
+			newSnapshot := snapshotFromProfile(p)
+			result.Profiles = append(result.Profiles, ProfileReport{
+				MemberID: p.BSAID,
+				Name:     p.DisplayName(),
+				Status:   "deactivated",
+				Old:      &oldSnapshot,
+				New:      newSnapshot,
+			})
 		}
 	}
 
-	log.Printf("[sync] Result: created=%d updated=%d deactivated=%d rolesAdded=%d rolesRemoved=%d", result.Created, result.Updated, result.Deactivated, result.RolesAdded, result.RolesRemoved)
+	result.computeCounters()
+
+	sort.Slice(result.Profiles, func(i, j int) bool {
+		ni, nj := result.Profiles[i].Name, result.Profiles[j].Name
+		if ni != nj {
+			return ni < nj
+		}
+		return result.Profiles[i].MemberID < result.Profiles[j].MemberID
+	})
+
+	log.Printf("[sync] Result: created=%d updated=%d deactivated=%d rolesAdded=%d rolesRemoved=%d profiles=%d",
+		result.Created, result.Updated, result.Deactivated, result.RolesAdded, result.RolesRemoved, len(result.Profiles))
 	return result, nil
+}
+
+func (r *Result) computeCounters() {
+	r.Created = 0
+	r.Updated = 0
+	r.Deactivated = 0
+	r.RolesAdded = 0
+	r.RolesRemoved = 0
+	for _, p := range r.Profiles {
+		switch p.Status {
+		case "created":
+			r.Created++
+		case "updated", "skipped-with-role-changes":
+			r.Updated++
+		case "deactivated":
+			r.Deactivated++
+		}
+		r.RolesAdded += len(p.RolesAdded)
+		r.RolesRemoved += len(p.RolesRemoved)
+	}
+}
+
+func snapshotFromProfile(p *profile.Profile) ProfileSnapshot {
+	return ProfileSnapshot{
+		BSAID:      p.BSAID,
+		FirstName:  p.FirstName,
+		LastName:   p.LastName,
+		Nickname:   p.Nickname,
+		Gender:     p.Gender,
+		Email:      p.Email,
+		Phone:      p.Phone,
+		Birthdate:  p.Birthdate,
+		MemberType: p.MemberType,
+		Status:     p.Status,
+		Positions:  p.Positions,
+		UserID:     p.UserID,
+	}
 }
 
 func deduplicate(adults, youths []Member) []Member {
@@ -223,14 +309,14 @@ func deduplicate(adults, youths []Member) []Member {
 	return result
 }
 
-func (s *Service) reconcileRoles(ctx context.Context, profileID string, userID *string, positions string) (added, removed int, err error) {
+func (s *Service) reconcileRoles(ctx context.Context, profileID string, userID *string, positions string) (addedNames, removedNames []string, err error) {
 	if userID == nil {
-		return 0, 0, nil
+		return nil, nil, nil
 	}
 
 	currentRoles, err := s.rbac.GetUserRoles(ctx, *userID)
 	if err != nil {
-		return 0, 0, fmt.Errorf("get user roles: %w", err)
+		return nil, nil, fmt.Errorf("get user roles: %w", err)
 	}
 
 	currentRoleNames := make(map[string]bool)
@@ -253,14 +339,14 @@ func (s *Service) reconcileRoles(ctx context.Context, profileID string, userID *
 			if err != nil {
 				role = &rbac.Role{Name: pos}
 				if err := s.rbac.CreateRole(ctx, role); err != nil {
-					return 0, 0, fmt.Errorf("create role %q: %w", pos, err)
+					return nil, nil, fmt.Errorf("create role %q: %w", pos, err)
 				}
 			}
 			if err := s.rbac.AssignRoleToUser(ctx, *userID, role.ID); err != nil {
-				return 0, 0, fmt.Errorf("assign role %q: %w", pos, err)
+				return nil, nil, fmt.Errorf("assign role %q: %w", pos, err)
 			}
 			log.Printf("[sync] ROLE ADDED memberId=%s role=%s", profileID, pos)
-			added++
+			addedNames = append(addedNames, pos)
 		}
 	}
 
@@ -271,14 +357,14 @@ func (s *Service) reconcileRoles(ctx context.Context, profileID string, userID *
 				continue
 			}
 			if err := s.rbac.RemoveRoleFromUser(ctx, *userID, role.ID); err != nil {
-				return 0, 0, fmt.Errorf("remove role %q: %w", roleName, err)
+				return nil, nil, fmt.Errorf("remove role %q: %w", roleName, err)
 			}
 			log.Printf("[sync] ROLE REMOVED memberId=%s role=%s", profileID, roleName)
-			removed++
+			removedNames = append(removedNames, roleName)
 		}
 	}
 
-	return added, removed, nil
+	return addedNames, removedNames, nil
 }
 
 func memberType(bsaID string, adults, youths []Member) profile.MemberType {
@@ -288,6 +374,57 @@ func memberType(bsaID string, adults, youths []Member) profile.MemberType {
 		}
 	}
 	return profile.MemberTypeYouth
+}
+
+func (s *Service) Revert(ctx context.Context, old ProfileSnapshot, rolesAdded, rolesRemoved []string) error {
+	p, err := s.profiles.GetByBSAID(ctx, old.BSAID)
+	if err != nil {
+		return fmt.Errorf("revert: find profile %s: %w", old.BSAID, err)
+	}
+
+	p.FirstName = old.FirstName
+	p.LastName = old.LastName
+	p.Nickname = old.Nickname
+	p.Gender = old.Gender
+	p.Email = old.Email
+	p.Phone = old.Phone
+	p.Birthdate = old.Birthdate
+	p.MemberType = old.MemberType
+	p.Status = old.Status
+	p.Positions = old.Positions
+	p.UpdatedAt = time.Now()
+
+	if err := s.profiles.Update(ctx, p); err != nil {
+		return fmt.Errorf("revert: update profile %s: %w", old.BSAID, err)
+	}
+
+	if p.UserID != nil {
+		for _, roleName := range rolesAdded {
+			role, err := s.rbac.GetRoleByName(ctx, roleName)
+			if err != nil {
+				continue
+			}
+			if err := s.rbac.RemoveRoleFromUser(ctx, *p.UserID, role.ID); err != nil {
+				return fmt.Errorf("revert: remove role %s: %w", roleName, err)
+			}
+			log.Printf("[sync] REVERT REMOVED role=%s memberId=%s", roleName, old.BSAID)
+		}
+		for _, roleName := range rolesRemoved {
+			role, err := s.rbac.GetRoleByName(ctx, roleName)
+			if err != nil {
+				role = &rbac.Role{Name: roleName}
+				if err := s.rbac.CreateRole(ctx, role); err != nil {
+					return fmt.Errorf("revert: create role %s: %w", roleName, err)
+				}
+			}
+			if err := s.rbac.AssignRoleToUser(ctx, *p.UserID, role.ID); err != nil {
+				return fmt.Errorf("revert: assign role %s: %w", roleName, err)
+			}
+			log.Printf("[sync] REVERT ADDED role=%s memberId=%s", roleName, old.BSAID)
+		}
+	}
+
+	return nil
 }
 
 func applyRosterData(m Member, p *profile.Profile) {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	goSync "sync"
 	"testing"
 	"time"
 
@@ -263,6 +264,112 @@ func TestSyncHandler_Sync_ExpiredToken(t *testing.T) {
 	if !purged {
 		t.Error("expected token to be purged after expiry")
 	}
+}
+
+func TestSyncHandler_Revert(t *testing.T) {
+	repo := newMockSyncRepoWithProfile()
+	rbac := &mockRBACRepo{}
+	svc := sync.NewService(repo, rbac, &mockSyncClient{})
+	client := scoutbook.NewClient("http://example.com", "", "")
+	handler := NewSyncHandler(svc, client)
+
+	body := "member_id=100&name=John+Doe&old_bsa_id=100&old_first_name=RevertedJohn&old_last_name=RevertedDoe&old_member_type=adult&old_status=active"
+	req := httptest.NewRequest("POST", "/admin/sync/revert", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	handler.Revert(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "reverted") {
+		t.Error("expected reverted card in response")
+	}
+	if !strings.Contains(rr.Body.String(), "toast") {
+		t.Error("expected toast in response")
+	}
+
+	repo.mu.RLock()
+	p, ok := repo.profiles["p1"]
+	repo.mu.RUnlock()
+	if !ok {
+		t.Fatal("expected profile to exist")
+	}
+	if p.FirstName != "RevertedJohn" {
+		t.Errorf("expected profile to be reverted to RevertedJohn, got %s", p.FirstName)
+	}
+}
+
+type mockSyncRepoWithProfile struct {
+	mu       goSync.RWMutex
+	profiles map[string]*profile.Profile
+}
+
+func newMockSyncRepoWithProfile() *mockSyncRepoWithProfile {
+	return &mockSyncRepoWithProfile{
+		profiles: map[string]*profile.Profile{
+			"100": {
+				ID:         "p1",
+				BSAID:      "100",
+				FirstName:  "John",
+				LastName:   "Doe",
+				MemberType: profile.MemberTypeAdult,
+				Status:     profile.StatusActive,
+			},
+		},
+	}
+}
+
+func (m *mockSyncRepoWithProfile) Create(ctx context.Context, p *profile.Profile) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	clone := *p
+	if clone.ID == "" {
+		clone.ID = "id-" + clone.BSAID
+	}
+	m.profiles[clone.ID] = &clone
+	m.profiles[clone.BSAID] = &clone
+	return nil
+}
+func (m *mockSyncRepoWithProfile) GetByID(ctx context.Context, id string) (*profile.Profile, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	p, ok := m.profiles[id]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	clone := *p
+	return &clone, nil
+}
+func (m *mockSyncRepoWithProfile) GetByEmail(ctx context.Context, email string) (*profile.Profile, error) {
+	return nil, errors.New("not found")
+}
+func (m *mockSyncRepoWithProfile) GetByBSAID(ctx context.Context, bsaID string) (*profile.Profile, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	p, ok := m.profiles[bsaID]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	clone := *p
+	return &clone, nil
+}
+func (m *mockSyncRepoWithProfile) GetByUserID(ctx context.Context, userID string) (*profile.Profile, error) {
+	return nil, errors.New("not found")
+}
+func (m *mockSyncRepoWithProfile) ListAll(ctx context.Context) ([]*profile.Profile, error) {
+	return nil, nil
+}
+func (m *mockSyncRepoWithProfile) ListByStatus(ctx context.Context, status profile.Status) ([]*profile.Profile, error) {
+	return nil, nil
+}
+func (m *mockSyncRepoWithProfile) Update(ctx context.Context, p *profile.Profile) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	clone := *p
+	m.profiles[clone.ID] = &clone
+	m.profiles[clone.BSAID] = &clone
+	return nil
 }
 
 func TestParseJWTExpiry(t *testing.T) {

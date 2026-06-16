@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	stdSync "sync"
 	"time"
 
+	"scout-app/internal/domain/profile"
 	domainsync "scout-app/internal/domain/sync"
 	"scout-app/internal/scoutbook"
 )
@@ -29,12 +31,14 @@ type storedToken struct {
 }
 
 type syncPageData struct {
-	Title      string
-	HasToken   bool
-	PersonGUID string
-	OrgGUID    string
-	Result     *domainsync.Result
-	Error      string
+	Title         string
+	HasToken      bool
+	PersonGUID    string
+	OrgGUID       string
+	Result        *domainsync.Result
+	AdultProfiles []domainsync.ProfileReport
+	YouthProfiles []domainsync.ProfileReport
+	Error         string
 }
 
 type SyncHandler struct {
@@ -194,7 +198,76 @@ func (h *SyncHandler) Sync(w http.ResponseWriter, r *http.Request) {
 	data.HasToken = true
 	data.PersonGUID = st.personGUID
 	data.Result = result
+	data.AdultProfiles = splitProfiles(result.Profiles, profile.MemberTypeAdult)
+	data.YouthProfiles = splitProfiles(result.Profiles, profile.MemberTypeYouth)
 	h.renderPage(w, data)
+}
+
+func (h *SyncHandler) Revert(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	memberID := r.FormValue("member_id")
+	name := r.FormValue("name")
+
+	var birthdate time.Time
+	if bd := r.FormValue("old_birthdate"); bd != "" {
+		birthdate, _ = time.Parse("2006-01-02", bd)
+	}
+
+	snapshot := domainsync.ProfileSnapshot{
+		BSAID:      r.FormValue("old_bsa_id"),
+		FirstName:  r.FormValue("old_first_name"),
+		LastName:   r.FormValue("old_last_name"),
+		Nickname:   r.FormValue("old_nickname"),
+		Gender:     r.FormValue("old_gender"),
+		Email:      r.FormValue("old_email"),
+		Phone:      r.FormValue("old_phone"),
+		Birthdate:  birthdate,
+		MemberType: profile.MemberType(r.FormValue("old_member_type")),
+		Status:     profile.Status(r.FormValue("old_status")),
+		Positions:  r.FormValue("old_positions"),
+	}
+
+	if snapshot.BSAID == "" {
+		log.Printf("Revert failed: empty BSAID for member %s", memberID)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = fmt.Fprintf(w, `<div class="profile-card" id="profile-%s">`, memberID)
+		_, _ = fmt.Fprintf(w, `<div class="error">Cannot revert: profile has no BSA ID. This profile may not have been imported from Scoutbook.</div>`)
+		_, _ = fmt.Fprintf(w, `</div>`)
+		return
+	}
+
+	addedRoles := r.Form["added_role"]
+	removedRoles := r.Form["removed_role"]
+
+	if err := h.svc.Revert(r.Context(), snapshot, addedRoles, removedRoles); err != nil {
+		log.Printf("Revert failed: %v", err)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = fmt.Fprintf(w, `<div class="profile-card" id="profile-%s">`, memberID)
+		_, _ = fmt.Fprintf(w, `<div class="error">Revert failed: %s</div>`, err.Error())
+		_, _ = fmt.Fprintf(w, `</div>`)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	t := template.Must(h.tmpl.Clone())
+	_ = t.ExecuteTemplate(w, "sync_reverted_card", map[string]string{
+		"MemberID": memberID,
+		"Name":     name,
+	})
+}
+
+func splitProfiles(profiles []domainsync.ProfileReport, memberType profile.MemberType) []domainsync.ProfileReport {
+	var result []domainsync.ProfileReport
+	for _, p := range profiles {
+		if p.New.MemberType == memberType {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 func parseJWTExpiry(jwt string) time.Time {
