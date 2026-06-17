@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"scout-app/internal/domain/appconfig"
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/email"
 	"scout-app/internal/domain/event"
@@ -745,5 +746,41 @@ func (s *EmailService) SendOTP(ctx context.Context, to, code string, otpID strin
 	s.SentOTPs = append(s.SentOTPs, EmailOTP{To: to, Code: code, OTPID: otpID})
 	return nil
 }
+
+type AppConfigRepository struct {
+	mu   sync.RWMutex
+	data map[string]string
+}
+
+func NewAppConfigRepository() *AppConfigRepository {
+	return &AppConfigRepository{
+		data: make(map[string]string),
+	}
+}
+
+func (r *AppConfigRepository) Get(ctx context.Context, key string) (string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.data[key], nil
+}
+
+func (r *AppConfigRepository) Set(ctx context.Context, key, value string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.data[key] = value
+	return nil
+}
+
+func (r *AppConfigRepository) All(ctx context.Context) (map[string]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make(map[string]string, len(r.data))
+	for k, v := range r.data {
+		result[k] = v
+	}
+	return result, nil
+}
+
+var _ appconfig.Repository = (*AppConfigRepository)(nil)
 
 var _ email.Service = (*EmailService)(nil)

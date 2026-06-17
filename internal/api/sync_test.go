@@ -18,6 +18,16 @@ import (
 	"scout-app/internal/scoutbook"
 )
 
+type mockAppConfigRepo struct{}
+
+func (m *mockAppConfigRepo) Get(ctx context.Context, key string) (string, error) {
+	return "", nil
+}
+func (m *mockAppConfigRepo) Set(ctx context.Context, key, value string) error { return nil }
+func (m *mockAppConfigRepo) All(ctx context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
 type mockSyncClient struct{}
 
 func (m *mockSyncClient) FetchRoster(ctx context.Context, memberType sync.MemberType) ([]sync.Member, error) {
@@ -66,7 +76,7 @@ func (m *mockRBACRepo) GetUserPermissions(ctx context.Context, userID string) ([
 	return nil, nil
 }
 func (m *mockRBACRepo) GetRoleByName(ctx context.Context, name string) (*rbac.Role, error) {
-	return nil, nil
+	return &rbac.Role{ID: name + "-role-id", Name: name}, nil
 }
 
 var mockRBAC = &mockRBACRepo{}
@@ -74,7 +84,7 @@ var mockRBAC = &mockRBACRepo{}
 func TestSyncHandler_AdminPage_NoToken(t *testing.T) {
 	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
-	handler := NewSyncHandler(svc, client)
+	handler := NewSyncHandler(svc, client, &mockAppConfigRepo{})
 
 	req := httptest.NewRequest("GET", "/admin/sync", nil)
 	rr := httptest.NewRecorder()
@@ -91,7 +101,7 @@ func TestSyncHandler_AdminPage_NoToken(t *testing.T) {
 func TestSyncHandler_AdminPage_WithToken(t *testing.T) {
 	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
-	handler := NewSyncHandler(svc, client)
+	handler := NewSyncHandler(svc, client, &mockAppConfigRepo{})
 
 	handler.mu.Lock()
 	handler.token = &storedToken{
@@ -119,7 +129,7 @@ func TestSyncHandler_AdminPage_WithToken(t *testing.T) {
 func TestSyncHandler_StoreToken_FormEncoded(t *testing.T) {
 	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
-	handler := NewSyncHandler(svc, client)
+	handler := NewSyncHandler(svc, client, &mockAppConfigRepo{})
 
 	body := `login_data=%7B%22token%22%3A%22eyJtest%22%2C%22personGuid%22%3A%22guid-abc%22%7D`
 	req := httptest.NewRequest("POST", "/admin/sync/token", strings.NewReader(body))
@@ -138,7 +148,7 @@ func TestSyncHandler_StoreToken_FormEncoded(t *testing.T) {
 func TestSyncHandler_StoreToken_JSON(t *testing.T) {
 	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
-	handler := NewSyncHandler(svc, client)
+	handler := NewSyncHandler(svc, client, &mockAppConfigRepo{})
 
 	body := `{"login_data":"{\"token\":\"eyJtest\",\"personGuid\":\"guid-abc\"}"}`
 	req := httptest.NewRequest("POST", "/admin/sync/token", strings.NewReader(body))
@@ -157,7 +167,7 @@ func TestSyncHandler_StoreToken_JSON(t *testing.T) {
 func TestSyncHandler_StoreToken_MissingToken(t *testing.T) {
 	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
-	handler := NewSyncHandler(svc, client)
+	handler := NewSyncHandler(svc, client, &mockAppConfigRepo{})
 
 	body := `login_data=%7B%22personGuid%22%3A%22guid-abc%22%7D`
 	req := httptest.NewRequest("POST", "/admin/sync/token", strings.NewReader(body))
@@ -176,7 +186,7 @@ func TestSyncHandler_StoreToken_MissingToken(t *testing.T) {
 func TestSyncHandler_StoreToken_InvalidInnerJSON(t *testing.T) {
 	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
-	handler := NewSyncHandler(svc, client)
+	handler := NewSyncHandler(svc, client, &mockAppConfigRepo{})
 
 	body := `login_data=not-json`
 	req := httptest.NewRequest("POST", "/admin/sync/token", strings.NewReader(body))
@@ -195,7 +205,7 @@ func TestSyncHandler_StoreToken_InvalidInnerJSON(t *testing.T) {
 func TestSyncHandler_Sync_NoToken(t *testing.T) {
 	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
-	handler := NewSyncHandler(svc, client)
+	handler := NewSyncHandler(svc, client, &mockAppConfigRepo{})
 
 	req := httptest.NewRequest("POST", "/admin/sync", nil)
 	rr := httptest.NewRecorder()
@@ -212,7 +222,7 @@ func TestSyncHandler_Sync_NoToken(t *testing.T) {
 func TestSyncHandler_Sync_WithToken(t *testing.T) {
 	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
-	handler := NewSyncHandler(svc, client)
+	handler := NewSyncHandler(svc, client, &mockAppConfigRepo{})
 
 	handler.mu.Lock()
 	handler.token = &storedToken{
@@ -237,7 +247,7 @@ func TestSyncHandler_Sync_WithToken(t *testing.T) {
 func TestSyncHandler_Sync_ExpiredToken(t *testing.T) {
 	svc := sync.NewService(&mockSyncRepo{}, mockRBAC, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
-	handler := NewSyncHandler(svc, client)
+	handler := NewSyncHandler(svc, client, &mockAppConfigRepo{})
 
 	handler.mu.Lock()
 	handler.token = &storedToken{
@@ -271,7 +281,7 @@ func TestSyncHandler_Revert(t *testing.T) {
 	rbac := &mockRBACRepo{}
 	svc := sync.NewService(repo, rbac, &mockSyncClient{})
 	client := scoutbook.NewClient("http://example.com", "", "")
-	handler := NewSyncHandler(svc, client)
+	handler := NewSyncHandler(svc, client, &mockAppConfigRepo{})
 
 	body := "member_id=100&name=John+Doe&old_bsa_id=100&old_first_name=RevertedJohn&old_last_name=RevertedDoe&old_member_type=adult&old_status=active"
 	req := httptest.NewRequest("POST", "/admin/sync/revert", strings.NewReader(body))

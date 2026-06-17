@@ -22,6 +22,7 @@ type Store struct {
 	OTPCode          *OTPCodeRepository
 	ParentYouthLink  *ParentYouthLinkRepository
 	ScoutbookSession *ScoutbookSessionRepository
+	AppConfig        *AppConfigRepository
 }
 
 func NewStore(db *sql.DB) *Store {
@@ -34,6 +35,7 @@ func NewStore(db *sql.DB) *Store {
 		OTPCode:          NewOTPCodeRepository(db),
 		ParentYouthLink:  NewParentYouthLinkRepository(db),
 		ScoutbookSession: NewScoutbookSessionRepository(db),
+		AppConfig:        NewAppConfigRepository(db),
 	}
 }
 

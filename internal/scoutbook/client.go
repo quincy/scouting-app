@@ -74,3 +74,7 @@ func (c *Client) OrgGUID() string {
 func (c *Client) SetToken(token string) {
 	c.token = token
 }
+
+func (c *Client) SetOrgGUID(orgGUID string) {
+	c.orgGUID = orgGUID
+}

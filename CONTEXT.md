@@ -71,6 +71,12 @@ An **Event** summary projected for list views, containing the core event fields 
 ### Registration
 The process by which an unclaimed **Profile** becomes linked to a **User**. Three-step flow: email entry and **OTP** generation, OTP verification, and password creation. The OTP email includes a link to `/register/verify?otp_id=<uuid>`, using the OTP record's UUID to identify the user (not their email). The unauthenticated **Session** tracks progress — the email is stored after OTP generation, and a `verified_email` flag is set after successful OTP validation. If no **Profile** exists for the email, the user is told no account was found and directed to check their Scoutbook email or contact the Troop Webmaster. If the **Profile** is already linked to a **User**, the user is shown an error with a link to the login page. After password creation, the user is redirected to `/login?registered=1` which displays a persistent success banner. When the **User** is created, they are assigned the **Role** `parent` if their **Profile** has **Member Type** `adult`. If the **Profile** already has **Positions** at registration time, those are also assigned as **Roles** (same logic as **Scoutbook Sync**). Position-based roles are later kept in sync by subsequent **Scoutbook Sync** runs.
 
+### App Config
+A key-value table storing application-wide configuration set during onboarding. Expected keys: `SCOUTBOOK_ORG_GUID`, `UNIT_TYPE`, `UNIT_NUMBER`, `DEFAULT_TIMEZONE`, `ONBOARDING_COMPLETE`. Replaces the corresponding environment variables from the previous configuration scheme.
+
+### Onboarding
+The first-run setup flow that creates the initial **Profile**, **User**, and **App Config** when no profiles exist. Multi-step, welcoming flow with step indicators showing progress. Skips **OTP** — the admin is trusted by having deploy access. Does not persist partial state; closing mid-flow means starting over. Creates the first profile with **Admin** **Role**. Guarded by the `ONBOARDING_COMPLETE` key in **App Config**. The config values formerly set via environment variables (`SCOUTBOOK_ORG_GUID`, `UNIT_TYPE`, `UNIT_NUMBER`) are collected during onboarding and stored in **App Config** instead.
+
 ### Authentication
 The process of verifying a **User**'s identity by finding a **Profile** by email, resolving the linked **User**, and checking the provided password against the stored **Password Hash**.
 

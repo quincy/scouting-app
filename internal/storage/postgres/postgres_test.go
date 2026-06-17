@@ -92,6 +92,7 @@ func truncateTables(t *testing.T, tables ...string) {
 func truncateAll(t *testing.T) {
 	t.Helper()
 	tables := []string{
+		"app_config",
 		"event_attendee_responsibilities",
 		"event_attendees",
 		"events",

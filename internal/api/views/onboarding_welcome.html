@@ -1,0 +1,40 @@
+{{define "onboarding_welcome.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome - Scout Events</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <style>
+        .onboarding-page { max-width: 520px; margin: 0 auto; padding: 64px 24px; }
+        .onboarding-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 40px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .step-indicator { text-align: center; font-size: 0.8rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+        .onboarding-card h1 { text-align: center; font-size: 1.5rem; margin-bottom: 8px; }
+        .onboarding-card .subtitle { margin-bottom: 32px; }
+        .onboarding-card p { color: #555; line-height: 1.7; margin-bottom: 12px; font-size: 0.95rem; }
+        .onboarding-card .features { margin: 24px 0; padding: 0; list-style: none; }
+        .onboarding-card .features li { padding: 8px 0; color: #555; font-size: 0.9rem; }
+        .onboarding-card .features li::before { content: "✓ "; color: #2e7d32; font-weight: 700; }
+        .btn-start { display: block; width: 100%; background: #1565c0; color: #fff; border: none; border-radius: 8px; padding: 14px; font-size: 1.05rem; font-weight: 600; cursor: pointer; text-align: center; text-decoration: none; margin-top: 24px; }
+        .btn-start:hover { background: #0d47a1; }
+    </style>
+</head>
+<body class="onboarding-page">
+    <div class="onboarding-card">
+        <div class="step-indicator">Step 1 of 4</div>
+        <h1>Welcome to Scout Events</h1>
+        <p class="subtitle">Let's get your unit set up in just a few steps.</p>
+        <p>This setup wizard will help you:</p>
+        <ul class="features">
+            <li>Create your admin account</li>
+            <li>Configure your unit details</li>
+            <li>Connect to Scoutbook for roster sync</li>
+            <li>Set your unit's default timezone</li>
+        </ul>
+        <p>You'll only need to do this once. After setup, you'll be able to manage events, members, and more.</p>
+        <a href="/onboard/personal" class="btn-start">Get Started</a>
+    </div>
+</body>
+</html>
+{{end}}

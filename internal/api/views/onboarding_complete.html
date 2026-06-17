@@ -1,0 +1,29 @@
+{{define "onboarding_complete.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Complete - Scout Events</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <style>
+        .onboarding-page { max-width: 520px; margin: 0 auto; padding: 64px 24px; }
+        .onboarding-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 40px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); text-align: center; }
+        .checkmark { font-size: 3rem; color: #2e7d32; margin-bottom: 16px; line-height: 1; }
+        .onboarding-card h1 { font-size: 1.5rem; margin-bottom: 8px; }
+        .onboarding-card p { color: #555; line-height: 1.7; margin-bottom: 8px; font-size: 0.95rem; }
+        .btn-login { display: block; width: 100%; background: #1565c0; color: #fff; border: none; border-radius: 8px; padding: 14px; font-size: 1.05rem; font-weight: 600; cursor: pointer; text-align: center; text-decoration: none; margin-top: 24px; }
+        .btn-login:hover { background: #0d47a1; }
+    </style>
+</head>
+<body class="onboarding-page">
+    <div class="onboarding-card">
+        <div class="checkmark">✓</div>
+        <h1>You're All Set!</h1>
+        <p>Your admin account and unit configuration have been created.</p>
+        <p>Sign in with the email and password you just set up to get started.</p>
+        <a href="/login" class="btn-login">Sign In</a>
+    </div>
+</body>
+</html>
+{{end}}

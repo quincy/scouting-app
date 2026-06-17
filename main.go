@@ -14,6 +14,7 @@ import (
 
 	"scout-app/internal/api"
 	"scout-app/internal/config"
+	"scout-app/internal/domain/appconfig"
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/email"
 	"scout-app/internal/domain/event"
@@ -76,6 +77,7 @@ func main() {
 		rbacRepo            rbac.Repository
 		eventRepo           event.Repository
 		otpRepo             otpcode.Repository
+		appConfigRepo       appconfig.Repository
 		emailSvc            email.Service
 	)
 
@@ -86,6 +88,7 @@ func main() {
 		mockRBACRepo := mock.NewRBACRepository()
 		mockEventRepo := mock.NewEventRepository(mockProfileRepo)
 		mockOTPRepo := mock.NewOTPCodeRepository()
+		mockAppConfigRepo := mock.NewAppConfigRepository()
 		mockEmailSvc := mock.NewEmailService()
 
 		userRepo = mockUserRepo
@@ -94,6 +97,7 @@ func main() {
 		rbacRepo = mockRBACRepo
 		eventRepo = mockEventRepo
 		otpRepo = mockOTPRepo
+		appConfigRepo = mockAppConfigRepo
 		emailSvc = mockEmailSvc
 
 		ctx := context.Background()
@@ -125,6 +129,10 @@ func main() {
 			log.Fatalf("Create admin profile: %v", err)
 		}
 		log.Println("Created admin profile")
+
+		if err := mockAppConfigRepo.Set(ctx, appconfig.KeyOnboardingComplete, "true"); err != nil {
+			log.Fatalf("Set onboarding complete: %v", err)
+		}
 
 		now := time.Now()
 		seedEvents := []*event.Event{
@@ -199,52 +207,15 @@ func main() {
 		rbacRepo = store.RBAC
 		eventRepo = store.Event
 		otpRepo = postgres.NewOTPCodeRepository(db)
+		appConfigRepo = store.AppConfig
 
 		if cfg.SeedDevData {
 			ctx := context.Background()
 
-			if _, err := profileRepo.GetByEmail(ctx, "admin@scout.local"); err == nil {
-				log.Println("Dev data already seeded, skipping")
+			onboarded, err := appConfigRepo.Get(ctx, appconfig.KeyOnboardingComplete)
+			if err != nil || onboarded != "true" {
+				log.Println("Onboarding not complete, skipping dev data seed")
 			} else {
-				if _, err := rbacRepo.GetRoleByName(ctx, "admin"); err != nil {
-					log.Println("Roles missing (migration seed data was cleared), reseeding...")
-					if err := auth.SeedRoles(ctx, rbacRepo); err != nil {
-						log.Fatalf("SeedRoles failed: %v", err)
-					}
-				}
-
-				hasher := &auth.BCryptHasher{}
-
-				hash, err := hasher.Hash("password")
-				if err != nil {
-					log.Fatalf("Hash password: %v", err)
-				}
-				adminUser := &user.User{PasswordHash: hash}
-				if err := userRepo.Create(ctx, adminUser); err != nil {
-					log.Fatalf("Create admin user: %v", err)
-				}
-				adminRole, err := rbacRepo.GetRoleByName(ctx, "admin")
-				if err != nil {
-					log.Fatalf("GetRoleByName admin: %v", err)
-				}
-				if err := rbacRepo.AssignRoleToUser(ctx, adminUser.ID, adminRole.ID); err != nil {
-					log.Fatalf("AssignRoleToUser: %v", err)
-				}
-				log.Println("Seeded admin user: admin@scout.local / password")
-
-				adminProfile := &profile.Profile{
-					FirstName:  "Admin",
-					LastName:   "User",
-					Email:      "admin@scout.local",
-					MemberType: profile.MemberTypeAdult,
-					Status:     profile.StatusActive,
-					UserID:     &adminUser.ID,
-				}
-				if err := profileRepo.Create(ctx, adminProfile); err != nil {
-					log.Fatalf("Create admin profile: %v", err)
-				}
-				log.Println("Created admin profile")
-
 				now := time.Now()
 				seedEvents := []*event.Event{
 					{Title: "Campout at Lake George", Description: "Weekend camping trip with swimming, hiking, and campfire stories.", Location: "Lake George", StartTime: now.Add(72 * time.Hour), EndTime: now.Add(96 * time.Hour), CostCents: 1500, Type: "campout"},
@@ -257,59 +228,6 @@ func main() {
 					}
 				}
 				log.Println("Seeded 3 example events")
-
-				if err := eventRepo.SignUp(ctx, seedEvents[0].ID, adminProfile.ID); err != nil {
-					log.Fatalf("SignUp admin: %v", err)
-				}
-				log.Println("Signed up admin to Campout at Lake George")
-
-				youthProfile := &profile.Profile{
-					FirstName:  "Alex",
-					LastName:   "Youth",
-					Email:      "alex.youth@scout.local",
-					MemberType: profile.MemberTypeYouth,
-					Status:     profile.StatusActive,
-				}
-				if err := profileRepo.Create(ctx, youthProfile); err != nil {
-					log.Fatalf("Create youth profile: %v", err)
-				}
-				log.Println("Created youth profile: Alex Youth")
-
-				link := &parentyouthlink.ParentYouthConnection{
-					ParentProfileID: adminProfile.ID,
-					YouthProfileID:  youthProfile.ID,
-					Status:          parentyouthlink.StatusApproved,
-				}
-				if err := parentYouthLinkRepo.Create(ctx, link); err != nil {
-					log.Fatalf("Create parent-youth link: %v", err)
-				}
-				log.Println("Linked Alex Youth to admin")
-
-				if err := eventRepo.SignUp(ctx, seedEvents[0].ID, youthProfile.ID); err != nil {
-					log.Fatalf("SignUp youth: %v", err)
-				}
-				log.Println("Signed up Alex Youth to Campout at Lake George")
-
-				youthProfile2 := &profile.Profile{
-					FirstName:  "Bailey",
-					LastName:   "Scout",
-					Email:      "bailey.scout@scout.local",
-					MemberType: profile.MemberTypeYouth,
-					Status:     profile.StatusActive,
-				}
-				if err := profileRepo.Create(ctx, youthProfile2); err != nil {
-					log.Fatalf("Create youth profile 2: %v", err)
-				}
-				link2 := &parentyouthlink.ParentYouthConnection{
-					ParentProfileID: adminProfile.ID,
-					YouthProfileID:  youthProfile2.ID,
-					Status:          parentyouthlink.StatusApproved,
-				}
-				if err := parentYouthLinkRepo.Create(ctx, link2); err != nil {
-					log.Fatalf("Create parent-youth link 2: %v", err)
-				}
-				log.Println("Created and linked Bailey Scout (not signed up)")
-				log.Println("Login as admin@scout.local / password to manage Alex Youth and Bailey Scout via linked profiles")
 			}
 		}
 	}
@@ -319,12 +237,9 @@ func main() {
 	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, sessionStore)
 
 	// Scoutbook sync
-	scoutbookClient := scoutbook.NewClient(cfg.ScoutbookAPIBaseURL, cfg.ScoutbookToken, cfg.ScoutbookOrgGUID)
+	scoutbookClient := scoutbook.NewClient(cfg.ScoutbookAPIBaseURL, cfg.ScoutbookToken, "")
 	syncSvc := sync.NewService(profileRepo, rbacRepo, sync.NewScoutbookClientAdapter(scoutbookClient))
-	syncHandler := api.NewSyncHandler(syncSvc, scoutbookClient)
-	if cfg.ScoutbookOrgGUID == "" {
-		log.Fatal("SCOUTBOOK_ORG_GUID must be set")
-	}
+	syncHandler := api.NewSyncHandler(syncSvc, scoutbookClient, appConfigRepo)
 
 	adminHandler := api.NewAdminHandler(profileRepo, parentYouthLinkRepo, authService)
 
@@ -342,6 +257,10 @@ func main() {
 
 	familyConnectionsHandler := api.NewFamilyConnectionsHandler(profileRepo, parentYouthLinkRepo, authService, rbacRepo)
 
+	onboardingHandler := api.NewOnboardingHandler(
+		profileRepo, userRepo, rbacRepo, appConfigRepo, hasher, sessionStore,
+	)
+
 	router := mux.NewRouter()
 	router.HandleFunc("/healthcheck", api.HealthCheckHandler).Methods("GET")
 
@@ -351,41 +270,66 @@ func main() {
 
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
+	// Onboarding routes (guarded by RedirectIfOnboarded)
+	onboardRouter := router.PathPrefix("/onboard").Subrouter()
+	onboardRouter.Use(func(next http.Handler) http.Handler {
+		return api.RedirectIfOnboarded(appConfigRepo, next)
+	})
+	onboardRouter.HandleFunc("", onboardingHandler.WelcomePage).Methods("GET")
+	onboardRouter.HandleFunc("/personal", onboardingHandler.PersonalPage).Methods("GET")
+	onboardRouter.HandleFunc("/personal", onboardingHandler.Personal).Methods("POST")
+	onboardRouter.HandleFunc("/unit", onboardingHandler.UnitPage).Methods("GET")
+	onboardRouter.HandleFunc("/unit", onboardingHandler.Unit).Methods("POST")
+	onboardRouter.HandleFunc("/timezone", onboardingHandler.TimezonePage).Methods("GET")
+	onboardRouter.HandleFunc("/timezone", onboardingHandler.Timezone).Methods("POST")
+	onboardRouter.HandleFunc("/password", onboardingHandler.PasswordPage).Methods("GET")
+	onboardRouter.HandleFunc("/password", onboardingHandler.Password).Methods("POST")
+	onboardRouter.HandleFunc("/complete", onboardingHandler.CompletePage).Methods("GET")
+
+	app := router.PathPrefix("").Subrouter()
+	app.Use(func(next http.Handler) http.Handler {
+		return api.RequireOnboarding(appConfigRepo, next)
+	})
+
+	app.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/events", http.StatusFound)
+	})
+
 	authHandler := api.NewAuthHandler(authService)
-	router.HandleFunc("/login", authHandler.LoginPage).Methods("GET")
-	router.HandleFunc("/login", authHandler.Login).Methods("POST")
-	router.HandleFunc("/logout", api.RequireAuth(authService, authHandler.Logout)).Methods("POST")
+	app.HandleFunc("/login", authHandler.LoginPage).Methods("GET")
+	app.HandleFunc("/login", authHandler.Login).Methods("POST")
+	app.HandleFunc("/logout", api.RequireAuth(authService, authHandler.Logout)).Methods("POST")
 
-	router.HandleFunc("/register", regHandler.RegisterPage).Methods("GET")
-	router.HandleFunc("/register", regHandler.Register).Methods("POST")
-	router.HandleFunc("/register/verify", regHandler.VerifyPage).Methods("GET")
-	router.HandleFunc("/register/verify", regHandler.Verify).Methods("POST")
-	router.HandleFunc("/register/complete", regHandler.CompletePage).Methods("GET")
-	router.HandleFunc("/register/complete", regHandler.Complete).Methods("POST")
+	app.HandleFunc("/register", regHandler.RegisterPage).Methods("GET")
+	app.HandleFunc("/register", regHandler.Register).Methods("POST")
+	app.HandleFunc("/register/verify", regHandler.VerifyPage).Methods("GET")
+	app.HandleFunc("/register/verify", regHandler.Verify).Methods("POST")
+	app.HandleFunc("/register/complete", regHandler.CompletePage).Methods("GET")
+	app.HandleFunc("/register/complete", regHandler.Complete).Methods("POST")
 
-	router.Handle("/family-connections", api.RequireAuth(authService, familyConnectionsHandler.FamilyConnectionsPage)).Methods("GET")
-	router.Handle("/family-connections", api.RequireAuth(authService, familyConnectionsHandler.AddConnection)).Methods("POST")
+	app.Handle("/family-connections", api.RequireAuth(authService, familyConnectionsHandler.FamilyConnectionsPage)).Methods("GET")
+	app.Handle("/family-connections", api.RequireAuth(authService, familyConnectionsHandler.AddConnection)).Methods("POST")
 
 	eventHandler := api.NewEventHandler(eventRepo, authService, rbacRepo, profileRepo, parentYouthLinkRepo, cfg.UnitType, cfg.UnitNumber)
 	api.SetMuxVars(mux.Vars)
-	router.Handle("/events", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListEvents)).Methods("GET")
-	router.Handle("/events/upcoming", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListUpcoming)).Methods("GET")
-	router.Handle("/events/past", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListPast)).Methods("GET")
-	router.Handle("/events/{id}", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.EventDetail)).Methods("GET")
-	router.Handle("/events/{id}/signup", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.SignUp)).Methods("POST")
-	router.Handle("/events/{id}/withdraw", api.RequirePermission(authService, rbacRepo, "event:withdraw", eventHandler.Withdraw)).Methods("POST")
+	app.Handle("/events", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListEvents)).Methods("GET")
+	app.Handle("/events/upcoming", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListUpcoming)).Methods("GET")
+	app.Handle("/events/past", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListPast)).Methods("GET")
+	app.Handle("/events/{id}", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.EventDetail)).Methods("GET")
+	app.Handle("/events/{id}/signup", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.SignUp)).Methods("POST")
+	app.Handle("/events/{id}/withdraw", api.RequirePermission(authService, rbacRepo, "event:withdraw", eventHandler.Withdraw)).Methods("POST")
 
-	router.Handle("/admin", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.AdminPage)).Methods("GET")
-	router.Handle("/admin/roster", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RosterPage)).Methods("GET")
-	router.Handle("/admin/connections", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ConnectionsPage)).Methods("GET")
-	router.Handle("/admin/connections/{id}/approve", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ApproveConnection)).Methods("POST")
-	router.Handle("/admin/connections/{id}/reject", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RejectConnection)).Methods("POST")
-	router.Handle("/admin/connections/{id}/remove", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RemoveConnection)).Methods("POST")
+	app.Handle("/admin", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.AdminPage)).Methods("GET")
+	app.Handle("/admin/roster", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RosterPage)).Methods("GET")
+	app.Handle("/admin/connections", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ConnectionsPage)).Methods("GET")
+	app.Handle("/admin/connections/{id}/approve", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ApproveConnection)).Methods("POST")
+	app.Handle("/admin/connections/{id}/reject", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RejectConnection)).Methods("POST")
+	app.Handle("/admin/connections/{id}/remove", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RemoveConnection)).Methods("POST")
 
-	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.AdminPage)).Methods("GET")
-	router.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.StoreToken)).Methods("POST")
-	router.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")
-	router.Handle("/admin/sync/revert", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Revert)).Methods("POST")
+	app.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.AdminPage)).Methods("GET")
+	app.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.StoreToken)).Methods("POST")
+	app.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")
+	app.Handle("/admin/sync/revert", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Revert)).Methods("POST")
 
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)

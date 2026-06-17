@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	stdSync "sync"
 	"time"
 
+	"scout-app/internal/domain/appconfig"
 	"scout-app/internal/domain/profile"
 	domainsync "scout-app/internal/domain/sync"
 	"scout-app/internal/scoutbook"
@@ -42,33 +44,51 @@ type syncPageData struct {
 }
 
 type SyncHandler struct {
-	svc    *domainsync.Service
-	client *scoutbook.Client
-	tmpl   *template.Template
+	svc           *domainsync.Service
+	client        *scoutbook.Client
+	tmpl          *template.Template
+	orgGUID       string
+	appConfigRepo appconfig.Repository
 
 	mu    stdSync.RWMutex
 	token *storedToken
 }
 
-func NewSyncHandler(svc *domainsync.Service, client *scoutbook.Client) *SyncHandler {
+func NewSyncHandler(svc *domainsync.Service, client *scoutbook.Client, appConfigRepo appconfig.Repository) *SyncHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
 	return &SyncHandler{
-		svc:    svc,
-		client: client,
-		tmpl:   tmpl,
+		svc:           svc,
+		client:        client,
+		tmpl:          tmpl,
+		appConfigRepo: appConfigRepo,
 	}
+}
+
+func (h *SyncHandler) loadOrgGUID(ctx context.Context) string {
+	guid, _ := h.appConfigRepo.Get(ctx, appconfig.KeyScoutbookOrgGUID)
+	if guid != h.orgGUID {
+		h.orgGUID = guid
+		h.client.SetOrgGUID(guid)
+	}
+	return h.orgGUID
+}
+
+func (h *SyncHandler) SetOrgGUID(orgGUID string) {
+	h.orgGUID = orgGUID
+	h.client.SetOrgGUID(orgGUID)
 }
 
 func (h *SyncHandler) syncPageData() syncPageData {
 	return syncPageData{
 		Title:   "Admin: Scoutbook Sync",
-		OrgGUID: h.client.OrgGUID(),
+		OrgGUID: h.orgGUID,
 	}
 }
 
 func (h *SyncHandler) AdminPage(w http.ResponseWriter, r *http.Request) {
+	h.loadOrgGUID(r.Context())
 	data := h.syncPageData()
 	h.mu.RLock()
 	data.HasToken = h.token != nil && h.token.expiresAt.After(time.Now())
@@ -91,7 +111,7 @@ func (h *SyncHandler) AdminPage(w http.ResponseWriter, r *http.Request) {
 
 func (h *SyncHandler) renderPage(w http.ResponseWriter, data syncPageData) {
 	if data.OrgGUID == "" {
-		data.OrgGUID = h.client.OrgGUID()
+		data.OrgGUID = h.orgGUID
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	t := template.Must(h.tmpl.Clone())
@@ -101,6 +121,7 @@ func (h *SyncHandler) renderPage(w http.ResponseWriter, data syncPageData) {
 }
 
 func (h *SyncHandler) StoreToken(w http.ResponseWriter, r *http.Request) {
+	h.loadOrgGUID(r.Context())
 	raw := r.FormValue("login_data")
 	if raw == "" {
 		var req tokenRequest
@@ -159,6 +180,7 @@ func (h *SyncHandler) StoreToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SyncHandler) Sync(w http.ResponseWriter, r *http.Request) {
+	h.loadOrgGUID(r.Context())
 	h.mu.RLock()
 	st := h.token
 	h.mu.RUnlock()
