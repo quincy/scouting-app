@@ -54,13 +54,19 @@ type profileSignUpVM struct {
 }
 
 type eventFormData struct {
-	Title        string
-	IsAdmin      bool
-	Event        *event.Event
-	Errors       map[string]string
-	FlashSuccess string
-	UnitType     string
-	UnitNumber   string
+	Title              string
+	IsAdmin            bool
+	Event              *event.Event
+	Errors             map[string]string
+	FlashSuccess       string
+	FormAction         string
+	SubmitLabel        string
+	StartTimeFormatted string
+	EndTimeFormatted   string
+	CostFormatted      string
+	DescriptionHTML    template.HTML
+	UnitType           string
+	UnitNumber         string
 }
 
 type eventDetailData struct {
@@ -286,6 +292,9 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("created") == "1" {
 		flashSuccess = "Event created successfully!"
 	}
+	if r.URL.Query().Get("updated") == "1" {
+		flashSuccess = "Event updated successfully!"
+	}
 
 	detailTitle := fmt.Sprintf("%s %s Events", h.unitType, h.unitNumber)
 	data := eventDetailData{
@@ -312,11 +321,13 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 
 func (h *EventHandler) EventCreateForm(w http.ResponseWriter, r *http.Request) {
 	data := eventFormData{
-		Title:      "Create Event",
-		IsAdmin:    h.isAdmin(r.Context(), r),
-		Event:      &event.Event{},
-		UnitType:   h.unitType,
-		UnitNumber: h.unitNumber,
+		Title:       "Create Event",
+		IsAdmin:     h.isAdmin(r.Context(), r),
+		Event:       &event.Event{},
+		FormAction:  "/events/create",
+		SubmitLabel: "Create Event",
+		UnitType:    h.unitType,
+		UnitNumber:  h.unitNumber,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -390,12 +401,14 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 
 	if len(errors) > 0 {
 		data := eventFormData{
-			Title:      "Create Event",
-			IsAdmin:    h.isAdmin(r.Context(), r),
-			Event:      &event.Event{},
-			UnitType:   h.unitType,
-			UnitNumber: h.unitNumber,
-			Errors:     errors,
+			Title:       "Create Event",
+			IsAdmin:     h.isAdmin(r.Context(), r),
+			Event:       &event.Event{},
+			FormAction:  "/events/create",
+			SubmitLabel: "Create Event",
+			UnitType:    h.unitType,
+			UnitNumber:  h.unitNumber,
+			Errors:      errors,
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -421,12 +434,14 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 	if err := h.repo.Create(ctx, evt); err != nil {
 		log.Printf("EventCreate: %v", err)
 		data := eventFormData{
-			Title:      "Create Event",
-			IsAdmin:    h.isAdmin(r.Context(), r),
-			Event:      &event.Event{},
-			UnitType:   h.unitType,
-			UnitNumber: h.unitNumber,
-			Errors:     map[string]string{"title": "Failed to create event"},
+			Title:       "Create Event",
+			IsAdmin:     h.isAdmin(r.Context(), r),
+			Event:       &event.Event{},
+			FormAction:  "/events/create",
+			SubmitLabel: "Create Event",
+			UnitType:    h.unitType,
+			UnitNumber:  h.unitNumber,
+			Errors:      map[string]string{"title": "Failed to create event"},
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -437,6 +452,176 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, fmt.Sprintf("/events/%s?created=1", evt.ID), http.StatusFound)
+}
+
+func (h *EventHandler) buildEditFormData(evt *event.Event, errors map[string]string) eventFormData {
+	costDisplay := fmt.Sprintf("%.2f", float64(evt.CostCents)/100.0)
+	renderedDesc, err := renderMarkdown(evt.Description)
+	if err != nil {
+		renderedDesc = template.HTMLEscapeString(evt.Description)
+	}
+	return eventFormData{
+		Title:              "Edit Event",
+		IsAdmin:            true,
+		Event:              evt,
+		Errors:             errors,
+		FormAction:         fmt.Sprintf("/events/%s/edit", evt.ID),
+		SubmitLabel:        "Save Changes",
+		StartTimeFormatted: evt.StartTime.Format("2006-01-02T15:04"),
+		EndTimeFormatted:   evt.EndTime.Format("2006-01-02T15:04"),
+		CostFormatted:      costDisplay,
+		DescriptionHTML:    template.HTML(renderedDesc),
+		UnitType:           h.unitType,
+		UnitNumber:         h.unitNumber,
+	}
+}
+
+func (h *EventHandler) EventEditForm(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		log.Printf("EventEditForm GetByID: %v", err)
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+
+	data := h.buildEditFormData(evt, nil)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
+		log.Printf("template execution: %v", err)
+	}
+}
+
+func (h *EventHandler) EventEdit(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	existing, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		log.Printf("EventEdit GetByID: %v", err)
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+
+	title := r.FormValue("title")
+	description := r.FormValue("description")
+	location := r.FormValue("location")
+	startTimeStr := r.FormValue("start_time")
+	endTimeStr := r.FormValue("end_time")
+	costStr := r.FormValue("cost")
+	eventType := r.FormValue("type")
+
+	errors := make(map[string]string)
+
+	if title == "" {
+		errors["title"] = "Title is required"
+	}
+	if location == "" {
+		errors["location"] = "Location is required"
+	}
+	if startTimeStr == "" {
+		errors["start_time"] = "Start time is required"
+	}
+	if endTimeStr == "" {
+		errors["end_time"] = "End time is required"
+	}
+
+	var costCents int
+	if costStr == "" {
+		errors["cost"] = "Cost is required"
+	} else {
+		costFloat, err := strconv.ParseFloat(costStr, 64)
+		if err != nil {
+			errors["cost"] = "Invalid cost value"
+		} else if costFloat < 0 {
+			errors["cost"] = "Cost must not be negative"
+		} else {
+			costCents = int(costFloat * 100)
+		}
+	}
+
+	var startTime, endTime time.Time
+	if startTimeStr != "" {
+		var err error
+		startTime, err = time.Parse("2006-01-02T15:04", startTimeStr)
+		if err != nil {
+			errors["start_time"] = "Invalid start time format"
+		}
+	}
+	if endTimeStr != "" {
+		var err error
+		endTime, err = time.Parse("2006-01-02T15:04", endTimeStr)
+		if err != nil {
+			errors["end_time"] = "Invalid end time format"
+		}
+	}
+
+	if len(errors) == 0 && !endTime.After(startTime) {
+		errors["end_time"] = "End time must be after start time"
+	}
+
+	if len(errors) > 0 {
+		evt := &event.Event{
+			ID:          eventID,
+			Title:       title,
+			Description: description,
+			Location:    location,
+			StartTime:   startTime,
+			EndTime:     endTime,
+			CostCents:   costCents,
+			Type:        eventType,
+			CreatedAt:   existing.CreatedAt,
+		}
+		data := h.buildEditFormData(evt, errors)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
+			log.Printf("template execution: %v", err)
+		}
+		return
+	}
+
+	evt := &event.Event{
+		ID:          eventID,
+		Title:       title,
+		Description: description,
+		Location:    location,
+		StartTime:   startTime,
+		EndTime:     endTime,
+		CostCents:   costCents,
+		Type:        eventType,
+		CreatedAt:   existing.CreatedAt,
+	}
+
+	if err := h.repo.Update(ctx, evt); err != nil {
+		log.Printf("EventEdit Update: %v", err)
+		data := h.buildEditFormData(evt, map[string]string{"title": "Failed to update event"})
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
+			log.Printf("template execution: %v", err)
+		}
+		return
+	}
+
+	http.Redirect(w, r, fmt.Sprintf("/events/%s?updated=1", eventID), http.StatusFound)
 }
 
 func (h *EventHandler) buildProfileSignUps(ctx context.Context, currentUserID string, attendees []*profile.Profile) []profileSignUpVM {

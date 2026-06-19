@@ -687,6 +687,15 @@ button.full-width:hover { background: #0d47a1; }
   font-size: 0.875rem;
 }
 
+/* === Admin Actions === */
+.admin-actions { margin-bottom: 16px; display: flex; gap: 8px; }
+.btn-edit {
+  display: inline-block; background: #1565c0; color: #fff;
+  padding: 8px 16px; border-radius: 6px; text-decoration: none;
+  font-size: 0.875rem; font-weight: 600; cursor: pointer; border: none;
+}
+.btn-edit:hover { background: #0d47a1; }
+
 /* === Badges === */
 .badge {
   display: inline-block;

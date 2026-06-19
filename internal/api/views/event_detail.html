@@ -8,6 +8,12 @@
 <div class="success">{{.FlashSuccess}}</div>
 {{end}}
 
+{{if .IsAdmin}}
+<div class="admin-actions">
+    <a href="/events/{{.Event.ID}}/edit" class="btn-edit">Edit Event</a>
+</div>
+{{end}}
+
 <div class="event-detail">
     <span class="badge badge-primary">{{.Event.Type}}</span>
     <h2>{{.Event.Title}}</h2>

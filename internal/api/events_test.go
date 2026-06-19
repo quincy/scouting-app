@@ -930,3 +930,180 @@ func TestEventHandler_EventCreate_InvalidCost(t *testing.T) {
 		t.Errorf("expected 'Invalid cost value' error, got:\n%s", rr.Body.String())
 	}
 }
+
+func TestEventHandler_EventEditForm_Renders(t *testing.T) {
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+
+	eventRepo.SeedEvents([]*event.Event{
+		{
+			ID:          "evt1",
+			Title:       "Campout at Lake George",
+			Description: "Weekend camping trip.",
+			Location:    "Lake George",
+			StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+			EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+			CostCents:   1500,
+			Type:        "campout",
+			CreatedAt:   time.Now(),
+		},
+	})
+
+	req := loggedInRequest(t, authService, "GET", "/events/evt1/edit?id=evt1")
+	rr := httptest.NewRecorder()
+
+	handler.EventEditForm(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("EventEditForm returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Edit Event") {
+		t.Errorf("expected 'Edit Event' title, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Save Changes") {
+		t.Errorf("expected 'Save Changes' submit label, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Campout at Lake George") {
+		t.Errorf("expected pre-filled title, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Weekend camping trip") {
+		t.Errorf("expected pre-filled description, got:\n%s", body)
+	}
+	if !strings.Contains(body, "2026-06-06T09:00") {
+		t.Errorf("expected pre-filled start time, got:\n%s", body)
+	}
+}
+
+func TestEventHandler_EventEdit_Success(t *testing.T) {
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	eventRepo.SeedEvents([]*event.Event{
+		{
+			ID:          "evt1",
+			Title:       "Original Title",
+			Description: "Original description",
+			Location:    "Original Location",
+			StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+			EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+			CostCents:   1000,
+			Type:        "campout",
+			CreatedAt:   time.Now(),
+		},
+	})
+
+	form := url.Values{
+		"title":       {"Updated Title"},
+		"description": {"Updated description"},
+		"location":    {"Updated Location"},
+		"start_time":  {time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC).Format("2006-01-02T15:04")},
+		"end_time":    {time.Date(2026, 7, 3, 18, 0, 0, 0, time.UTC).Format("2006-01-02T15:04")},
+		"cost":        {"25.00"},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/evt1/edit?id=evt1", form)
+	rr := httptest.NewRecorder()
+
+	handler.EventEdit(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("EventEdit returned status %d, want %d (redirect)", rr.Code, http.StatusFound)
+	}
+
+	location := rr.Header().Get("Location")
+	if !strings.Contains(location, "/events/evt1") {
+		t.Errorf("expected redirect to /events/evt1, got Location: %s", location)
+	}
+	if !strings.Contains(location, "updated=1") {
+		t.Errorf("expected redirect to include ?updated=1, got Location: %s", location)
+	}
+
+	updated, err := eventRepo.GetByID(ctx, "evt1")
+	if err != nil {
+		t.Fatalf("expected updated event to exist, got error: %v", err)
+	}
+	if updated.Title != "Updated Title" {
+		t.Errorf("expected title 'Updated Title', got %q", updated.Title)
+	}
+	if updated.Description != "Updated description" {
+		t.Errorf("expected description 'Updated description', got %q", updated.Description)
+	}
+	if updated.Location != "Updated Location" {
+		t.Errorf("expected location 'Updated Location', got %q", updated.Location)
+	}
+	if updated.CostCents != 2500 {
+		t.Errorf("expected cost 2500 cents, got %d", updated.CostCents)
+	}
+	if updated.Type != "campout" {
+		t.Errorf("expected type 'campout', got %q", updated.Type)
+	}
+}
+
+func TestEventHandler_EventEdit_NotFound(t *testing.T) {
+	_, _, _, authService, handler, _ := setupEventTest(t)
+
+	req := loggedInRequest(t, authService, "GET", "/events/nonexistent/edit?id=nonexistent")
+	rr := httptest.NewRecorder()
+
+	handler.EventEditForm(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("EventEditForm returned status %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestEventHandler_EventEdit_ValidationError(t *testing.T) {
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+
+	eventRepo.SeedEvents([]*event.Event{
+		{
+			ID:          "evt1",
+			Title:       "Original Title",
+			Description: "Original description",
+			Location:    "Original Location",
+			StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+			EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+			CostCents:   1000,
+			Type:        "campout",
+			CreatedAt:   time.Now(),
+		},
+	})
+
+	form := url.Values{
+		"title":       {""},
+		"description": {""},
+		"location":    {""},
+		"start_time":  {""},
+		"end_time":    {""},
+		"cost":        {""},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/evt1/edit?id=evt1", form)
+	rr := httptest.NewRecorder()
+
+	handler.EventEdit(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("EventEdit returned status %d, want %d", rr.Code, http.StatusUnprocessableEntity)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Title is required") {
+		t.Errorf("expected 'Title is required' error, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Location is required") {
+		t.Errorf("expected 'Location is required' error, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Start time is required") {
+		t.Errorf("expected 'Start time is required' error, got:\n%s", body)
+	}
+	if !strings.Contains(body, "End time is required") {
+		t.Errorf("expected 'End time is required' error, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Cost is required") {
+		t.Errorf("expected 'Cost is required' error, got:\n%s", body)
+	}
+}
