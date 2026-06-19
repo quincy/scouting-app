@@ -399,25 +399,6 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 		errors["end_time"] = "End time must be after start time"
 	}
 
-	if len(errors) > 0 {
-		data := eventFormData{
-			Title:       "Create Event",
-			IsAdmin:     h.isAdmin(r.Context(), r),
-			Event:       &event.Event{},
-			FormAction:  "/events/create",
-			SubmitLabel: "Create Event",
-			UnitType:    h.unitType,
-			UnitNumber:  h.unitNumber,
-			Errors:      errors,
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
-			log.Printf("template execution: %v", err)
-		}
-		return
-	}
-
 	evt := &event.Event{
 		Title:       title,
 		Description: description,
@@ -426,23 +407,25 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 		EndTime:     endTime,
 		CostCents:   costCents,
 		Type:        eventType,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
 	}
+
+	if len(errors) > 0 {
+		data := h.buildFormDataOnError("Create Event", "/events/create", "Create Event", evt, startTimeStr, endTimeStr, costStr, errors)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
+			log.Printf("template execution: %v", err)
+		}
+		return
+	}
+
+	evt.CreatedAt = time.Now()
+	evt.UpdatedAt = time.Now()
 
 	ctx := r.Context()
 	if err := h.repo.Create(ctx, evt); err != nil {
 		log.Printf("EventCreate: %v", err)
-		data := eventFormData{
-			Title:       "Create Event",
-			IsAdmin:     h.isAdmin(r.Context(), r),
-			Event:       &event.Event{},
-			FormAction:  "/events/create",
-			SubmitLabel: "Create Event",
-			UnitType:    h.unitType,
-			UnitNumber:  h.unitNumber,
-			Errors:      map[string]string{"title": "Failed to create event"},
-		}
+		data := h.buildFormDataOnError("Create Event", "/events/create", "Create Event", evt, startTimeStr, endTimeStr, costStr, map[string]string{"title": "Failed to create event"})
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
 		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
@@ -471,6 +454,22 @@ func (h *EventHandler) buildEditFormData(evt *event.Event, errors map[string]str
 		EndTimeFormatted:   evt.EndTime.Format("2006-01-02T15:04"),
 		CostFormatted:      costDisplay,
 		DescriptionHTML:    template.HTML(renderedDesc),
+		UnitType:           h.unitType,
+		UnitNumber:         h.unitNumber,
+	}
+}
+
+func (h *EventHandler) buildFormDataOnError(title, formAction, submitLabel string, evt *event.Event, startTimeStr, endTimeStr, costStr string, errors map[string]string) eventFormData {
+	return eventFormData{
+		Title:              title,
+		IsAdmin:            true,
+		Event:              evt,
+		Errors:             errors,
+		FormAction:         formAction,
+		SubmitLabel:        submitLabel,
+		StartTimeFormatted: startTimeStr,
+		EndTimeFormatted:   endTimeStr,
+		CostFormatted:      costStr,
 		UnitType:           h.unitType,
 		UnitNumber:         h.unitNumber,
 	}

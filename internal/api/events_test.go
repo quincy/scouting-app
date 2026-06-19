@@ -877,6 +877,43 @@ func TestEventHandler_EventCreate_ValidationError(t *testing.T) {
 	}
 }
 
+func TestEventHandler_EventCreate_PreservesFormValuesOnError(t *testing.T) {
+	_, _, _, authService, handler, _ := setupEventTest(t)
+
+	form := url.Values{
+		"title":       {"Campout at Yosemite"},
+		"description": {"A fun weekend trip"},
+		"location":    {""},
+		"start_time":  {time.Now().Add(72 * time.Hour).Format("2006-01-02T15:04")},
+		"end_time":    {time.Now().Add(96 * time.Hour).Format("2006-01-02T15:04")},
+		"cost":        {"15.00"},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/create", form)
+	rr := httptest.NewRecorder()
+
+	handler.EventCreate(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("EventCreate returned status %d, want %d", rr.Code, http.StatusUnprocessableEntity)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Campout at Yosemite") {
+		t.Errorf("expected title to be preserved, got:\n%s", body)
+	}
+	if !strings.Contains(body, "A fun weekend trip") {
+		t.Errorf("expected description to be preserved, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Location is required") {
+		t.Errorf("expected 'Location is required' error, got:\n%s", body)
+	}
+	if !strings.Contains(body, "15.00") {
+		t.Errorf("expected cost '15.00' to be preserved, got:\n%s", body)
+	}
+}
+
 func TestEventHandler_EventCreate_EndTimeBeforeStart(t *testing.T) {
 	_, _, _, authService, handler, _ := setupEventTest(t)
 
