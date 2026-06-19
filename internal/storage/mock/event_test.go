@@ -278,3 +278,92 @@ func TestEventRepository_GetAttendees_NonExistentEvent(t *testing.T) {
 		t.Error("expected error for non-existent event, got nil")
 	}
 }
+
+func TestEventRepository_Update(t *testing.T) {
+	_, repo := newTestEventRepo()
+	ctx := context.Background()
+
+	evt := futureEvent("e1", "Original Title", 1)
+	repo.SeedEvents([]*event.Event{evt})
+
+	updated := &event.Event{
+		ID:          "e1",
+		Title:       "Updated Title",
+		Description: "Updated description",
+		Location:    "New Location",
+		StartTime:   evt.StartTime.Add(1 * time.Hour),
+		EndTime:     evt.EndTime.Add(1 * time.Hour),
+		CostCents:   2000,
+		Type:        "meeting",
+	}
+	err := repo.Update(ctx, updated)
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	fetched, err := repo.GetByID(ctx, "e1")
+	if err != nil {
+		t.Fatalf("GetByID after update failed: %v", err)
+	}
+
+	if fetched.Title != "Updated Title" {
+		t.Errorf("expected title 'Updated Title', got %q", fetched.Title)
+	}
+	if fetched.Description != "Updated description" {
+		t.Errorf("expected description 'Updated description', got %q", fetched.Description)
+	}
+	if fetched.Location != "New Location" {
+		t.Errorf("expected location 'New Location', got %q", fetched.Location)
+	}
+	if fetched.CostCents != 2000 {
+		t.Errorf("expected CostCents 2000, got %d", fetched.CostCents)
+	}
+	if fetched.Type != "meeting" {
+		t.Errorf("expected type 'meeting', got %q", fetched.Type)
+	}
+	if fetched.UpdatedAt.IsZero() {
+		t.Error("expected UpdatedAt to be set")
+	}
+}
+
+func TestEventRepository_Delete(t *testing.T) {
+	_, repo := newTestEventRepo()
+	ctx := context.Background()
+
+	evt := futureEvent("e1", "To Delete", 1)
+	repo.SeedEvents([]*event.Event{evt})
+
+	err := repo.Delete(ctx, "e1")
+	if err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	_, err = repo.GetByID(ctx, "e1")
+	if err == nil {
+		t.Error("expected error after delete, got nil")
+	}
+}
+
+func TestEventRepository_Update_NonExistent(t *testing.T) {
+	_, repo := newTestEventRepo()
+	ctx := context.Background()
+
+	evt := &event.Event{
+		ID:   "nonexistent",
+		Type: "campout",
+	}
+	err := repo.Update(ctx, evt)
+	if err == nil {
+		t.Error("expected error updating non-existent event, got nil")
+	}
+}
+
+func TestEventRepository_Delete_NonExistent(t *testing.T) {
+	_, repo := newTestEventRepo()
+	ctx := context.Background()
+
+	err := repo.Delete(ctx, "nonexistent")
+	if err == nil {
+		t.Error("expected error deleting non-existent event, got nil")
+	}
+}

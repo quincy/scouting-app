@@ -185,6 +185,136 @@ func TestPostgresEventRepository_ListUpcomingAndPast(t *testing.T) {
 	}
 }
 
+func TestPostgresEventRepository_Update(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:       "Original",
+		Description: "Original description",
+		Location:    "Original location",
+		StartTime:   time.Now().Add(24 * time.Hour),
+		EndTime:     time.Now().Add(48 * time.Hour),
+		CostCents:   1000,
+		Type:        "campout",
+	}
+	if err := repo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	createdAt := evt.CreatedAt
+
+	updated := &event.Event{
+		ID:          evt.ID,
+		Title:       "Updated",
+		Description: "Updated description",
+		Location:    "Updated location",
+		StartTime:   time.Now().Add(72 * time.Hour),
+		EndTime:     time.Now().Add(96 * time.Hour),
+		CostCents:   2000,
+		Type:        "campout",
+	}
+	if err := repo.Update(ctx, updated); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	fetched, err := repo.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetByID after update failed: %v", err)
+	}
+
+	if fetched.Title != "Updated" {
+		t.Errorf("expected title 'Updated', got %q", fetched.Title)
+	}
+	if fetched.Description != "Updated description" {
+		t.Errorf("expected description 'Updated description', got %q", fetched.Description)
+	}
+	if fetched.Location != "Updated location" {
+		t.Errorf("expected location 'Updated location', got %q", fetched.Location)
+	}
+	if fetched.CostCents != 2000 {
+		t.Errorf("expected CostCents 2000, got %d", fetched.CostCents)
+	}
+	if fetched.Type != "meeting" {
+		t.Errorf("expected type 'meeting', got %q", fetched.Type)
+	}
+	if !fetched.CreatedAt.Equal(createdAt) {
+		t.Errorf("CreatedAt should not change: original %v, got %v", createdAt, fetched.CreatedAt)
+	}
+	if fetched.UpdatedAt.IsZero() {
+		t.Error("expected UpdatedAt to be set")
+	}
+	if fetched.UpdatedAt.Before(fetched.CreatedAt) {
+		t.Error("UpdatedAt should not be before CreatedAt")
+	}
+}
+
+func TestPostgresEventRepository_Delete(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "To Delete",
+		Location:  "Somewhere",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := repo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if err := repo.Delete(ctx, evt.ID); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	_, err := repo.GetByID(ctx, evt.ID)
+	if err == nil {
+		t.Error("expected error after delete, got nil")
+	}
+}
+
+func TestPostgresEventRepository_Delete_NonExistent(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	err := repo.Delete(ctx, "nonexistent-id")
+	if err == nil {
+		t.Error("expected error deleting non-existent event, got nil")
+	}
+}
+
+func TestPostgresEventRepository_Update_NonExistent(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		ID:    "nonexistent-id",
+		Title: "Ghost",
+		Type:  "campout",
+	}
+	err := repo.Update(ctx, evt)
+	if err == nil {
+		t.Error("expected error updating non-existent event, got nil")
+	}
+}
+
 func TestPostgresEventRepository_Pagination(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no database connection")

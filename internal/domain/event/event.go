@@ -23,4 +23,5 @@ type Event struct {
 	CostDecimal float64
 	Type        string
 	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }

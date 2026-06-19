@@ -33,13 +33,48 @@ func (r *EventRepository) Create(ctx context.Context, e *event.Event) error {
 func (r *EventRepository) GetByID(ctx context.Context, id string) (*event.Event, error) {
 	e := &event.Event{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, title, description, location, start_time, end_time, cost_cents, cost_decimal, type, created_at
+		`SELECT id, title, description, location, start_time, end_time, cost_cents, cost_decimal, type, created_at, updated_at
 		 FROM events WHERE id = $1`, id,
-	).Scan(&e.ID, &e.Title, &e.Description, &e.Location, &e.StartTime, &e.EndTime, &e.CostCents, &e.CostDecimal, &e.Type, &e.CreatedAt)
+	).Scan(&e.ID, &e.Title, &e.Description, &e.Location, &e.StartTime, &e.EndTime, &e.CostCents, &e.CostDecimal, &e.Type, &e.CreatedAt, &e.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("event not found")
 	}
 	return e, err
+}
+
+func (r *EventRepository) Update(ctx context.Context, e *event.Event) error {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE events
+		 SET title = $2, description = $3, location = $4, start_time = $5, end_time = $6, cost_cents = $7, type = $8, updated_at = NOW()
+		 WHERE id = $1`,
+		e.ID, e.Title, e.Description, e.Location, e.StartTime, e.EndTime, e.CostCents, e.Type,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("event not found")
+	}
+	return nil
+}
+
+func (r *EventRepository) Delete(ctx context.Context, id string) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM events WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("event not found")
+	}
+	return nil
 }
 
 func (r *EventRepository) ListUpcoming(ctx context.Context, limit int, offset int) ([]*event.ListItem, error) {

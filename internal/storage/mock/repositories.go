@@ -263,6 +263,31 @@ func (r *EventRepository) GetByID(ctx context.Context, id string) (*event.Event,
 	return e, nil
 }
 
+func (r *EventRepository) Update(ctx context.Context, e *event.Event) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	existing, ok := r.events[e.ID]
+	if !ok {
+		return errors.New("event not found")
+	}
+	clone := *e
+	clone.CreatedAt = existing.CreatedAt
+	clone.UpdatedAt = time.Now()
+	r.events[clone.ID] = &clone
+	return nil
+}
+
+func (r *EventRepository) Delete(ctx context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.events[id]; !ok {
+		return errors.New("event not found")
+	}
+	delete(r.events, id)
+	delete(r.attendees, id)
+	return nil
+}
+
 func (r *EventRepository) ListUpcoming(ctx context.Context, limit int, offset int) ([]*event.ListItem, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
