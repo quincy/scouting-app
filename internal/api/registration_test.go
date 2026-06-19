@@ -86,6 +86,30 @@ func setupRegistrationTest(t *testing.T) (*RegistrationHandler, *auth.AuthServic
 		t.Fatalf("Create unregistered youth: %v", err)
 	}
 
+	unregisteredAdultWithPositions := &profile.Profile{
+		FirstName:  "Positioned",
+		LastName:   "Adult",
+		Email:      "positioned.adult@scout.local",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+		Positions:  "Scoutmaster, Troop Admin",
+	}
+	if err := profileRepo.Create(ctx, unregisteredAdultWithPositions); err != nil {
+		t.Fatalf("Create unregistered adult with positions: %v", err)
+	}
+
+	unregisteredYouthWithPositions := &profile.Profile{
+		FirstName:  "Positioned",
+		LastName:   "Youth",
+		Email:      "positioned.youth@scout.local",
+		MemberType: profile.MemberTypeYouth,
+		Status:     profile.StatusActive,
+		Positions:  "Patrol Leader, Scribe",
+	}
+	if err := profileRepo.Create(ctx, unregisteredYouthWithPositions); err != nil {
+		t.Fatalf("Create unregistered youth with positions: %v", err)
+	}
+
 	_ = parentYouthLinkRepo
 	_ = eventRepo
 
@@ -689,7 +713,209 @@ func TestRegistrationHandler_Complete_Youth_ScoutRole(t *testing.T) {
 	}
 }
 
-// Test 19: POST /register/complete — success redirects to /login?registered=1
+// Test 19: POST /register/complete — adult with positions gets parent + position-based roles
+func TestRegistrationHandler_Complete_AdultWithPositions(t *testing.T) {
+	handler, authService, userRepo, profileRepo, otpRepo, emailSvc, rbacRepo := setupRegistrationTest(t)
+	ctx := t.Context()
+
+	cookies, otpID, _ := registerAndGetOTP(t, handler, authService, "positioned.adult@scout.local", otpRepo, emailSvc)
+
+	var plainCode string
+	for _, sent := range emailSvc.SentOTPs {
+		if sent.To == "positioned.adult@scout.local" {
+			plainCode = sent.Code
+			break
+		}
+	}
+
+	verifyReq := httptest.NewRequest("POST", "/register/verify", strings.NewReader("otp_id="+otpID+"&code="+plainCode))
+	verifyReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		verifyReq.AddCookie(c)
+	}
+	verifyRR := httptest.NewRecorder()
+	handler.Verify(verifyRR, verifyReq)
+	verifyCookies := verifyRR.Result().Cookies()
+
+	completeReq := httptest.NewRequest("POST", "/register/complete", strings.NewReader("password=newpassword123"))
+	completeReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range verifyCookies {
+		completeReq.AddCookie(c)
+	}
+	completeRR := httptest.NewRecorder()
+	handler.Complete(completeRR, completeReq)
+
+	if completeRR.Code != http.StatusFound {
+		t.Errorf("Complete returned status %d, want 302 Found", completeRR.Code)
+	}
+
+	prof, err := profileRepo.GetByEmail(ctx, "positioned.adult@scout.local")
+	if err != nil {
+		t.Fatalf("GetByEmail profile: %v", err)
+	}
+	if prof.UserID == nil {
+		t.Fatal("expected profile to be linked to a user")
+	}
+
+	user, err := userRepo.GetByID(ctx, *prof.UserID)
+	if err != nil {
+		t.Fatalf("user not created: %v", err)
+	}
+
+	roles, err := rbacRepo.GetUserRoles(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserRoles: %v", err)
+	}
+
+	roleNames := make(map[string]bool)
+	for _, role := range roles {
+		roleNames[role.Name] = true
+	}
+
+	if !roleNames["parent"] {
+		t.Error("expected user to have 'parent' role")
+	}
+	if !roleNames["Scoutmaster"] {
+		t.Error("expected user to have 'Scoutmaster' role")
+	}
+	if !roleNames["Troop Admin"] {
+		t.Error("expected user to have 'Troop Admin' role")
+	}
+}
+
+// Test 20: POST /register/complete — youth with positions gets Scouts BSA + position-based roles
+func TestRegistrationHandler_Complete_YouthWithPositions(t *testing.T) {
+	handler, authService, userRepo, profileRepo, otpRepo, emailSvc, rbacRepo := setupRegistrationTest(t)
+	ctx := t.Context()
+
+	cookies, otpID, _ := registerAndGetOTP(t, handler, authService, "positioned.youth@scout.local", otpRepo, emailSvc)
+
+	var plainCode string
+	for _, sent := range emailSvc.SentOTPs {
+		if sent.To == "positioned.youth@scout.local" {
+			plainCode = sent.Code
+			break
+		}
+	}
+
+	verifyReq := httptest.NewRequest("POST", "/register/verify", strings.NewReader("otp_id="+otpID+"&code="+plainCode))
+	verifyReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		verifyReq.AddCookie(c)
+	}
+	verifyRR := httptest.NewRecorder()
+	handler.Verify(verifyRR, verifyReq)
+	verifyCookies := verifyRR.Result().Cookies()
+
+	completeReq := httptest.NewRequest("POST", "/register/complete", strings.NewReader("password=youthpass"))
+	completeReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range verifyCookies {
+		completeReq.AddCookie(c)
+	}
+	completeRR := httptest.NewRecorder()
+	handler.Complete(completeRR, completeReq)
+
+	if completeRR.Code != http.StatusFound {
+		t.Errorf("Complete returned status %d, want 302 Found", completeRR.Code)
+	}
+
+	prof, err := profileRepo.GetByEmail(ctx, "positioned.youth@scout.local")
+	if err != nil {
+		t.Fatalf("GetByEmail profile: %v", err)
+	}
+	if prof.UserID == nil {
+		t.Fatal("expected profile to be linked to a user")
+	}
+
+	user, err := userRepo.GetByID(ctx, *prof.UserID)
+	if err != nil {
+		t.Fatalf("user not created: %v", err)
+	}
+
+	roles, err := rbacRepo.GetUserRoles(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserRoles: %v", err)
+	}
+
+	roleNames := make(map[string]bool)
+	for _, role := range roles {
+		roleNames[role.Name] = true
+	}
+
+	if !roleNames["Scouts BSA"] {
+		t.Error("expected user to have 'Scouts BSA' role")
+	}
+	if !roleNames["Patrol Leader"] {
+		t.Error("expected user to have 'Patrol Leader' role")
+	}
+	if !roleNames["Scribe"] {
+		t.Error("expected user to have 'Scribe' role")
+	}
+}
+
+// Test 21: POST /register/complete — adult without positions does not get position-based roles
+func TestRegistrationHandler_Complete_AdultWithoutPositions_NoExtraRoles(t *testing.T) {
+	handler, authService, userRepo, profileRepo, otpRepo, emailSvc, rbacRepo := setupRegistrationTest(t)
+	ctx := t.Context()
+
+	cookies, otpID, _ := registerAndGetOTP(t, handler, authService, "unregistered.adult@scout.local", otpRepo, emailSvc)
+
+	var plainCode string
+	for _, sent := range emailSvc.SentOTPs {
+		if sent.To == "unregistered.adult@scout.local" {
+			plainCode = sent.Code
+			break
+		}
+	}
+
+	verifyReq := httptest.NewRequest("POST", "/register/verify", strings.NewReader("otp_id="+otpID+"&code="+plainCode))
+	verifyReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range cookies {
+		verifyReq.AddCookie(c)
+	}
+	verifyRR := httptest.NewRecorder()
+	handler.Verify(verifyRR, verifyReq)
+	verifyCookies := verifyRR.Result().Cookies()
+
+	completeReq := httptest.NewRequest("POST", "/register/complete", strings.NewReader("password=secret"))
+	completeReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range verifyCookies {
+		completeReq.AddCookie(c)
+	}
+	completeRR := httptest.NewRecorder()
+	handler.Complete(completeRR, completeReq)
+
+	if completeRR.Code != http.StatusFound {
+		t.Errorf("Complete returned status %d, want 302 Found", completeRR.Code)
+	}
+
+	prof, err := profileRepo.GetByEmail(ctx, "unregistered.adult@scout.local")
+	if err != nil {
+		t.Fatalf("GetByEmail profile: %v", err)
+	}
+	if prof.UserID == nil {
+		t.Fatal("expected profile to be linked to a user")
+	}
+
+	user, err := userRepo.GetByID(ctx, *prof.UserID)
+	if err != nil {
+		t.Fatalf("user not created: %v", err)
+	}
+
+	roles, err := rbacRepo.GetUserRoles(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUserRoles: %v", err)
+	}
+
+	if len(roles) != 1 {
+		t.Errorf("expected exactly 1 role, got %d: %v", len(roles), roles)
+	}
+	if roles[0].Name != "parent" {
+		t.Errorf("expected role 'parent', got %q", roles[0].Name)
+	}
+}
+
+// Test 22: POST /register/complete — success redirects to /login?registered=1
 func TestRegistrationHandler_Complete_SuccessRedirect(t *testing.T) {
 	handler, authService, _, _, otpRepo, emailSvc, _ := setupRegistrationTest(t)
 

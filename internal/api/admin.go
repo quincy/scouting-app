@@ -165,7 +165,8 @@ func (h *AdminHandler) updateLinkStatus(w http.ResponseWriter, r *http.Request, 
 
 	data := h.buildConnectionsData(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.tmpl.ExecuteTemplate(w, "admin_connections", data); err != nil {
+	t := template.Must(h.tmpl.Clone())
+	if err := t.ExecuteTemplate(w, "admin_connections", data); err != nil {
 		log.Printf("admin_connections template: %v", err)
 	}
 }

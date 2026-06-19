@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"sort"
-	"strings"
 	"time"
 
 	"scout-app/internal/domain/profile"
@@ -313,58 +312,7 @@ func (s *Service) reconcileRoles(ctx context.Context, profileID string, userID *
 	if userID == nil {
 		return nil, nil, nil
 	}
-
-	currentRoles, err := s.rbac.GetUserRoles(ctx, *userID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("get user roles: %w", err)
-	}
-
-	currentRoleNames := make(map[string]bool)
-	for _, role := range currentRoles {
-		if role.Name != "parent" && role.Name != "admin" {
-			currentRoleNames[role.Name] = true
-		}
-	}
-
-	targetPositions := make(map[string]bool)
-	if positions != "" {
-		for _, pos := range strings.Split(positions, ", ") {
-			targetPositions[pos] = true
-		}
-	}
-
-	for pos := range targetPositions {
-		if !currentRoleNames[pos] {
-			role, err := s.rbac.GetRoleByName(ctx, pos)
-			if err != nil {
-				role = &rbac.Role{Name: pos}
-				if err := s.rbac.CreateRole(ctx, role); err != nil {
-					return nil, nil, fmt.Errorf("create role %q: %w", pos, err)
-				}
-			}
-			if err := s.rbac.AssignRoleToUser(ctx, *userID, role.ID); err != nil {
-				return nil, nil, fmt.Errorf("assign role %q: %w", pos, err)
-			}
-			log.Printf("[sync] ROLE ADDED memberId=%s role=%s", profileID, pos)
-			addedNames = append(addedNames, pos)
-		}
-	}
-
-	for roleName := range currentRoleNames {
-		if !targetPositions[roleName] {
-			role, err := s.rbac.GetRoleByName(ctx, roleName)
-			if err != nil {
-				continue
-			}
-			if err := s.rbac.RemoveRoleFromUser(ctx, *userID, role.ID); err != nil {
-				return nil, nil, fmt.Errorf("remove role %q: %w", roleName, err)
-			}
-			log.Printf("[sync] ROLE REMOVED memberId=%s role=%s", profileID, roleName)
-			removedNames = append(removedNames, roleName)
-		}
-	}
-
-	return addedNames, removedNames, nil
+	return rbac.ReconcileRoles(ctx, s.rbac, profileID, *userID, positions)
 }
 
 func memberType(bsaID string, adults, youths []Member) profile.MemberType {

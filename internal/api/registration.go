@@ -382,6 +382,14 @@ func (h *RegistrationHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if prof.Positions != "" {
+		if _, _, err := rbac.ReconcileRoles(ctx, h.rbacRepo, prof.ID, u.ID, prof.Positions); err != nil {
+			log.Printf("reconcile roles: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	prof.UserID = &u.ID
 	if err := h.profileRepo.Update(ctx, prof); err != nil {
 		log.Printf("update profile: %v", err)
