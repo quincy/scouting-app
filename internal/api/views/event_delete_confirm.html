@@ -1,0 +1,20 @@
+<div class="modal-overlay" onclick="document.getElementById('delete-modal').innerHTML=''">
+  <div class="modal-dialog" onclick="event.stopPropagation()">
+    {{if .Error}}
+      <h3>Error</h3>
+      <div class="error">{{.Error}}</div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="document.getElementById('delete-modal').innerHTML=''">Close</button>
+      </div>
+    {{else}}
+      <h3>Delete Event</h3>
+      <p>Are you sure you want to delete <strong>{{.Title}}</strong>?</p>
+      <form hx-delete="/events/{{.EventID}}/delete" hx-target="#delete-modal" hx-swap="innerHTML">
+        <div class="modal-actions">
+          <button type="submit" class="btn-danger">Delete</button>
+          <button type="button" class="btn-cancel" onclick="document.getElementById('delete-modal').innerHTML=''">Cancel</button>
+        </div>
+      </form>
+    {{end}}
+  </div>
+</div>

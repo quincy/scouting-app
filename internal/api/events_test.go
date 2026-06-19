@@ -968,6 +968,93 @@ func TestEventHandler_EventCreate_InvalidCost(t *testing.T) {
 	}
 }
 
+func setAuthCookie(t *testing.T, authService *auth.AuthService, req *http.Request) {
+	t.Helper()
+	authHandler := NewAuthHandler(authService)
+	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	authHandler.Login(loginRR, loginReq)
+	for _, c := range loginRR.Result().Cookies() {
+		req.AddCookie(c)
+	}
+}
+
+func TestEventHandler_EventDeleteConfirm_Renders(t *testing.T) {
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+
+	eventRepo.SeedEvents([]*event.Event{
+		{ID: "evt1", Title: "Campout at Lake George", Location: "Lake George", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
+	})
+
+	req := httptest.NewRequest("GET", "/events/evt1/delete?id=evt1", nil)
+	setAuthCookie(t, authService, req)
+	rr := httptest.NewRecorder()
+
+	handler.EventDeleteConfirm(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("EventDeleteConfirm returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Campout at Lake George") {
+		t.Errorf("expected event title in confirm modal, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Are you sure") {
+		t.Errorf("expected confirmation text, got:\n%s", body)
+	}
+	if !strings.Contains(body, "hx-delete") {
+		t.Errorf("expected hx-delete attribute in form, got:\n%s", body)
+	}
+}
+
+func TestEventHandler_EventDelete_Success(t *testing.T) {
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+
+	eventRepo.SeedEvents([]*event.Event{
+		{ID: "evt1", Title: "Campout at Lake George", Location: "Lake George", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
+	})
+
+	req := httptest.NewRequest("DELETE", "/events/evt1/delete?id=evt1", nil)
+	setAuthCookie(t, authService, req)
+	rr := httptest.NewRecorder()
+
+	handler.EventDelete(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("EventDelete returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	if rr.Header().Get("HX-Redirect") != "/events?deleted=1" {
+		t.Errorf("expected HX-Redirect header, got %q", rr.Header().Get("HX-Redirect"))
+	}
+
+	_, err := eventRepo.GetByID(t.Context(), "evt1")
+	if err == nil {
+		t.Error("expected event to be deleted")
+	}
+}
+
+func TestEventHandler_EventDelete_NotFound(t *testing.T) {
+	_, _, _, authService, handler, _ := setupEventTest(t)
+
+	req := httptest.NewRequest("DELETE", "/events/evt1/delete?id=evt1", nil)
+	setAuthCookie(t, authService, req)
+	rr := httptest.NewRecorder()
+
+	handler.EventDelete(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("EventDelete returned status %d, want %d", rr.Code, http.StatusNotFound)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Failed to delete event") {
+		t.Errorf("expected 'Failed to delete event' error, got:\n%s", body)
+	}
+}
+
 func TestEventHandler_EventEditForm_Renders(t *testing.T) {
 	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
 

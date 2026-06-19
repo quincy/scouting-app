@@ -169,6 +169,8 @@ func main() {
 	app.Handle("/events/create", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.EventCreate)).Methods("POST")
 	app.Handle("/events/{id}/edit", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.EventEditForm)).Methods("GET")
 	app.Handle("/events/{id}/edit", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.EventEdit)).Methods("POST")
+	app.Handle("/events/{id}/delete", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.EventDeleteConfirm)).Methods("GET")
+	app.Handle("/events/{id}/delete", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.EventDelete)).Methods("DELETE")
 	app.Handle("/events/{id}", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.EventDetail)).Methods("GET")
 	app.Handle("/events/{id}/signup", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.SignUp)).Methods("POST")
 	app.Handle("/events/{id}/withdraw", api.RequirePermission(authService, rbacRepo, "event:withdraw", eventHandler.Withdraw)).Methods("POST")

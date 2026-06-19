@@ -845,6 +845,64 @@ func (h *EventHandler) canManageProfile(ctx context.Context, userID string, prof
 	return false
 }
 
+type eventDeleteData struct {
+	EventID string
+	Title   string
+	Error   string
+}
+
+func (h *EventHandler) EventDeleteConfirm(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	evt, err := h.repo.GetByID(r.Context(), eventID)
+	if err != nil {
+		log.Printf("EventDeleteConfirm GetByID: %v", err)
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+
+	data := eventDeleteData{
+		EventID: evt.ID,
+		Title:   evt.Title,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "event_delete_confirm.html", data); err != nil {
+		log.Printf("template execution: %v", err)
+	}
+}
+
+func (h *EventHandler) EventDelete(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.repo.Delete(r.Context(), eventID); err != nil {
+		log.Printf("EventDelete: %v", err)
+		data := eventDeleteData{
+			EventID: eventID,
+			Error:   "Failed to delete event",
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		if err := h.tmpl.ExecuteTemplate(w, "event_delete_confirm.html", data); err != nil {
+			log.Printf("template execution: %v", err)
+		}
+		return
+	}
+
+	w.Header().Set("HX-Redirect", "/events?deleted=1")
+	w.WriteHeader(http.StatusOK)
+}
+
 var muxVars = func(r *http.Request) map[string]string {
 	return map[string]string{}
 }

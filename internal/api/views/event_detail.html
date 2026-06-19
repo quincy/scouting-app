@@ -11,6 +11,7 @@
 {{if .IsAdmin}}
 <div class="admin-actions">
     <a href="/events/{{.Event.ID}}/edit" class="btn-edit">Edit Event</a>
+    <button class="btn-danger" hx-get="/events/{{.Event.ID}}/delete" hx-target="#delete-modal" hx-swap="innerHTML">Delete</button>
 </div>
 {{end}}
 
@@ -67,5 +68,6 @@
         </ul>
     </div>
 </div>
+<div id="delete-modal"></div>
 {{template "base_tail" .}}
 {{end}}
