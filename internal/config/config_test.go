@@ -75,7 +75,6 @@ func TestLoadFile_ParsesCorrectly(t *testing.T) {
 	content := `
 # This is a comment
 ADDR=:5000
-USE_MOCK_STORAGE=true
 
 DATABASE_URL=postgres://localhost/test
 SESSION_SECRET=from-file-secret
@@ -97,9 +96,6 @@ SMTP_PORT=587
 	}
 	if cfg.Addr != ":5000" {
 		t.Errorf("expected Addr :5000, got %q", cfg.Addr)
-	}
-	if !cfg.UseMockStorage {
-		t.Error("expected UseMockStorage true")
 	}
 	if cfg.DatabaseURL != "postgres://localhost/test" {
 		t.Errorf("expected DatabaseURL postgres://localhost/test, got %q", cfg.DatabaseURL)
@@ -196,7 +192,7 @@ func TestLoadFile_FileNotFound(t *testing.T) {
 func unsetAll(t *testing.T) {
 	t.Helper()
 	keys := []string{
-		"ADDR", "USE_MOCK_STORAGE", "DATABASE_URL", "AUTO_MIGRATE",
+		"ADDR", "DATABASE_URL", "AUTO_MIGRATE",
 		"SESSION_SECRET", "SCOUTBOOK_API_BASE_URL", "SCOUTBOOK_ORG_GUID",
 		"SCOUTBOOK_TOKEN", "SMTP_HOST", "SMTP_PORT", "SMTP_USER",
 		"SMTP_PASS", "SMTP_FROM", "UNIT_TYPE", "UNIT_NUMBER",
