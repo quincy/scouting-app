@@ -1,0 +1,67 @@
+{{define "event_form.html"}}
+{{template "base_head" .}}
+<div class="back-link">
+    <a href="/events">&larr; Back to events</a>
+</div>
+
+<h1>{{.Title}}</h1>
+
+{{if .FlashSuccess}}
+<div class="success">{{.FlashSuccess}}</div>
+{{end}}
+
+<form class="event-form" action="/events/create" method="POST" novalidate>
+    <div class="form-group">
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title" value="{{.Event.Title}}" required>
+        {{if index .Errors "title"}}<div class="field-error">{{index .Errors "title"}}</div>{{end}}
+    </div>
+
+    <div class="form-group">
+        <label for="description">Description</label>
+        <div class="split-editor">
+            <div class="editor-pane">
+                <textarea id="description" name="description" hx-trigger="keyup delay:500ms" hx-post="/admin/markdown-preview" hx-target="#preview-pane">{{.Event.Description}}</textarea>
+            </div>
+            <div class="preview-pane" id="preview-pane"></div>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label for="location">Location</label>
+        <input type="text" id="location" name="location" value="{{.Event.Location}}" required>
+        {{if index .Errors "location"}}<div class="field-error">{{index .Errors "location"}}</div>{{end}}
+    </div>
+
+    <div class="form-group">
+        <label for="start_time">Start Time</label>
+        <input type="datetime-local" id="start_time" name="start_time" required>
+        {{if index .Errors "start_time"}}<div class="field-error">{{index .Errors "start_time"}}</div>{{end}}
+    </div>
+
+    <div class="form-group">
+        <label for="end_time">End Time</label>
+        <input type="datetime-local" id="end_time" name="end_time" required>
+        {{if index .Errors "end_time"}}<div class="field-error">{{index .Errors "end_time"}}</div>{{end}}
+    </div>
+
+    <div class="form-group">
+        <label for="cost">Cost ($)</label>
+        <input type="number" id="cost" name="cost" step="0.01" min="0" value="0" required>
+        {{if index .Errors "cost"}}<div class="field-error">{{index .Errors "cost"}}</div>{{end}}
+    </div>
+
+    <div class="form-group">
+        <label for="type">Type</label>
+        <select id="type" name="type" required>
+            <option value="campout">Campout</option>
+        </select>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn-signup">Create Event</button>
+        <a href="/events" class="btn-withdraw" style="text-decoration:none;display:inline-flex;align-items:center;">Cancel</a>
+    </div>
+</form>
+{{template "base_tail" .}}
+{{end}}

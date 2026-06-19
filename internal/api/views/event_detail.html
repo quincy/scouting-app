@@ -4,11 +4,15 @@
     <a href="/events">&larr; Back to events</a>
 </div>
 
+{{if .FlashSuccess}}
+<div class="success">{{.FlashSuccess}}</div>
+{{end}}
+
 <div class="event-detail">
     <span class="badge badge-primary">{{.Event.Type}}</span>
     <h2>{{.Event.Title}}</h2>
-    {{if .Event.Description}}
-    <p class="description">{{.Event.Description}}</p>
+    {{if .DescriptionHTML}}
+    <div class="description">{{.DescriptionHTML}}</div>
     {{end}}
     <div class="meta">
         <span>&#x1f4cd; {{.Event.Location}}</span>

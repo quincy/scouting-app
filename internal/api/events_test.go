@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -736,5 +737,196 @@ func TestEventHandler_Withdraw_MissingProfileID_ReturnsError(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for missing profile_id, got %d", rr.Code)
+	}
+}
+
+func TestEventHandler_EventCreateForm_Renders(t *testing.T) {
+	_, _, _, authService, handler, _ := setupEventTest(t)
+
+	req := loggedInRequest(t, authService, "GET", "/events/create")
+	rr := httptest.NewRecorder()
+
+	handler.EventCreateForm(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("EventCreateForm returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Create Event") {
+		t.Errorf("expected form to contain 'Create Event', got:\n%s", body)
+	}
+	if !strings.Contains(body, "event-form") {
+		t.Errorf("expected form to have 'event-form' class, got:\n%s", body)
+	}
+	if !strings.Contains(body, "split-editor") {
+		t.Errorf("expected form to have split editor, got:\n%s", body)
+	}
+	if !strings.Contains(body, "hx-post=\"/admin/markdown-preview\"") {
+		t.Errorf("expected textarea to have htmx markdown preview trigger, got:\n%s", body)
+	}
+}
+
+func loggedInPostRequest(t *testing.T, authService *auth.AuthService, path string, form url.Values) *http.Request {
+	t.Helper()
+
+	authHandler := NewAuthHandler(authService)
+	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	authHandler.Login(loginRR, loginReq)
+
+	body := strings.NewReader(form.Encode())
+	req := httptest.NewRequest("POST", path, body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range loginRR.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	return req
+}
+
+func TestEventHandler_EventCreate_Success(t *testing.T) {
+	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+
+	form := url.Values{
+		"title":       {"Test Event"},
+		"description": {"Test description"},
+		"location":    {"Test Location"},
+		"start_time":  {time.Now().Add(24 * time.Hour).Format("2006-01-02T15:04")},
+		"end_time":    {time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")},
+		"cost":        {"25.00"},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/create", form)
+	rr := httptest.NewRecorder()
+
+	handler.EventCreate(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("EventCreate returned status %d, want %d (redirect)", rr.Code, http.StatusFound)
+	}
+
+	location := rr.Header().Get("Location")
+	if !strings.Contains(location, "/events/") {
+		t.Errorf("expected redirect to /events/{id}, got Location: %s", location)
+	}
+	if !strings.Contains(location, "created=1") {
+		t.Errorf("expected redirect to include ?created=1, got Location: %s", location)
+	}
+
+	eventID := strings.TrimPrefix(strings.Split(location, "?")[0], "/events/")
+	created, err := eventRepo.GetByID(t.Context(), eventID)
+	if err != nil {
+		t.Fatalf("expected created event to exist, got error: %v", err)
+	}
+	if created.Title != "Test Event" {
+		t.Errorf("expected event title 'Test Event', got %q", created.Title)
+	}
+	if created.Description != "Test description" {
+		t.Errorf("expected event description 'Test description', got %q", created.Description)
+	}
+	if created.Location != "Test Location" {
+		t.Errorf("expected event location 'Test Location', got %q", created.Location)
+	}
+	if created.CostCents != 2500 {
+		t.Errorf("expected cost 2500 cents, got %d", created.CostCents)
+	}
+	if created.Type != "campout" {
+		t.Errorf("expected type 'campout', got %q", created.Type)
+	}
+}
+
+func TestEventHandler_EventCreate_ValidationError(t *testing.T) {
+	_, _, _, authService, handler, _ := setupEventTest(t)
+
+	form := url.Values{
+		"title":       {""},
+		"description": {""},
+		"location":    {""},
+		"start_time":  {""},
+		"end_time":    {""},
+		"cost":        {""},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/create", form)
+	rr := httptest.NewRecorder()
+
+	handler.EventCreate(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("EventCreate returned status %d, want %d", rr.Code, http.StatusUnprocessableEntity)
+	}
+
+	bodyStr := rr.Body.String()
+	if !strings.Contains(bodyStr, "Title is required") {
+		t.Errorf("expected 'Title is required' error, got:\n%s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "Location is required") {
+		t.Errorf("expected 'Location is required' error, got:\n%s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "Start time is required") {
+		t.Errorf("expected 'Start time is required' error, got:\n%s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "End time is required") {
+		t.Errorf("expected 'End time is required' error, got:\n%s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "Cost is required") {
+		t.Errorf("expected 'Cost is required' error, got:\n%s", bodyStr)
+	}
+}
+
+func TestEventHandler_EventCreate_EndTimeBeforeStart(t *testing.T) {
+	_, _, _, authService, handler, _ := setupEventTest(t)
+
+	form := url.Values{
+		"title":       {"Test Event"},
+		"description": {""},
+		"location":    {"Somewhere"},
+		"start_time":  {time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")},
+		"end_time":    {time.Now().Add(24 * time.Hour).Format("2006-01-02T15:04")},
+		"cost":        {"10"},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/create", form)
+	rr := httptest.NewRecorder()
+
+	handler.EventCreate(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("EventCreate returned status %d, want %d", rr.Code, http.StatusUnprocessableEntity)
+	}
+
+	if !strings.Contains(rr.Body.String(), "End time must be after start time") {
+		t.Errorf("expected end time validation error, got:\n%s", rr.Body.String())
+	}
+}
+
+func TestEventHandler_EventCreate_InvalidCost(t *testing.T) {
+	_, _, _, authService, handler, _ := setupEventTest(t)
+
+	form := url.Values{
+		"title":       {"Test Event"},
+		"description": {""},
+		"location":    {"Somewhere"},
+		"start_time":  {time.Now().Add(24 * time.Hour).Format("2006-01-02T15:04")},
+		"end_time":    {time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")},
+		"cost":        {"abc"},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/create", form)
+	rr := httptest.NewRecorder()
+
+	handler.EventCreate(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("EventCreate returned status %d, want %d", rr.Code, http.StatusUnprocessableEntity)
+	}
+
+	if !strings.Contains(rr.Body.String(), "Invalid cost value") {
+		t.Errorf("expected 'Invalid cost value' error, got:\n%s", rr.Body.String())
 	}
 }

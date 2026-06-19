@@ -18,7 +18,7 @@ func renderMarkdown(source string) (string, error) {
 }
 
 func (h *EventHandler) MarkdownPreview(w http.ResponseWriter, r *http.Request) {
-	markdown := r.FormValue("markdown")
+	markdown := r.FormValue("description")
 	html, err := renderMarkdown(markdown)
 	if err != nil {
 		log.Printf("renderMarkdown: %v", err)

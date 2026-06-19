@@ -1,7 +1,10 @@
 {{define "layout.html"}}
 {{template "base_head" .}}
 <section id="upcoming-section">
-    <h2>Upcoming Events</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2>Upcoming Events</h2>
+        {{if .IsAdmin}}<a href="/events/create" style="color:#1565c0;text-decoration:none;font-size:0.9rem;font-weight:600;">+ Create Event</a>{{end}}
+    </div>
     <p class="section-count" id="upcoming-count">Showing {{.UpcomingDisplayed}} of {{.UpcomingTotal}}</p>
     <div id="upcoming-list">
         {{range .UpcomingEvents}}
