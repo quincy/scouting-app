@@ -1,37 +1,36 @@
 package api
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"scout-app/internal/domain/auth"
-	"scout-app/internal/storage/mock"
+	"scout-app/internal/storage/postgres"
+	"scout-app/internal/testhelper"
 )
 
-// setupAuthTest creates mock repos, seeds roles, creates an AuthService,
-// and creates an AuthHandler for testing.
-func setupAuthTest(t *testing.T) (*AuthHandler, *auth.AuthService, *mock.UserRepository, *mock.RBACRepository) {
+func setupAuthTest(t *testing.T) (*AuthHandler, *auth.AuthService, *sql.DB) {
 	t.Helper()
-	userRepo := mock.NewUserRepository()
-	rbacRepo := mock.NewRBACRepository()
+	db := testhelper.StartDB()
+	store := postgres.NewStore(db)
 	hasher := &auth.MockHasher{}
 
-	// Seed default roles
 	ctx := t.Context()
-	if err := rbacRepo.SeedRoles(ctx); err != nil {
+	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
 		t.Fatalf("SeedRoles: %v", err)
 	}
 
-	store := auth.NewCookieStore("test-secret-key")
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, store)
+	cookieStore := auth.NewCookieStore("test-secret-key")
+	authService := auth.NewAuthService(store.User, store.RBAC, hasher, cookieStore)
 	authHandler := NewAuthHandler(authService)
-	return authHandler, authService, userRepo, rbacRepo
+	return authHandler, authService, db
 }
 
 func TestAuthHandler_LoginPage(t *testing.T) {
-	handler, _, _, _ := setupAuthTest(t)
+	handler, _, _ := setupAuthTest(t)
 
 	req := httptest.NewRequest("GET", "/login", nil)
 	rr := httptest.NewRecorder()
@@ -58,7 +57,7 @@ func TestAuthHandler_LoginPage(t *testing.T) {
 }
 
 func TestAuthHandler_LoginPage_WithError(t *testing.T) {
-	handler, _, _, _ := setupAuthTest(t)
+	handler, _, _ := setupAuthTest(t)
 
 	req := httptest.NewRequest("GET", "/login?error=Invalid+credentials", nil)
 	rr := httptest.NewRecorder()
@@ -72,13 +71,12 @@ func TestAuthHandler_LoginPage_WithError(t *testing.T) {
 }
 
 func TestAuthHandler_Login_ValidCredentials(t *testing.T) {
-	handler, authService, _, _ := setupAuthTest(t)
-	ctx := t.Context()
+	handler, _, db := setupAuthTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
-	// Seed admin user
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
+	ctx := t.Context()
+	store := postgres.NewStore(db)
+	seedAdminUser(t, store, &auth.MockHasher{}, ctx)
 
 	req := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -90,7 +88,6 @@ func TestAuthHandler_Login_ValidCredentials(t *testing.T) {
 		t.Errorf("Login returned status %d, want 302 Found", rr.Code)
 	}
 
-	// Should redirect to /events
 	location := rr.Header().Get("Location")
 	if location != "/events" {
 		t.Errorf("expected redirect to /events, got %q", location)
@@ -98,12 +95,12 @@ func TestAuthHandler_Login_ValidCredentials(t *testing.T) {
 }
 
 func TestAuthHandler_Login_InvalidCredentials(t *testing.T) {
-	handler, authService, _, _ := setupAuthTest(t)
-	ctx := t.Context()
+	handler, _, db := setupAuthTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
+	ctx := t.Context()
+	store := postgres.NewStore(db)
+	seedAdminUser(t, store, &auth.MockHasher{}, ctx)
 
 	req := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=wrong"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -122,12 +119,12 @@ func TestAuthHandler_Login_InvalidCredentials(t *testing.T) {
 }
 
 func TestAuthHandler_Login_WithRedirect(t *testing.T) {
-	handler, authService, _, _ := setupAuthTest(t)
-	ctx := t.Context()
+	handler, _, db := setupAuthTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
+	ctx := t.Context()
+	store := postgres.NewStore(db)
+	seedAdminUser(t, store, &auth.MockHasher{}, ctx)
 
 	req := httptest.NewRequest("POST", "/login?redirect=/events/upcoming", strings.NewReader("email=admin@scout.local&password=password"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -146,23 +143,20 @@ func TestAuthHandler_Login_WithRedirect(t *testing.T) {
 }
 
 func TestAuthHandler_Logout(t *testing.T) {
-	handler, authService, _, _ := setupAuthTest(t)
+	handler, _, db := setupAuthTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
 	ctx := t.Context()
+	store := postgres.NewStore(db)
+	seedAdminUser(t, store, &auth.MockHasher{}, ctx)
 
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
-
-	// First login to get a session
 	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
 	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	loginRR := httptest.NewRecorder()
 	handler.Login(loginRR, loginReq)
 
-	// Extract session cookie
 	cookies := loginRR.Result().Cookies()
 
-	// Now logout
 	logoutReq := httptest.NewRequest("POST", "/logout", nil)
 	for _, c := range cookies {
 		logoutReq.AddCookie(c)
@@ -181,9 +175,8 @@ func TestAuthHandler_Logout(t *testing.T) {
 }
 
 func TestRequireAuth_NoSession(t *testing.T) {
-	_, authService, _, _ := setupAuthTest(t)
+	_, authService, _ := setupAuthTest(t)
 
-	// Create a simple handler that we'll protect
 	var called bool
 	protected := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -210,21 +203,19 @@ func TestRequireAuth_NoSession(t *testing.T) {
 }
 
 func TestRequireAuth_ValidSession(t *testing.T) {
-	handler, authService, _, _ := setupAuthTest(t)
+	handler, authService, db := setupAuthTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
 	ctx := t.Context()
+	store := postgres.NewStore(db)
+	seedAdminUser(t, store, &auth.MockHasher{}, ctx)
 
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
-
-	// Login first
 	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
 	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	loginRR := httptest.NewRecorder()
 	handler.Login(loginRR, loginReq)
 	cookies := loginRR.Result().Cookies()
 
-	// Protected handler
 	var called bool
 	protected := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -245,28 +236,25 @@ func TestRequireAuth_ValidSession(t *testing.T) {
 }
 
 func TestRequirePermission_UserLacksPermission(t *testing.T) {
-	handler, authService, _, rbacRepo := setupAuthTest(t)
+	handler, authService, db := setupAuthTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+	store := postgres.NewStore(db)
+
 	ctx := t.Context()
+	seedAdminUser(t, store, &auth.MockHasher{}, ctx)
 
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
-
-	// Login first
 	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
 	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	loginRR := httptest.NewRecorder()
 	handler.Login(loginRR, loginReq)
 	cookies := loginRR.Result().Cookies()
 
-	// Protected handler
 	var called bool
 	protected := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 	})
 
-	// Require a non-existent permission
-	wrapped := RequirePermission(authService, rbacRepo, "event:admin", protected)
+	wrapped := RequirePermission(authService, store.RBAC, "event:admin", protected)
 
 	req := httptest.NewRequest("GET", "/events", nil)
 	for _, c := range cookies {
@@ -285,14 +273,13 @@ func TestRequirePermission_UserLacksPermission(t *testing.T) {
 }
 
 func TestRequirePermission_UserHasPermission(t *testing.T) {
-	handler, authService, _, rbacRepo := setupAuthTest(t)
+	handler, authService, db := setupAuthTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+	store := postgres.NewStore(db)
+
 	ctx := t.Context()
+	seedAdminUser(t, store, &auth.MockHasher{}, ctx)
 
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
-
-	// Login first
 	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
 	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	loginRR := httptest.NewRecorder()
@@ -304,8 +291,7 @@ func TestRequirePermission_UserHasPermission(t *testing.T) {
 		called = true
 	})
 
-	// Admin has event:view
-	wrapped := RequirePermission(authService, rbacRepo, "event:view", protected)
+	wrapped := RequirePermission(authService, store.RBAC, "event:view", protected)
 
 	req := httptest.NewRequest("GET", "/events", nil)
 	for _, c := range cookies {

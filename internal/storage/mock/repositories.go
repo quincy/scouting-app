@@ -787,9 +787,9 @@ func (r *ScoutbookSessionRepository) GetLatest(ctx context.Context) (*scoutbooks
 }
 
 type EmailService struct {
-	SentOTPs           []EmailOTP
-	SentNotifications  []AdminNotification
-	mu                 sync.RWMutex
+	SentOTPs          []EmailOTP
+	SentNotifications []AdminNotification
+	mu                sync.RWMutex
 }
 
 type EmailOTP struct {

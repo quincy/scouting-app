@@ -5,14 +5,18 @@ import (
 	"testing"
 
 	"scout-app/internal/domain/rbac"
-	"scout-app/internal/storage/mock"
+	"scout-app/internal/domain/user"
+	"scout-app/internal/storage/postgres"
+	"scout-app/internal/testhelper"
 )
 
 func TestRBACRepository_RolesAndPermissions(t *testing.T) {
-	repo := mock.NewRBACRepository()
+	db := testhelper.StartDB()
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	repo := postgres.NewRBACRepository(db)
 	ctx := context.Background()
 
-	// 1. Create Roles
 	adminRole := &rbac.Role{Name: "Admin"}
 	leaderRole := &rbac.Role{Name: "Leader"}
 	err := repo.CreateRole(ctx, adminRole)
@@ -25,7 +29,6 @@ func TestRBACRepository_RolesAndPermissions(t *testing.T) {
 		t.Error("expected admin role to have generated UUID ID")
 	}
 
-	// Creating duplicate role returns existing ID (idempotent)
 	dupRole := &rbac.Role{Name: "Admin"}
 	err = repo.CreateRole(ctx, dupRole)
 	if err != nil {
@@ -35,7 +38,6 @@ func TestRBACRepository_RolesAndPermissions(t *testing.T) {
 		t.Error("expected duplicate role to get the existing role's ID")
 	}
 
-	// 2. Create Permissions
 	createEventPerm := &rbac.Permission{Name: "Create Event"}
 	signUpPerm := &rbac.Permission{Name: "Sign up for Event"}
 	err = repo.CreatePermission(ctx, createEventPerm)
@@ -48,30 +50,30 @@ func TestRBACRepository_RolesAndPermissions(t *testing.T) {
 		t.Error("expected permission to have generated UUID ID")
 	}
 
-	// 3. Link permissions to roles
-	// Admin gets "Create Event" and "Sign up for Event"
 	err = repo.LinkPermissionToRole(ctx, adminRole.ID, createEventPerm.ID)
 	if err != nil {
 		t.Fatalf("failed to link permission to admin: %v", err)
 	}
 	_ = repo.LinkPermissionToRole(ctx, adminRole.ID, signUpPerm.ID)
 
-	// Leader gets "Sign up for Event" only
 	_ = repo.LinkPermissionToRole(ctx, leaderRole.ID, signUpPerm.ID)
 
-	// 4. Assign roles to user
-	userID := "user-uuid-123"
-	err = repo.AssignRoleToUser(ctx, userID, adminRole.ID)
+	userRepo := postgres.NewUserRepository(db)
+	u := &user.User{PasswordHash: "password"}
+	if err := userRepo.Create(ctx, u); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	err = repo.AssignRoleToUser(ctx, u.ID, adminRole.ID)
 	if err != nil {
 		t.Fatalf("failed to assign admin role: %v", err)
 	}
-	err = repo.AssignRoleToUser(ctx, userID, leaderRole.ID)
+	err = repo.AssignRoleToUser(ctx, u.ID, leaderRole.ID)
 	if err != nil {
 		t.Fatalf("failed to assign leader role: %v", err)
 	}
 
-	// 5. Verify User Roles
-	roles, err := repo.GetUserRoles(ctx, userID)
+	roles, err := repo.GetUserRoles(ctx, u.ID)
 	if err != nil {
 		t.Fatalf("failed to get user roles: %v", err)
 	}
@@ -79,13 +81,11 @@ func TestRBACRepository_RolesAndPermissions(t *testing.T) {
 		t.Errorf("expected 2 roles, got %d", len(roles))
 	}
 
-	// 6. Verify User Permissions Resolution (de-duplicated)
-	perms, err := repo.GetUserPermissions(ctx, userID)
+	perms, err := repo.GetUserPermissions(ctx, u.ID)
 	if err != nil {
 		t.Fatalf("failed to get user permissions: %v", err)
 	}
 
-	// Admin has 2, Leader has 1 (which overlaps). De-duplicated count must be 2.
 	if len(perms) != 2 {
 		t.Errorf("expected 2 unique permissions, got %d", len(perms))
 	}

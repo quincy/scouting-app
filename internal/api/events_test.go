@@ -13,13 +13,13 @@ import (
 	"scout-app/internal/domain/event"
 	"scout-app/internal/domain/parentyouthlink"
 	"scout-app/internal/domain/profile"
-	"scout-app/internal/storage/mock"
+	"scout-app/internal/storage/postgres"
+	"scout-app/internal/testhelper"
 )
 
-func futureEvent(id string, title string, daysFromNow int) *event.Event {
+func futureEvent(title string, daysFromNow int) *event.Event {
 	start := time.Now().AddDate(0, 0, daysFromNow)
 	return &event.Event{
-		ID:        id,
 		Title:     title,
 		Location:  "Test Location",
 		StartTime: start,
@@ -29,61 +29,43 @@ func futureEvent(id string, title string, daysFromNow int) *event.Event {
 	}
 }
 
-func pastEvent(id string, title string, daysAgo int) *event.Event {
+func pastEvent(title string, daysAgo int) *event.Event {
 	start := time.Now().AddDate(0, 0, -daysAgo)
 	return &event.Event{
-		ID:        id,
 		Title:     title,
 		Location:  "Test Location",
 		StartTime: start,
 		EndTime:   start.Add(2 * time.Hour),
-		Type:      "meeting",
+		Type:      "campout",
 		CreatedAt: time.Now(),
 	}
 }
 
-func setupEventTest(t *testing.T) (*mock.ProfileRepository, *mock.EventRepository, *mock.ParentYouthLinkRepository, *auth.AuthService, *EventHandler, *profile.Profile) {
+func setupEventTest(t *testing.T) (*EventHandler, *auth.AuthService, *postgres.Store, *profile.Profile) {
 	t.Helper()
-	userRepo := mock.NewUserRepository()
-	profileRepo := mock.NewProfileRepository()
-	parentYouthLinkRepo := mock.NewParentYouthLinkRepository()
-	rbacRepo := mock.NewRBACRepository()
-	eventRepo := mock.NewEventRepository(profileRepo)
+
+	db := testhelper.StartDB()
+	store := postgres.NewStore(db)
 
 	hasher := &auth.MockHasher{}
-	store := auth.NewCookieStore("test-secret-key")
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, store)
+	cookieStore := auth.NewCookieStore("test-secret-key")
+	authService := auth.NewAuthService(store.User, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
-	if err := rbacRepo.SeedRoles(ctx); err != nil {
+	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
 		t.Fatalf("SeedRoles: %v", err)
 	}
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
 
-	adminUser, err := userRepo.GetByEmail(ctx, "admin@scout.local")
-	if err != nil {
-		t.Fatalf("GetByEmail admin: %v", err)
-	}
-	adminProfile := &profile.Profile{
-		FirstName:  "Admin",
-		LastName:   "User",
-		Email:      "admin@scout.local",
-		MemberType: profile.MemberTypeAdult,
-		Status:     profile.StatusActive,
-		UserID:     &adminUser.ID,
-	}
-	if err := profileRepo.Create(ctx, adminProfile); err != nil {
-		t.Fatalf("Create admin profile: %v", err)
-	}
+	_, adminProfile := seedAdminUser(t, store, hasher, ctx)
 
-	handler := NewEventHandler(eventRepo, authService, rbacRepo, profileRepo, parentYouthLinkRepo, "Troop", "077")
+	handler := NewEventHandler(store.Event, authService, store.RBAC, store.Profile, store.ParentYouthLink, "Troop", "077")
 	SetMuxVars(func(r *http.Request) map[string]string {
 		return map[string]string{"id": r.URL.Query().Get("id")}
 	})
 
-	return profileRepo, eventRepo, parentYouthLinkRepo, authService, handler, adminProfile
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	return handler, authService, store, adminProfile
 }
 
 func loggedInRequest(t *testing.T, authService *auth.AuthService, method, path string) *http.Request {
@@ -103,12 +85,17 @@ func loggedInRequest(t *testing.T, authService *auth.AuthService, method, path s
 }
 
 func TestEventHandler_ListUpcomingPartial(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		futureEvent("f1", "Alpha", 1),
-		futureEvent("f2", "Beta", 3),
-	})
+	for _, e := range []*event.Event{
+		futureEvent("Alpha", 1),
+		futureEvent("Beta", 3),
+	} {
+		if err := store.Event.Create(ctx, e); err != nil {
+			t.Fatalf("Create event: %v", err)
+		}
+	}
 
 	req := httptest.NewRequest("GET", "/events/upcoming?offset=0", nil)
 	rr := httptest.NewRecorder()
@@ -139,12 +126,17 @@ func TestEventHandler_ListUpcomingPartial(t *testing.T) {
 }
 
 func TestEventHandler_ListPastPartial(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		pastEvent("p1", "Old Meeting", 10),
-		pastEvent("p2", "Recent Campout", 2),
-	})
+	for _, e := range []*event.Event{
+		pastEvent("Old Meeting", 10),
+		pastEvent("Recent Campout", 2),
+	} {
+		if err := store.Event.Create(ctx, e); err != nil {
+			t.Fatalf("Create event: %v", err)
+		}
+	}
 
 	req := httptest.NewRequest("GET", "/events/past?offset=0", nil)
 	rr := httptest.NewRecorder()
@@ -171,17 +163,18 @@ func TestEventHandler_ListPastPartial(t *testing.T) {
 }
 
 func TestEventHandler_ListUpcoming_Pagination(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	var events []*event.Event
 	for i := 0; i < 12; i++ {
-		events = append(events, futureEvent(
-			fmt.Sprintf("f%d", i),
+		e := futureEvent(
 			fmt.Sprintf("Event %d", i),
 			i+1,
-		))
+		)
+		if err := store.Event.Create(ctx, e); err != nil {
+			t.Fatalf("Create event: %v", err)
+		}
 	}
-	eventRepo.SeedEvents(events)
 
 	t.Run("first page returns 10 events with ShowMore", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/events/upcoming?offset=0", nil)
@@ -230,7 +223,7 @@ func TestEventHandler_ListUpcoming_Pagination(t *testing.T) {
 }
 
 func TestEventHandler_ListEvents_Empty(t *testing.T) {
-	_, _, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, _, _ := setupEventTest(t)
 
 	req := httptest.NewRequest("GET", "/events", nil)
 	rr := httptest.NewRecorder()
@@ -250,7 +243,7 @@ func TestEventHandler_ListEvents_Empty(t *testing.T) {
 }
 
 func TestEventHandler_ListEvents(t *testing.T) {
-	profileRepo, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
 	ctx := t.Context()
 
 	attendeeProfile := &profile.Profile{
@@ -260,16 +253,19 @@ func TestEventHandler_ListEvents(t *testing.T) {
 		MemberType: profile.MemberTypeYouth,
 		Status:     profile.StatusActive,
 	}
-	if err := profileRepo.Create(ctx, attendeeProfile); err != nil {
+	if err := store.Profile.Create(ctx, attendeeProfile); err != nil {
 		t.Fatalf("Create attendee profile: %v", err)
 	}
 
-	eventRepo.SeedEvents([]*event.Event{
-		futureEvent("f1", "Future Campout", 2),
-		pastEvent("p1", "Past Meeting", 5),
-	})
+	future := futureEvent("Future Campout", 2)
+	past := pastEvent("Past Meeting", 5)
+	for _, e := range []*event.Event{future, past} {
+		if err := store.Event.Create(ctx, e); err != nil {
+			t.Fatalf("Create event: %v", err)
+		}
+	}
 
-	if err := eventRepo.SignUp(ctx, "f1", attendeeProfile.ID); err != nil {
+	if err := store.Event.SignUp(ctx, future.ID, attendeeProfile.ID); err != nil {
 		t.Fatalf("SignUp failed: %v", err)
 	}
 
@@ -312,13 +308,15 @@ func TestEventHandler_ListEvents(t *testing.T) {
 }
 
 func TestEventHandler_EventDetail_ShowsSignUpButtonWhenNotAttending(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
-	})
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	req := loggedInRequest(t, authService, "GET", "/events/evt1?id=evt1")
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
 	handler.EventDetail(rr, req)
@@ -333,17 +331,19 @@ func TestEventHandler_EventDetail_ShowsSignUpButtonWhenNotAttending(t *testing.T
 }
 
 func TestEventHandler_EventDetail_ShowsWithdrawButtonWhenAttending(t *testing.T) {
-	_, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
-	})
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	if err := eventRepo.SignUp(t.Context(), "evt1", adminProfile.ID); err != nil {
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
 		t.Fatalf("SignUp: %v", err)
 	}
 
-	req := loggedInRequest(t, authService, "GET", "/events/evt1?id=evt1")
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
 	handler.EventDetail(rr, req)
@@ -358,12 +358,13 @@ func TestEventHandler_EventDetail_ShowsWithdrawButtonWhenAttending(t *testing.T)
 }
 
 func TestEventHandler_EventDetail_ShowsProfileNameInAttendeeList(t *testing.T) {
-	profileRepo, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
+	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
-	})
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
 	otherProfile := &profile.Profile{
 		FirstName:  "Other",
@@ -372,18 +373,18 @@ func TestEventHandler_EventDetail_ShowsProfileNameInAttendeeList(t *testing.T) {
 		MemberType: profile.MemberTypeYouth,
 		Status:     profile.StatusActive,
 	}
-	if err := profileRepo.Create(ctx, otherProfile); err != nil {
+	if err := store.Profile.Create(ctx, otherProfile); err != nil {
 		t.Fatalf("Create otherProfile: %v", err)
 	}
 
-	if err := eventRepo.SignUp(ctx, "evt1", adminProfile.ID); err != nil {
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
 		t.Fatalf("SignUp admin: %v", err)
 	}
-	if err := eventRepo.SignUp(ctx, "evt1", otherProfile.ID); err != nil {
+	if err := store.Event.SignUp(ctx, evt.ID, otherProfile.ID); err != nil {
 		t.Fatalf("SignUp other: %v", err)
 	}
 
-	req := loggedInRequest(t, authService, "GET", "/events/evt1?id=evt1")
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
 	handler.EventDetail(rr, req)
@@ -399,7 +400,7 @@ func TestEventHandler_EventDetail_ShowsProfileNameInAttendeeList(t *testing.T) {
 }
 
 func TestEventHandler_EventDetail_NonExistentEventReturns404(t *testing.T) {
-	_, _, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, _, _ := setupEventTest(t)
 
 	req := loggedInRequest(t, authService, "GET", "/events/nonexistent?id=nonexistent")
 	rr := httptest.NewRecorder()
@@ -412,14 +413,15 @@ func TestEventHandler_EventDetail_NonExistentEventReturns404(t *testing.T) {
 }
 
 func TestEventHandler_SignUp_UpdatesButtonAndAttendeeList(t *testing.T) {
-	_, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
+	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
-	})
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	req := loggedInRequest(t, authService, "POST", "/events/evt1/signup?id=evt1&profile_id="+adminProfile.ID)
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID+"&profile_id="+adminProfile.ID)
 	rr := httptest.NewRecorder()
 
 	handler.SignUp(rr, req)
@@ -441,7 +443,7 @@ func TestEventHandler_SignUp_UpdatesButtonAndAttendeeList(t *testing.T) {
 		t.Errorf("expected attendee-count OOB element, got:\n%s", body)
 	}
 
-	attendees, err := eventRepo.GetAttendees(ctx, "evt1")
+	attendees, err := store.Event.GetAttendees(ctx, evt.ID)
 	if err != nil {
 		t.Fatalf("GetAttendees: %v", err)
 	}
@@ -451,18 +453,19 @@ func TestEventHandler_SignUp_UpdatesButtonAndAttendeeList(t *testing.T) {
 }
 
 func TestEventHandler_Withdraw_UpdatesButtonAndAttendeeList(t *testing.T) {
-	_, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
+	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
-	})
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	if err := eventRepo.SignUp(ctx, "evt1", adminProfile.ID); err != nil {
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
 		t.Fatalf("SignUp: %v", err)
 	}
 
-	req := loggedInRequest(t, authService, "POST", "/events/evt1/withdraw?id=evt1&profile_id="+adminProfile.ID)
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/withdraw?id="+evt.ID+"&profile_id="+adminProfile.ID)
 	rr := httptest.NewRecorder()
 
 	handler.Withdraw(rr, req)
@@ -484,7 +487,7 @@ func TestEventHandler_Withdraw_UpdatesButtonAndAttendeeList(t *testing.T) {
 		t.Errorf("expected attendee-count OOB element, got:\n%s", body)
 	}
 
-	attendees, err := eventRepo.GetAttendees(ctx, "evt1")
+	attendees, err := store.Event.GetAttendees(ctx, evt.ID)
 	if err != nil {
 		t.Fatalf("GetAttendees: %v", err)
 	}
@@ -494,23 +497,24 @@ func TestEventHandler_Withdraw_UpdatesButtonAndAttendeeList(t *testing.T) {
 }
 
 func TestEventHandler_EventDetail_RendersEventInfo(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{
-			ID:          "evt1",
-			Title:       "Campout at Lake George",
-			Description: "Weekend camping trip with fun activities.",
-			Location:    "Lake George",
-			StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
-			EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
-			CostCents:   1500,
-			Type:        "campout",
-			CreatedAt:   time.Now(),
-		},
-	})
+	evt := &event.Event{
+		Title:       "Campout at Lake George",
+		Description: "Weekend camping trip with fun activities.",
+		Location:    "Lake George",
+		StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents:   1500,
+		Type:        "campout",
+		CreatedAt:   time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	req := loggedInRequest(t, authService, "GET", "/events/evt1?id=evt1")
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
 	handler.EventDetail(rr, req)
@@ -544,21 +548,22 @@ func TestEventHandler_EventDetail_RendersEventInfo(t *testing.T) {
 }
 
 func TestEventHandler_EventDetail_PastEvent_ShowsEndedMessage(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{
-			ID:        "past-evt",
-			Title:     "Past Campout",
-			Location:  "Lake George",
-			StartTime: time.Now().Add(-48 * time.Hour),
-			EndTime:   time.Now().Add(-46 * time.Hour),
-			Type:      "campout",
-			CreatedAt: time.Now(),
-		},
-	})
+	evt := &event.Event{
+		Title:     "Past Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(-48 * time.Hour),
+		EndTime:   time.Now().Add(-46 * time.Hour),
+		Type:      "campout",
+		CreatedAt: time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	req := loggedInRequest(t, authService, "GET", "/events/past-evt?id=past-evt")
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
 	handler.EventDetail(rr, req)
@@ -581,21 +586,22 @@ func TestEventHandler_EventDetail_PastEvent_ShowsEndedMessage(t *testing.T) {
 }
 
 func TestEventHandler_SignUp_PastEvent_ReturnsError(t *testing.T) {
-	_, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{
-			ID:        "past-evt",
-			Title:     "Past Campout",
-			Location:  "Lake",
-			StartTime: time.Now().Add(-48 * time.Hour),
-			EndTime:   time.Now().Add(-46 * time.Hour),
-			Type:      "campout",
-			CreatedAt: time.Now(),
-		},
-	})
+	evt := &event.Event{
+		Title:     "Past Campout",
+		Location:  "Lake",
+		StartTime: time.Now().Add(-48 * time.Hour),
+		EndTime:   time.Now().Add(-46 * time.Hour),
+		Type:      "campout",
+		CreatedAt: time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	req := loggedInRequest(t, authService, "POST", "/events/past-evt/signup?id=past-evt&profile_id="+adminProfile.ID)
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID+"&profile_id="+adminProfile.ID)
 	rr := httptest.NewRecorder()
 
 	handler.SignUp(rr, req)
@@ -604,7 +610,7 @@ func TestEventHandler_SignUp_PastEvent_ReturnsError(t *testing.T) {
 		t.Errorf("SignUp returned status %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 
-	attendees, err := eventRepo.GetAttendees(t.Context(), "past-evt")
+	attendees, err := store.Event.GetAttendees(t.Context(), evt.ID)
 	if err != nil {
 		t.Fatalf("GetAttendees: %v", err)
 	}
@@ -614,26 +620,26 @@ func TestEventHandler_SignUp_PastEvent_ReturnsError(t *testing.T) {
 }
 
 func TestEventHandler_Withdraw_PastEvent_ReturnsError(t *testing.T) {
-	_, eventRepo, _, authService, handler, adminProfile := setupEventTest(t)
+	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{
-			ID:        "past-evt",
-			Title:     "Past Campout",
-			Location:  "Lake",
-			StartTime: time.Now().Add(-48 * time.Hour),
-			EndTime:   time.Now().Add(-46 * time.Hour),
-			Type:      "campout",
-			CreatedAt: time.Now(),
-		},
-	})
+	evt := &event.Event{
+		Title:     "Past Campout",
+		Location:  "Lake",
+		StartTime: time.Now().Add(-48 * time.Hour),
+		EndTime:   time.Now().Add(-46 * time.Hour),
+		Type:      "campout",
+		CreatedAt: time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	if err := eventRepo.SignUp(ctx, "past-evt", adminProfile.ID); err != nil {
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
 		t.Fatalf("SignUp: %v", err)
 	}
 
-	req := loggedInRequest(t, authService, "POST", "/events/past-evt/withdraw?id=past-evt&profile_id="+adminProfile.ID)
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/withdraw?id="+evt.ID+"&profile_id="+adminProfile.ID)
 	rr := httptest.NewRecorder()
 
 	handler.Withdraw(rr, req)
@@ -642,7 +648,7 @@ func TestEventHandler_Withdraw_PastEvent_ReturnsError(t *testing.T) {
 		t.Errorf("Withdraw returned status %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 
-	attendees, err := eventRepo.GetAttendees(ctx, "past-evt")
+	attendees, err := store.Event.GetAttendees(ctx, evt.ID)
 	if err != nil {
 		t.Fatalf("GetAttendees: %v", err)
 	}
@@ -652,12 +658,13 @@ func TestEventHandler_Withdraw_PastEvent_ReturnsError(t *testing.T) {
 }
 
 func TestEventHandler_EventDetail_ShowsLinkedYouthProfiles(t *testing.T) {
-	profileRepo, eventRepo, parentYouthLinkRepo, authService, handler, adminProfile := setupEventTest(t)
+	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
-	})
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
 	youthProfile := &profile.Profile{
 		FirstName:  "Test",
@@ -666,7 +673,7 @@ func TestEventHandler_EventDetail_ShowsLinkedYouthProfiles(t *testing.T) {
 		MemberType: profile.MemberTypeYouth,
 		Status:     profile.StatusActive,
 	}
-	if err := profileRepo.Create(ctx, youthProfile); err != nil {
+	if err := store.Profile.Create(ctx, youthProfile); err != nil {
 		t.Fatalf("Create youth profile: %v", err)
 	}
 
@@ -675,11 +682,11 @@ func TestEventHandler_EventDetail_ShowsLinkedYouthProfiles(t *testing.T) {
 		YouthProfileID:  youthProfile.ID,
 		Status:          parentyouthlink.StatusApproved,
 	}
-	if err := parentYouthLinkRepo.Create(ctx, link); err != nil {
+	if err := store.ParentYouthLink.Create(ctx, link); err != nil {
 		t.Fatalf("Create link: %v", err)
 	}
 
-	req := loggedInRequest(t, authService, "GET", "/events/evt1?id=evt1")
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
 	handler.EventDetail(rr, req)
@@ -690,30 +697,29 @@ func TestEventHandler_EventDetail_ShowsLinkedYouthProfiles(t *testing.T) {
 
 	body := rr.Body.String()
 
-	// Should show admin profile name
 	if !strings.Contains(body, "Admin User") {
 		t.Errorf("expected 'Admin User' in profile list, got:\n%s", body)
 	}
 
-	// Should show linked youth profile name
 	if !strings.Contains(body, "Test Youth") {
 		t.Errorf("expected 'Test Youth' in profile list, got:\n%s", body)
 	}
 
-	// Youth should have a Sign Up button (not signed up yet)
 	if !strings.Contains(body, "Sign Up") {
 		t.Errorf("expected 'Sign Up' button for youth, got:\n%s", body)
 	}
 }
 
 func TestEventHandler_SignUp_MissingProfileID_ReturnsError(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
-	})
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	req := loggedInRequest(t, authService, "POST", "/events/evt1/signup?id=evt1")
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
 	handler.SignUp(rr, req)
@@ -724,13 +730,15 @@ func TestEventHandler_SignUp_MissingProfileID_ReturnsError(t *testing.T) {
 }
 
 func TestEventHandler_Withdraw_MissingProfileID_ReturnsError(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{ID: "evt1", Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
-	})
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	req := loggedInRequest(t, authService, "POST", "/events/evt1/withdraw?id=evt1")
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/withdraw?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
 	handler.Withdraw(rr, req)
@@ -741,7 +749,7 @@ func TestEventHandler_Withdraw_MissingProfileID_ReturnsError(t *testing.T) {
 }
 
 func TestEventHandler_EventCreateForm_Renders(t *testing.T) {
-	_, _, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, _, _ := setupEventTest(t)
 
 	req := loggedInRequest(t, authService, "GET", "/events/create")
 	rr := httptest.NewRecorder()
@@ -786,7 +794,7 @@ func loggedInPostRequest(t *testing.T, authService *auth.AuthService, path strin
 }
 
 func TestEventHandler_EventCreate_Success(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
 
 	form := url.Values{
 		"title":       {"Test Event"},
@@ -816,7 +824,7 @@ func TestEventHandler_EventCreate_Success(t *testing.T) {
 	}
 
 	eventID := strings.TrimPrefix(strings.Split(location, "?")[0], "/events/")
-	created, err := eventRepo.GetByID(t.Context(), eventID)
+	created, err := store.Event.GetByID(t.Context(), eventID)
 	if err != nil {
 		t.Fatalf("expected created event to exist, got error: %v", err)
 	}
@@ -838,7 +846,7 @@ func TestEventHandler_EventCreate_Success(t *testing.T) {
 }
 
 func TestEventHandler_EventCreate_ValidationError(t *testing.T) {
-	_, _, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, _, _ := setupEventTest(t)
 
 	form := url.Values{
 		"title":       {""},
@@ -878,7 +886,7 @@ func TestEventHandler_EventCreate_ValidationError(t *testing.T) {
 }
 
 func TestEventHandler_EventCreate_PreservesFormValuesOnError(t *testing.T) {
-	_, _, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, _, _ := setupEventTest(t)
 
 	form := url.Values{
 		"title":       {"Campout at Yosemite"},
@@ -915,7 +923,7 @@ func TestEventHandler_EventCreate_PreservesFormValuesOnError(t *testing.T) {
 }
 
 func TestEventHandler_EventCreate_EndTimeBeforeStart(t *testing.T) {
-	_, _, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, _, _ := setupEventTest(t)
 
 	form := url.Values{
 		"title":       {"Test Event"},
@@ -942,7 +950,7 @@ func TestEventHandler_EventCreate_EndTimeBeforeStart(t *testing.T) {
 }
 
 func TestEventHandler_EventCreate_InvalidCost(t *testing.T) {
-	_, _, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, _, _ := setupEventTest(t)
 
 	form := url.Values{
 		"title":       {"Test Event"},
@@ -981,13 +989,15 @@ func setAuthCookie(t *testing.T, authService *auth.AuthService, req *http.Reques
 }
 
 func TestEventHandler_EventDeleteConfirm_Renders(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{ID: "evt1", Title: "Campout at Lake George", Location: "Lake George", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
-	})
+	evt := &event.Event{Title: "Campout at Lake George", Location: "Lake George", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	req := httptest.NewRequest("GET", "/events/evt1/delete?id=evt1", nil)
+	req := httptest.NewRequest("GET", "/events/"+evt.ID+"/delete?id="+evt.ID, nil)
 	setAuthCookie(t, authService, req)
 	rr := httptest.NewRecorder()
 
@@ -1010,13 +1020,15 @@ func TestEventHandler_EventDeleteConfirm_Renders(t *testing.T) {
 }
 
 func TestEventHandler_EventDelete_Success(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{ID: "evt1", Title: "Campout at Lake George", Location: "Lake George", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"},
-	})
+	evt := &event.Event{Title: "Campout at Lake George", Location: "Lake George", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	req := httptest.NewRequest("DELETE", "/events/evt1/delete?id=evt1", nil)
+	req := httptest.NewRequest("DELETE", "/events/"+evt.ID+"/delete?id="+evt.ID, nil)
 	setAuthCookie(t, authService, req)
 	rr := httptest.NewRecorder()
 
@@ -1030,14 +1042,14 @@ func TestEventHandler_EventDelete_Success(t *testing.T) {
 		t.Errorf("expected HX-Redirect header, got %q", rr.Header().Get("HX-Redirect"))
 	}
 
-	_, err := eventRepo.GetByID(t.Context(), "evt1")
+	_, err := store.Event.GetByID(t.Context(), evt.ID)
 	if err == nil {
 		t.Error("expected event to be deleted")
 	}
 }
 
 func TestEventHandler_EventDelete_NotFound(t *testing.T) {
-	_, _, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, _, _ := setupEventTest(t)
 
 	req := httptest.NewRequest("DELETE", "/events/evt1/delete?id=evt1", nil)
 	setAuthCookie(t, authService, req)
@@ -1056,23 +1068,30 @@ func TestEventHandler_EventDelete_NotFound(t *testing.T) {
 }
 
 func TestEventHandler_EventEditForm_Renders(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{
-			ID:          "evt1",
-			Title:       "Campout at Lake George",
-			Description: "Weekend camping trip.",
-			Location:    "Lake George",
-			StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
-			EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
-			CostCents:   1500,
-			Type:        "campout",
-			CreatedAt:   time.Now(),
-		},
-	})
+	evt := &event.Event{
+		Title:       "Campout at Lake George",
+		Description: "Weekend camping trip.",
+		Location:    "Lake George",
+		StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents:   1500,
+		Type:        "campout",
+		CreatedAt:   time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
-	req := loggedInRequest(t, authService, "GET", "/events/evt1/edit?id=evt1")
+	// Read back from DB to get time as handler will see it
+	savedEvt, err := store.Event.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/edit?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
 	handler.EventEditForm(rr, req)
@@ -1094,28 +1113,30 @@ func TestEventHandler_EventEditForm_Renders(t *testing.T) {
 	if !strings.Contains(body, "Weekend camping trip") {
 		t.Errorf("expected pre-filled description, got:\n%s", body)
 	}
-	if !strings.Contains(body, "2026-06-06T09:00") {
-		t.Errorf("expected pre-filled start time, got:\n%s", body)
+
+	expectedStart := savedEvt.StartTime.Format("2006-01-02T15:04")
+	if !strings.Contains(body, expectedStart) {
+		t.Errorf("expected pre-filled start time %q, got:\n%s", expectedStart, body)
 	}
 }
 
 func TestEventHandler_EventEdit_Success(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
 	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{
-			ID:          "evt1",
-			Title:       "Original Title",
-			Description: "Original description",
-			Location:    "Original Location",
-			StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
-			EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
-			CostCents:   1000,
-			Type:        "campout",
-			CreatedAt:   time.Now(),
-		},
-	})
+	evt := &event.Event{
+		Title:       "Original Title",
+		Description: "Original description",
+		Location:    "Original Location",
+		StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents:   1000,
+		Type:        "campout",
+		CreatedAt:   time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
 	form := url.Values{
 		"title":       {"Updated Title"},
@@ -1127,7 +1148,7 @@ func TestEventHandler_EventEdit_Success(t *testing.T) {
 		"type":        {"campout"},
 	}
 
-	req := loggedInPostRequest(t, authService, "/events/evt1/edit?id=evt1", form)
+	req := loggedInPostRequest(t, authService, "/events/"+evt.ID+"/edit?id="+evt.ID, form)
 	rr := httptest.NewRecorder()
 
 	handler.EventEdit(rr, req)
@@ -1137,14 +1158,14 @@ func TestEventHandler_EventEdit_Success(t *testing.T) {
 	}
 
 	location := rr.Header().Get("Location")
-	if !strings.Contains(location, "/events/evt1") {
-		t.Errorf("expected redirect to /events/evt1, got Location: %s", location)
+	if !strings.Contains(location, "/events/"+evt.ID) {
+		t.Errorf("expected redirect to /events/%s, got Location: %s", evt.ID, location)
 	}
 	if !strings.Contains(location, "updated=1") {
 		t.Errorf("expected redirect to include ?updated=1, got Location: %s", location)
 	}
 
-	updated, err := eventRepo.GetByID(ctx, "evt1")
+	updated, err := store.Event.GetByID(ctx, evt.ID)
 	if err != nil {
 		t.Fatalf("expected updated event to exist, got error: %v", err)
 	}
@@ -1166,7 +1187,7 @@ func TestEventHandler_EventEdit_Success(t *testing.T) {
 }
 
 func TestEventHandler_EventEdit_NotFound(t *testing.T) {
-	_, _, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, _, _ := setupEventTest(t)
 
 	req := loggedInRequest(t, authService, "GET", "/events/nonexistent/edit?id=nonexistent")
 	rr := httptest.NewRecorder()
@@ -1179,21 +1200,22 @@ func TestEventHandler_EventEdit_NotFound(t *testing.T) {
 }
 
 func TestEventHandler_EventEdit_ValidationError(t *testing.T) {
-	_, eventRepo, _, authService, handler, _ := setupEventTest(t)
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
 
-	eventRepo.SeedEvents([]*event.Event{
-		{
-			ID:          "evt1",
-			Title:       "Original Title",
-			Description: "Original description",
-			Location:    "Original Location",
-			StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
-			EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
-			CostCents:   1000,
-			Type:        "campout",
-			CreatedAt:   time.Now(),
-		},
-	})
+	evt := &event.Event{
+		Title:       "Original Title",
+		Description: "Original description",
+		Location:    "Original Location",
+		StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents:   1000,
+		Type:        "campout",
+		CreatedAt:   time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
 
 	form := url.Values{
 		"title":       {""},
@@ -1205,7 +1227,7 @@ func TestEventHandler_EventEdit_ValidationError(t *testing.T) {
 		"type":        {"campout"},
 	}
 
-	req := loggedInPostRequest(t, authService, "/events/evt1/edit?id=evt1", form)
+	req := loggedInPostRequest(t, authService, "/events/"+evt.ID+"/edit?id="+evt.ID, form)
 	rr := httptest.NewRecorder()
 
 	handler.EventEdit(rr, req)

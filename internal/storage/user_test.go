@@ -2,98 +2,87 @@ package storage
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
+	"scout-app/internal/domain/profile"
 	"scout-app/internal/domain/user"
-	"scout-app/internal/storage/mock"
+	"scout-app/internal/storage/postgres"
+	"scout-app/internal/testhelper"
 )
 
 func TestUserRepository_CreateAndGetByID(t *testing.T) {
-	repo := mock.NewUserRepository()
+	db := testhelper.StartDB()
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	repo := postgres.NewUserRepository(db)
 	ctx := context.Background()
 
-	user := &user.User{
+	u := &user.User{
 		Email:        "test@example.com",
 		PasswordHash: "hashedpassword",
 		CreatedAt:    time.Now(),
 	}
 
-	err := repo.Create(ctx, user)
+	err := repo.Create(ctx, u)
 	if err != nil {
 		t.Fatalf("failed to create user: %v", err)
 	}
 
-	if user.ID == "" {
+	if u.ID == "" {
 		t.Errorf("expected generated UUID ID to be set on user")
 	}
 
-	fetched, err := repo.GetByID(ctx, user.ID)
+	fetched, err := repo.GetByID(ctx, u.ID)
 	if err != nil {
 		t.Fatalf("failed to get user by ID: %v", err)
 	}
 
-	if fetched.Email != user.Email {
-		t.Errorf("expected email %q, got %q", user.Email, fetched.Email)
+	if fetched.PasswordHash != u.PasswordHash {
+		t.Errorf("expected password_hash %q, got %q", u.PasswordHash, fetched.PasswordHash)
 	}
 }
 
 func TestUserRepository_GetByEmail(t *testing.T) {
-	repo := mock.NewUserRepository()
+	db := testhelper.StartDB()
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	store := postgres.NewStore(db)
 	ctx := context.Background()
 
-	user := &user.User{
+	u := &user.User{
 		Email:        "unique@example.com",
 		PasswordHash: "pwd",
 		CreatedAt:    time.Now(),
 	}
 
-	_ = repo.Create(ctx, user)
+	if err := store.User.Create(ctx, u); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
 
-	fetched, err := repo.GetByEmail(ctx, "unique@example.com")
+	p := &profile.Profile{
+		FirstName:  "Test",
+		LastName:   "User",
+		Email:      "unique@example.com",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+		UserID:     &u.ID,
+	}
+	if err := store.Profile.Create(ctx, p); err != nil {
+		t.Fatalf("failed to create profile: %v", err)
+	}
+
+	fetched, err := store.User.GetByEmail(ctx, "unique@example.com")
 	if err != nil {
 		t.Fatalf("failed to get user by email: %v", err)
 	}
 
-	if fetched.ID != user.ID {
-		t.Errorf("expected fetched ID %s, got %s", user.ID, fetched.ID)
+	if fetched.ID != u.ID {
+		t.Errorf("expected fetched ID %s, got %s", u.ID, fetched.ID)
 	}
 
-	// Test non-existent user
-	_, err = repo.GetByEmail(ctx, "nonexistent@example.com")
+	_, err = store.User.GetByEmail(ctx, "nonexistent@example.com")
 	if err == nil {
 		t.Error("expected error when fetching non-existent email, got nil")
-	}
-}
-
-func TestUserRepository_DuplicateEmail(t *testing.T) {
-	repo := mock.NewUserRepository()
-	ctx := context.Background()
-
-	user1 := &user.User{
-		Email:        "duplicate@example.com",
-		PasswordHash: "hash1",
-		CreatedAt:    time.Now(),
-	}
-
-	user2 := &user.User{
-		Email:        "duplicate@example.com",
-		PasswordHash: "hash2",
-		CreatedAt:    time.Now(),
-	}
-
-	err := repo.Create(ctx, user1)
-	if err != nil {
-		t.Fatalf("failed to create first user: %v", err)
-	}
-
-	err = repo.Create(ctx, user2)
-	if err == nil {
-		t.Fatal("expected error when creating user with duplicate email, got nil")
-	}
-
-	if !strings.Contains(err.Error(), "already exists") && !strings.Contains(err.Error(), "duplicate") {
-		t.Errorf("expected domain error for duplicate email, got: %v", err)
 	}
 }

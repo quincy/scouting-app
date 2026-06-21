@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,76 +10,37 @@ import (
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/profile"
 	"scout-app/internal/domain/user"
-	"scout-app/internal/storage/mock"
+	"scout-app/internal/storage/postgres"
+	"scout-app/internal/testhelper"
 )
 
-func setupAdminRolesTest(t *testing.T) (*AdminHandler, *auth.AuthService, *mock.UserRepository, *mock.ProfileRepository, *mock.RBACRepository, *profile.Profile) {
+func setupAdminRolesTest(t *testing.T) (*AdminHandler, *auth.AuthService, *sql.DB, *profile.Profile) {
 	t.Helper()
 
-	userRepo := mock.NewUserRepository()
-	profileRepo := mock.NewProfileRepository()
-	rbacRepo := mock.NewRBACRepository()
+	db := testhelper.StartDB()
+	store := postgres.NewStore(db)
 
 	hasher := &auth.MockHasher{}
-	store := auth.NewCookieStore("test-secret-key")
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, store)
+	cookieStore := auth.NewCookieStore("test-secret-key")
+	authService := auth.NewAuthService(store.User, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
-	if err := rbacRepo.SeedRoles(ctx); err != nil {
+	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
 		t.Fatalf("SeedRoles: %v", err)
 	}
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
 
-	adminUser, err := userRepo.GetByEmail(ctx, "admin@scout.local")
-	if err != nil {
-		t.Fatalf("GetByEmail admin: %v", err)
-	}
+	_, adminProfile := seedAdminUser(t, store, hasher, ctx)
 
-	adminProfile := &profile.Profile{
-		FirstName:  "Admin",
-		LastName:   "User",
-		Email:      "admin@scout.local",
-		MemberType: profile.MemberTypeAdult,
-		Status:     profile.StatusActive,
-		UserID:     &adminUser.ID,
-	}
-	if err := profileRepo.Create(ctx, adminProfile); err != nil {
-		t.Fatalf("Create admin profile: %v", err)
-	}
+	handler := NewAdminHandler(store.Profile, store.ParentYouthLink, store.RBAC, authService)
 
-	handler := NewAdminHandler(profileRepo, mock.NewParentYouthLinkRepository(), rbacRepo, authService)
-
-	return handler, authService, userRepo, profileRepo, rbacRepo, adminProfile
-}
-
-func adminRolesLoggedInRequest(t *testing.T, authService *auth.AuthService, method, path, body string) *http.Request {
-	t.Helper()
-
-	authHandler := NewAuthHandler(authService)
-	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
-	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	loginRR := httptest.NewRecorder()
-	authHandler.Login(loginRR, loginReq)
-
-	var req *http.Request
-	if body != "" {
-		req = httptest.NewRequest(method, path, strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	} else {
-		req = httptest.NewRequest(method, path, nil)
-	}
-	for _, c := range loginRR.Result().Cookies() {
-		req.AddCookie(c)
-	}
-	return req
+	return handler, authService, db, adminProfile
 }
 
 func TestAdminRoles_GetRendersPage(t *testing.T) {
-	handler, authService, _, _, _, _ := setupAdminRolesTest(t)
+	handler, authService, db, _ := setupAdminRolesTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
-	req := adminRolesLoggedInRequest(t, authService, "GET", "/admin/roles", "")
+	req := familyConnLoggedInRequest(t, authService, "GET", "/admin/roles", "")
 	rr := httptest.NewRecorder()
 
 	handler.RolesPage(rr, req)
@@ -97,11 +59,14 @@ func TestAdminRoles_GetRendersPage(t *testing.T) {
 }
 
 func TestAdminRoles_GetShowsClaimedUsers(t *testing.T) {
-	handler, authService, userRepo, profileRepo, _, _ := setupAdminRolesTest(t)
+	handler, authService, db, _ := setupAdminRolesTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	store := postgres.NewStore(db)
 	ctx := t.Context()
 
 	otherUser := &user.User{PasswordHash: "hash"}
-	if err := userRepo.Create(ctx, otherUser); err != nil {
+	if err := store.User.Create(ctx, otherUser); err != nil {
 		t.Fatalf("Create other user: %v", err)
 	}
 
@@ -113,11 +78,11 @@ func TestAdminRoles_GetShowsClaimedUsers(t *testing.T) {
 		Status:     profile.StatusActive,
 		UserID:     &otherUser.ID,
 	}
-	if err := profileRepo.Create(ctx, otherProfile); err != nil {
+	if err := store.Profile.Create(ctx, otherProfile); err != nil {
 		t.Fatalf("Create other profile: %v", err)
 	}
 
-	req := adminRolesLoggedInRequest(t, authService, "GET", "/admin/roles", "")
+	req := familyConnLoggedInRequest(t, authService, "GET", "/admin/roles", "")
 	rr := httptest.NewRecorder()
 
 	handler.RolesPage(rr, req)
@@ -132,7 +97,10 @@ func TestAdminRoles_GetShowsClaimedUsers(t *testing.T) {
 }
 
 func TestAdminRoles_ShowsUnclaimedProfiles(t *testing.T) {
-	handler, authService, _, profileRepo, _, _ := setupAdminRolesTest(t)
+	handler, authService, db, _ := setupAdminRolesTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	store := postgres.NewStore(db)
 
 	unclaimed := &profile.Profile{
 		FirstName:  "Unclaimed",
@@ -141,11 +109,11 @@ func TestAdminRoles_ShowsUnclaimedProfiles(t *testing.T) {
 		MemberType: profile.MemberTypeAdult,
 		Status:     profile.StatusActive,
 	}
-	if err := profileRepo.Create(t.Context(), unclaimed); err != nil {
+	if err := store.Profile.Create(t.Context(), unclaimed); err != nil {
 		t.Fatalf("Create unclaimed profile: %v", err)
 	}
 
-	req := adminRolesLoggedInRequest(t, authService, "GET", "/admin/roles", "")
+	req := familyConnLoggedInRequest(t, authService, "GET", "/admin/roles", "")
 	rr := httptest.NewRecorder()
 
 	handler.RolesPage(rr, req)
@@ -160,11 +128,14 @@ func TestAdminRoles_ShowsUnclaimedProfiles(t *testing.T) {
 }
 
 func TestAdminRoles_GrantAdmin(t *testing.T) {
-	handler, authService, userRepo, profileRepo, rbacRepo, _ := setupAdminRolesTest(t)
+	handler, authService, db, _ := setupAdminRolesTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	store := postgres.NewStore(db)
 	ctx := t.Context()
 
 	otherUser := &user.User{PasswordHash: "hash"}
-	if err := userRepo.Create(ctx, otherUser); err != nil {
+	if err := store.User.Create(ctx, otherUser); err != nil {
 		t.Fatalf("Create other user: %v", err)
 	}
 
@@ -176,11 +147,11 @@ func TestAdminRoles_GrantAdmin(t *testing.T) {
 		Status:     profile.StatusActive,
 		UserID:     &otherUser.ID,
 	}
-	if err := profileRepo.Create(ctx, otherProfile); err != nil {
+	if err := store.Profile.Create(ctx, otherProfile); err != nil {
 		t.Fatalf("Create other profile: %v", err)
 	}
 
-	roles, err := rbacRepo.GetUserRoles(ctx, otherUser.ID)
+	roles, err := store.RBAC.GetUserRoles(ctx, otherUser.ID)
 	if err != nil {
 		t.Fatalf("GetUserRoles: %v", err)
 	}
@@ -189,7 +160,7 @@ func TestAdminRoles_GrantAdmin(t *testing.T) {
 	}
 
 	path := "/admin/roles/" + otherUser.ID + "/grant-admin"
-	req := adminRolesLoggedInRequest(t, authService, "POST", path, "")
+	req := familyConnLoggedInRequest(t, authService, "POST", path, "")
 	rr := httptest.NewRecorder()
 
 	handler.GrantAdmin(rr, req)
@@ -198,7 +169,7 @@ func TestAdminRoles_GrantAdmin(t *testing.T) {
 		t.Errorf("GrantAdmin returned status %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	roles, err = rbacRepo.GetUserRoles(ctx, otherUser.ID)
+	roles, err = store.RBAC.GetUserRoles(ctx, otherUser.ID)
 	if err != nil {
 		t.Fatalf("GetUserRoles: %v", err)
 	}
@@ -215,11 +186,14 @@ func TestAdminRoles_GrantAdmin(t *testing.T) {
 }
 
 func TestAdminRoles_RemoveAdmin(t *testing.T) {
-	handler, authService, userRepo, profileRepo, rbacRepo, _ := setupAdminRolesTest(t)
+	handler, authService, db, _ := setupAdminRolesTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	store := postgres.NewStore(db)
 	ctx := t.Context()
 
 	otherUser := &user.User{PasswordHash: "hash"}
-	if err := userRepo.Create(ctx, otherUser); err != nil {
+	if err := store.User.Create(ctx, otherUser); err != nil {
 		t.Fatalf("Create other user: %v", err)
 	}
 
@@ -231,20 +205,20 @@ func TestAdminRoles_RemoveAdmin(t *testing.T) {
 		Status:     profile.StatusActive,
 		UserID:     &otherUser.ID,
 	}
-	if err := profileRepo.Create(ctx, otherProfile); err != nil {
+	if err := store.Profile.Create(ctx, otherProfile); err != nil {
 		t.Fatalf("Create other profile: %v", err)
 	}
 
-	adminRole, err := rbacRepo.GetRoleByName(ctx, "admin")
+	adminRole, err := store.RBAC.GetRoleByName(ctx, "admin")
 	if err != nil {
 		t.Fatalf("GetRoleByName admin: %v", err)
 	}
-	if err := rbacRepo.AssignRoleToUser(ctx, otherUser.ID, adminRole.ID); err != nil {
+	if err := store.RBAC.AssignRoleToUser(ctx, otherUser.ID, adminRole.ID); err != nil {
 		t.Fatalf("AssignRoleToUser: %v", err)
 	}
 
 	path := "/admin/roles/" + otherUser.ID + "/remove-admin"
-	req := adminRolesLoggedInRequest(t, authService, "POST", path, "")
+	req := familyConnLoggedInRequest(t, authService, "POST", path, "")
 	rr := httptest.NewRecorder()
 
 	handler.RemoveAdmin(rr, req)
@@ -253,7 +227,7 @@ func TestAdminRoles_RemoveAdmin(t *testing.T) {
 		t.Errorf("RemoveAdmin returned status %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	roles, err := rbacRepo.GetUserRoles(ctx, otherUser.ID)
+	roles, err := store.RBAC.GetUserRoles(ctx, otherUser.ID)
 	if err != nil {
 		t.Fatalf("GetUserRoles: %v", err)
 	}
@@ -270,11 +244,13 @@ func TestAdminRoles_RemoveAdmin(t *testing.T) {
 }
 
 func TestAdminRoles_GrantSelfAdminNoop(t *testing.T) {
-	handler, authService, _, _, rbacRepo, adminProfile := setupAdminRolesTest(t)
+	handler, authService, db, adminProfile := setupAdminRolesTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+	store := postgres.NewStore(db)
 
 	adminUserID := *adminProfile.UserID
 	path := "/admin/roles/" + adminUserID + "/grant-admin"
-	req := adminRolesLoggedInRequest(t, authService, "POST", path, "")
+	req := familyConnLoggedInRequest(t, authService, "POST", path, "")
 	rr := httptest.NewRecorder()
 
 	handler.GrantAdmin(rr, req)
@@ -283,7 +259,7 @@ func TestAdminRoles_GrantSelfAdminNoop(t *testing.T) {
 		t.Errorf("GrantAdmin self returned status %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	roles, err := rbacRepo.GetUserRoles(t.Context(), adminUserID)
+	roles, err := store.RBAC.GetUserRoles(t.Context(), adminUserID)
 	if err != nil {
 		t.Fatalf("GetUserRoles: %v", err)
 	}
@@ -299,9 +275,10 @@ func TestAdminRoles_GrantSelfAdminNoop(t *testing.T) {
 }
 
 func TestAdminRoles_GetShowsAdminCount(t *testing.T) {
-	handler, authService, _, _, _, _ := setupAdminRolesTest(t)
+	handler, authService, db, _ := setupAdminRolesTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
-	req := adminRolesLoggedInRequest(t, authService, "GET", "/admin/roles", "")
+	req := familyConnLoggedInRequest(t, authService, "GET", "/admin/roles", "")
 	rr := httptest.NewRecorder()
 
 	handler.RolesPage(rr, req)

@@ -12,8 +12,8 @@ import (
 var templateFS embed.FS
 
 type Templates struct {
-	otpTemplate            *template.Template
-	adminNotificationTmpl  *template.Template
+	otpTemplate           *template.Template
+	adminNotificationTmpl *template.Template
 }
 
 type otpData struct {

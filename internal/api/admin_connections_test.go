@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,50 +11,30 @@ import (
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/parentyouthlink"
 	"scout-app/internal/domain/profile"
-	"scout-app/internal/storage/mock"
+	"scout-app/internal/storage/postgres"
+	"scout-app/internal/testhelper"
 )
 
-func setupAdminConnectionsTest(t *testing.T) (*AdminHandler, *auth.AuthService, *mock.UserRepository, *mock.ProfileRepository, *mock.ParentYouthLinkRepository, *mock.RBACRepository, *profile.Profile) {
+func setupAdminConnectionsTest(t *testing.T) (*AdminHandler, *auth.AuthService, *sql.DB, *profile.Profile) {
 	t.Helper()
 
-	userRepo := mock.NewUserRepository()
-	profileRepo := mock.NewProfileRepository()
-	linkRepo := mock.NewParentYouthLinkRepository()
-	rbacRepo := mock.NewRBACRepository()
+	db := testhelper.StartDB()
+	store := postgres.NewStore(db)
 
 	hasher := &auth.MockHasher{}
-	store := auth.NewCookieStore("test-secret-key")
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, store)
+	cookieStore := auth.NewCookieStore("test-secret-key")
+	authService := auth.NewAuthService(store.User, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
-	if err := rbacRepo.SeedRoles(ctx); err != nil {
+	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
 		t.Fatalf("SeedRoles: %v", err)
 	}
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
 
-	adminUser, err := userRepo.GetByEmail(ctx, "admin@scout.local")
-	if err != nil {
-		t.Fatalf("GetByEmail admin: %v", err)
-	}
+	_, adminProfile := seedAdminUser(t, store, hasher, ctx)
 
-	adminProfile := &profile.Profile{
-		FirstName:  "Admin",
-		LastName:   "User",
-		BSAID:      "ADM001",
-		Email:      "admin@scout.local",
-		MemberType: profile.MemberTypeAdult,
-		Status:     profile.StatusActive,
-		UserID:     &adminUser.ID,
-	}
-	if err := profileRepo.Create(ctx, adminProfile); err != nil {
-		t.Fatalf("Create admin profile: %v", err)
-	}
+	handler := NewAdminHandler(store.Profile, store.ParentYouthLink, store.RBAC, authService)
 
-	handler := NewAdminHandler(profileRepo, linkRepo, rbacRepo, authService)
-
-	return handler, authService, userRepo, profileRepo, linkRepo, rbacRepo, adminProfile
+	return handler, authService, db, adminProfile
 }
 
 func adminConnLoggedInRequest(t *testing.T, authService *auth.AuthService, method, path, body string) *http.Request {
@@ -78,38 +59,9 @@ func adminConnLoggedInRequest(t *testing.T, authService *auth.AuthService, metho
 	return req
 }
 
-func addProfile(t *testing.T, repo *mock.ProfileRepository, firstName, lastName, bsaID, email string, memberType profile.MemberType) *profile.Profile {
-	t.Helper()
-	p := &profile.Profile{
-		FirstName:  firstName,
-		LastName:   lastName,
-		BSAID:      bsaID,
-		Email:      email,
-		MemberType: memberType,
-		Status:     profile.StatusActive,
-	}
-	if err := repo.Create(t.Context(), p); err != nil {
-		t.Fatalf("Create profile %s: %v", firstName, err)
-	}
-	return p
-}
-
-func addLink(t *testing.T, repo *mock.ParentYouthLinkRepository, parentID, youthID string, status parentyouthlink.Status) *parentyouthlink.ParentYouthConnection {
-	t.Helper()
-	link := &parentyouthlink.ParentYouthConnection{
-		ParentProfileID: parentID,
-		YouthProfileID:  youthID,
-		Status:          status,
-		RequestedAt:     time.Now(),
-	}
-	if err := repo.Create(t.Context(), link); err != nil {
-		t.Fatalf("Create link: %v", err)
-	}
-	return link
-}
-
 func TestAdminConnections_GetRendersPage(t *testing.T) {
-	handler, authService, _, _, _, _, _ := setupAdminConnectionsTest(t)
+	handler, authService, db, _ := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := adminConnLoggedInRequest(t, authService, "GET", "/admin/connections", "")
 	rr := httptest.NewRecorder()
@@ -130,11 +82,34 @@ func TestAdminConnections_GetRendersPage(t *testing.T) {
 }
 
 func TestAdminConnections_GetShowsPendingLinks(t *testing.T) {
-	handler, authService, _, profileRepo, linkRepo, _, _ := setupAdminConnectionsTest(t)
+	handler, authService, db, _ := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
-	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
-	youth := addProfile(t, profileRepo, "Sam", "Youth", "YTH001", "sam@test.com", profile.MemberTypeYouth)
-	addLink(t, linkRepo, parent.ID, youth.ID, parentyouthlink.StatusPending)
+	store := postgres.NewStore(db)
+
+	parent := &profile.Profile{
+		FirstName: "Jane", LastName: "Parent", BSAID: "PAR001",
+		Email: "jane@test.com", MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), parent); err != nil {
+		t.Fatalf("Create parent: %v", err)
+	}
+	youth := &profile.Profile{
+		FirstName: "Sam", LastName: "Youth", BSAID: "YTH001",
+		Email: "sam@test.com", MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), youth); err != nil {
+		t.Fatalf("Create youth: %v", err)
+	}
+	link := &parentyouthlink.ParentYouthConnection{
+		ParentProfileID: parent.ID,
+		YouthProfileID:  youth.ID,
+		Status:          parentyouthlink.StatusPending,
+		RequestedAt:     time.Now(),
+	}
+	if err := store.ParentYouthLink.Create(t.Context(), link); err != nil {
+		t.Fatalf("Create link: %v", err)
+	}
 
 	req := adminConnLoggedInRequest(t, authService, "GET", "/admin/connections", "")
 	rr := httptest.NewRecorder()
@@ -154,21 +129,40 @@ func TestAdminConnections_GetShowsPendingLinks(t *testing.T) {
 }
 
 func TestAdminConnections_GetShowsActiveConnections(t *testing.T) {
-	handler, authService, _, profileRepo, linkRepo, _, _ := setupAdminConnectionsTest(t)
+	handler, authService, db, _ := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
+	store := postgres.NewStore(db)
 	now := time.Now()
-	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
-	youth := addProfile(t, profileRepo, "Sam", "Youth", "YTH001", "sam@test.com", profile.MemberTypeYouth)
-	adminID := "admin-user"
+
+	parent := &profile.Profile{
+		FirstName: "Jane", LastName: "Parent", BSAID: "PAR001",
+		Email: "jane@test.com", MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), parent); err != nil {
+		t.Fatalf("Create parent: %v", err)
+	}
+	youth := &profile.Profile{
+		FirstName: "Sam", LastName: "Youth", BSAID: "YTH001",
+		Email: "sam@test.com", MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), youth); err != nil {
+		t.Fatalf("Create youth: %v", err)
+	}
+
+	adminUser, err := store.User.GetByEmail(t.Context(), "admin@scout.local")
+	if err != nil {
+		t.Fatalf("GetByEmail admin: %v", err)
+	}
 	link := &parentyouthlink.ParentYouthConnection{
 		ParentProfileID: parent.ID,
 		YouthProfileID:  youth.ID,
 		Status:          parentyouthlink.StatusApproved,
 		RequestedAt:     now,
 		ApprovedAt:      &now,
-		ApprovedBy:      &adminID,
+		ApprovedBy:      &adminUser.ID,
 	}
-	if err := linkRepo.Create(t.Context(), link); err != nil {
+	if err := store.ParentYouthLink.Create(t.Context(), link); err != nil {
 		t.Fatalf("Create link: %v", err)
 	}
 
@@ -187,7 +181,8 @@ func TestAdminConnections_GetShowsActiveConnections(t *testing.T) {
 }
 
 func TestAdminConnections_GetEmptyState(t *testing.T) {
-	handler, authService, _, _, _, _, _ := setupAdminConnectionsTest(t)
+	handler, authService, db, _ := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := adminConnLoggedInRequest(t, authService, "GET", "/admin/connections", "")
 	rr := httptest.NewRecorder()
@@ -204,7 +199,8 @@ func TestAdminConnections_GetEmptyState(t *testing.T) {
 }
 
 func TestAdminConnections_GetReturnsOKWhenNotLoggedIn(t *testing.T) {
-	handler, _, _, _, _, _, _ := setupAdminConnectionsTest(t)
+	handler, _, db, _ := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := httptest.NewRequest("GET", "/admin/connections", nil)
 	rr := httptest.NewRecorder()
@@ -218,12 +214,34 @@ func TestAdminConnections_GetReturnsOKWhenNotLoggedIn(t *testing.T) {
 }
 
 func TestAdminConnections_PostApprove(t *testing.T) {
-	handler, authService, _, profileRepo, linkRepo, _, adminProfile := setupAdminConnectionsTest(t)
+	handler, authService, db, adminProfile := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+	store := postgres.NewStore(db)
 	adminUserID := *adminProfile.UserID
 
-	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
-	youth := addProfile(t, profileRepo, "Sam", "Youth", "YTH001", "sam@test.com", profile.MemberTypeYouth)
-	link := addLink(t, linkRepo, parent.ID, youth.ID, parentyouthlink.StatusPending)
+	parent := &profile.Profile{
+		FirstName: "Jane", LastName: "Parent", BSAID: "PAR001",
+		Email: "jane@test.com", MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), parent); err != nil {
+		t.Fatalf("Create parent: %v", err)
+	}
+	youth := &profile.Profile{
+		FirstName: "Sam", LastName: "Youth", BSAID: "YTH001",
+		Email: "sam@test.com", MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), youth); err != nil {
+		t.Fatalf("Create youth: %v", err)
+	}
+	link := &parentyouthlink.ParentYouthConnection{
+		ParentProfileID: parent.ID,
+		YouthProfileID:  youth.ID,
+		Status:          parentyouthlink.StatusPending,
+		RequestedAt:     time.Now(),
+	}
+	if err := store.ParentYouthLink.Create(t.Context(), link); err != nil {
+		t.Fatalf("Create link: %v", err)
+	}
 
 	path := "/admin/connections/" + link.ID + "/approve"
 	req := adminConnLoggedInRequest(t, authService, "POST", path, "")
@@ -235,7 +253,7 @@ func TestAdminConnections_PostApprove(t *testing.T) {
 		t.Errorf("ApproveConnection returned status %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	updated, err := linkRepo.GetByID(t.Context(), link.ID)
+	updated, err := store.ParentYouthLink.GetByID(t.Context(), link.ID)
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
@@ -251,11 +269,33 @@ func TestAdminConnections_PostApprove(t *testing.T) {
 }
 
 func TestAdminConnections_PostReject(t *testing.T) {
-	handler, authService, _, profileRepo, linkRepo, _, _ := setupAdminConnectionsTest(t)
+	handler, authService, db, _ := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+	store := postgres.NewStore(db)
 
-	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
-	youth := addProfile(t, profileRepo, "Sam", "Youth", "YTH001", "sam@test.com", profile.MemberTypeYouth)
-	link := addLink(t, linkRepo, parent.ID, youth.ID, parentyouthlink.StatusPending)
+	parent := &profile.Profile{
+		FirstName: "Jane", LastName: "Parent", BSAID: "PAR001",
+		Email: "jane@test.com", MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), parent); err != nil {
+		t.Fatalf("Create parent: %v", err)
+	}
+	youth := &profile.Profile{
+		FirstName: "Sam", LastName: "Youth", BSAID: "YTH001",
+		Email: "sam@test.com", MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), youth); err != nil {
+		t.Fatalf("Create youth: %v", err)
+	}
+	link := &parentyouthlink.ParentYouthConnection{
+		ParentProfileID: parent.ID,
+		YouthProfileID:  youth.ID,
+		Status:          parentyouthlink.StatusPending,
+		RequestedAt:     time.Now(),
+	}
+	if err := store.ParentYouthLink.Create(t.Context(), link); err != nil {
+		t.Fatalf("Create link: %v", err)
+	}
 
 	path := "/admin/connections/" + link.ID + "/reject"
 	req := adminConnLoggedInRequest(t, authService, "POST", path, "")
@@ -267,7 +307,7 @@ func TestAdminConnections_PostReject(t *testing.T) {
 		t.Errorf("RejectConnection returned status %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	updated, err := linkRepo.GetByID(t.Context(), link.ID)
+	updated, err := store.ParentYouthLink.GetByID(t.Context(), link.ID)
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
@@ -277,12 +317,34 @@ func TestAdminConnections_PostReject(t *testing.T) {
 }
 
 func TestAdminConnections_PostRemove(t *testing.T) {
-	handler, authService, _, profileRepo, linkRepo, _, adminProfile := setupAdminConnectionsTest(t)
+	handler, authService, db, adminProfile := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+	store := postgres.NewStore(db)
 	adminUserID := *adminProfile.UserID
 
-	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
-	youth := addProfile(t, profileRepo, "Sam", "Youth", "YTH001", "sam@test.com", profile.MemberTypeYouth)
-	link := addLink(t, linkRepo, parent.ID, youth.ID, parentyouthlink.StatusApproved)
+	parent := &profile.Profile{
+		FirstName: "Jane", LastName: "Parent", BSAID: "PAR001",
+		Email: "jane@test.com", MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), parent); err != nil {
+		t.Fatalf("Create parent: %v", err)
+	}
+	youth := &profile.Profile{
+		FirstName: "Sam", LastName: "Youth", BSAID: "YTH001",
+		Email: "sam@test.com", MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), youth); err != nil {
+		t.Fatalf("Create youth: %v", err)
+	}
+	link := &parentyouthlink.ParentYouthConnection{
+		ParentProfileID: parent.ID,
+		YouthProfileID:  youth.ID,
+		Status:          parentyouthlink.StatusApproved,
+		RequestedAt:     time.Now(),
+	}
+	if err := store.ParentYouthLink.Create(t.Context(), link); err != nil {
+		t.Fatalf("Create link: %v", err)
+	}
 
 	path := "/admin/connections/" + link.ID + "/remove"
 	req := adminConnLoggedInRequest(t, authService, "POST", path, "")
@@ -294,7 +356,7 @@ func TestAdminConnections_PostRemove(t *testing.T) {
 		t.Errorf("RemoveConnection returned status %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	updated, err := linkRepo.GetByID(t.Context(), link.ID)
+	updated, err := store.ParentYouthLink.GetByID(t.Context(), link.ID)
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
@@ -307,7 +369,8 @@ func TestAdminConnections_PostRemove(t *testing.T) {
 }
 
 func TestAdminConnections_PostApproveInvalidID(t *testing.T) {
-	handler, authService, _, _, _, _, _ := setupAdminConnectionsTest(t)
+	handler, authService, db, _ := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := adminConnLoggedInRequest(t, authService, "POST", "/admin/connections/nonexistent/approve", "")
 	rr := httptest.NewRecorder()
@@ -320,22 +383,48 @@ func TestAdminConnections_PostApproveInvalidID(t *testing.T) {
 }
 
 func TestAdminConnections_GetFiltersActiveConnections(t *testing.T) {
-	handler, authService, _, profileRepo, linkRepo, _, _ := setupAdminConnectionsTest(t)
-
+	handler, authService, db, _ := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+	store := postgres.NewStore(db)
 	now := time.Now()
-	parent1 := addProfile(t, profileRepo, "Alice", "Parent", "PAR001", "alice@test.com", profile.MemberTypeAdult)
-	youth1 := addProfile(t, profileRepo, "Bob", "Youth", "YTH001", "bob@test.com", profile.MemberTypeYouth)
-	parent2 := addProfile(t, profileRepo, "Charlie", "Parent", "PAR002", "charlie@test.com", profile.MemberTypeAdult)
-	youth2 := addProfile(t, profileRepo, "Diana", "Youth", "YTH002", "diana@test.com", profile.MemberTypeYouth)
 
-	linkRepo.Create(t.Context(), &parentyouthlink.ParentYouthConnection{
+	parent1 := &profile.Profile{
+		FirstName: "Alice", LastName: "Parent", BSAID: "PAR001",
+		Email: "alice@test.com", MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), parent1); err != nil {
+		t.Fatalf("Create parent1: %v", err)
+	}
+	youth1 := &profile.Profile{
+		FirstName: "Bob", LastName: "Youth", BSAID: "YTH001",
+		Email: "bob@test.com", MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), youth1); err != nil {
+		t.Fatalf("Create youth1: %v", err)
+	}
+	parent2 := &profile.Profile{
+		FirstName: "Charlie", LastName: "Parent", BSAID: "PAR002",
+		Email: "charlie@test.com", MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), parent2); err != nil {
+		t.Fatalf("Create parent2: %v", err)
+	}
+	youth2 := &profile.Profile{
+		FirstName: "Diana", LastName: "Youth", BSAID: "YTH002",
+		Email: "diana@test.com", MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), youth2); err != nil {
+		t.Fatalf("Create youth2: %v", err)
+	}
+
+	store.ParentYouthLink.Create(t.Context(), &parentyouthlink.ParentYouthConnection{
 		ParentProfileID: parent1.ID,
 		YouthProfileID:  youth1.ID,
 		Status:          parentyouthlink.StatusApproved,
 		RequestedAt:     now,
 		ApprovedAt:      &now,
 	})
-	linkRepo.Create(t.Context(), &parentyouthlink.ParentYouthConnection{
+	store.ParentYouthLink.Create(t.Context(), &parentyouthlink.ParentYouthConnection{
 		ParentProfileID: parent2.ID,
 		YouthProfileID:  youth2.ID,
 		Status:          parentyouthlink.StatusApproved,
@@ -358,18 +447,32 @@ func TestAdminConnections_GetFiltersActiveConnections(t *testing.T) {
 }
 
 func TestAdminConnections_GetOmitsRejectedAndRevoked(t *testing.T) {
-	handler, authService, _, profileRepo, linkRepo, _, _ := setupAdminConnectionsTest(t)
+	handler, authService, db, _ := setupAdminConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+	store := postgres.NewStore(db)
 
-	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
-	youth := addProfile(t, profileRepo, "Sam", "Youth", "YTH001", "sam@test.com", profile.MemberTypeYouth)
+	parent := &profile.Profile{
+		FirstName: "Jane", LastName: "Parent", BSAID: "PAR001",
+		Email: "jane@test.com", MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), parent); err != nil {
+		t.Fatalf("Create parent: %v", err)
+	}
+	youth := &profile.Profile{
+		FirstName: "Sam", LastName: "Youth", BSAID: "YTH001",
+		Email: "sam@test.com", MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), youth); err != nil {
+		t.Fatalf("Create youth: %v", err)
+	}
 
-	linkRepo.Create(t.Context(), &parentyouthlink.ParentYouthConnection{
+	store.ParentYouthLink.Create(t.Context(), &parentyouthlink.ParentYouthConnection{
 		ParentProfileID: parent.ID,
 		YouthProfileID:  youth.ID,
 		Status:          parentyouthlink.StatusRejected,
 		RequestedAt:     time.Now(),
 	})
-	linkRepo.Create(t.Context(), &parentyouthlink.ParentYouthConnection{
+	store.ParentYouthLink.Create(t.Context(), &parentyouthlink.ParentYouthConnection{
 		ParentProfileID: parent.ID,
 		YouthProfileID:  youth.ID,
 		Status:          parentyouthlink.StatusRevoked,

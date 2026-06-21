@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,44 +12,32 @@ import (
 	"scout-app/internal/domain/profile"
 	"scout-app/internal/domain/user"
 	"scout-app/internal/storage/mock"
+	"scout-app/internal/storage/postgres"
+	"scout-app/internal/testhelper"
 )
 
-func setupFamilyConnectionsTest(t *testing.T) (*FamilyConnectionsHandler, *auth.AuthService, *mock.ProfileRepository, *mock.ParentYouthLinkRepository, *mock.EmailService, *profile.Profile, *profile.Profile) {
+func setupFamilyConnectionsTest(t *testing.T) (*FamilyConnectionsHandler, *auth.AuthService, *sql.DB, *mock.EmailService, *profile.Profile, *profile.Profile) {
 	t.Helper()
 
-	userRepo := mock.NewUserRepository()
-	profileRepo := mock.NewProfileRepository()
-	parentYouthLinkRepo := mock.NewParentYouthLinkRepository()
-	rbacRepo := mock.NewRBACRepository()
+	db := testhelper.StartDB()
+	store := postgres.NewStore(db)
+
 	emailSvc := mock.NewEmailService()
 
 	hasher := &auth.MockHasher{}
-	store := auth.NewCookieStore("test-secret-key")
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, store)
+	cookieStore := auth.NewCookieStore("test-secret-key")
+	authService := auth.NewAuthService(store.User, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
-	if err := rbacRepo.SeedRoles(ctx); err != nil {
+	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
 		t.Fatalf("SeedRoles: %v", err)
 	}
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
 
-	adminUser, err := userRepo.GetByEmail(ctx, "admin@scout.local")
-	if err != nil {
-		t.Fatalf("GetByEmail admin: %v", err)
-	}
-	parentProfile := &profile.Profile{
-		FirstName:  "Parent",
-		LastName:   "User",
-		BSAID:      "PAR001",
-		Email:      "admin@scout.local",
-		MemberType: profile.MemberTypeAdult,
-		Status:     profile.StatusActive,
-		UserID:     &adminUser.ID,
-	}
-	if err := profileRepo.Create(ctx, parentProfile); err != nil {
-		t.Fatalf("Create parent profile: %v", err)
+	_, parentProfile := seedAdminUser(t, store, hasher, ctx)
+	parentProfile.BSAID = "PAR001"
+	parentProfile.FirstName = "Parent"
+	if err := store.Profile.Update(ctx, parentProfile); err != nil {
+		t.Fatalf("Update parent profile: %v", err)
 	}
 
 	youthProfile := &profile.Profile{
@@ -59,13 +48,13 @@ func setupFamilyConnectionsTest(t *testing.T) (*FamilyConnectionsHandler, *auth.
 		MemberType: profile.MemberTypeYouth,
 		Status:     profile.StatusActive,
 	}
-	if err := profileRepo.Create(ctx, youthProfile); err != nil {
+	if err := store.Profile.Create(ctx, youthProfile); err != nil {
 		t.Fatalf("Create youth profile: %v", err)
 	}
 
-	handler := NewFamilyConnectionsHandler(profileRepo, parentYouthLinkRepo, authService, rbacRepo, emailSvc)
+	handler := NewFamilyConnectionsHandler(store.Profile, store.ParentYouthLink, authService, store.RBAC, emailSvc)
 
-	return handler, authService, profileRepo, parentYouthLinkRepo, emailSvc, parentProfile, youthProfile
+	return handler, authService, db, emailSvc, parentProfile, youthProfile
 }
 
 func familyConnLoggedInRequest(t *testing.T, authService *auth.AuthService, method, path, body string) *http.Request {
@@ -91,7 +80,8 @@ func familyConnLoggedInRequest(t *testing.T, authService *auth.AuthService, meth
 }
 
 func TestFamilyConnections_GetRendersPage(t *testing.T) {
-	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, db, _, _, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := familyConnLoggedInRequest(t, authService, "GET", "/family-connections", "")
 	rr := httptest.NewRecorder()
@@ -109,7 +99,8 @@ func TestFamilyConnections_GetRendersPage(t *testing.T) {
 }
 
 func TestFamilyConnections_GetRedirectsWhenNotLoggedIn(t *testing.T) {
-	handler, _, _, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, _, db, _, _, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := httptest.NewRequest("GET", "/family-connections", nil)
 	rr := httptest.NewRecorder()
@@ -122,7 +113,8 @@ func TestFamilyConnections_GetRedirectsWhenNotLoggedIn(t *testing.T) {
 }
 
 func TestFamilyConnections_GetShowsEmptyState(t *testing.T) {
-	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, db, _, _, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := familyConnLoggedInRequest(t, authService, "GET", "/family-connections", "")
 	rr := httptest.NewRecorder()
@@ -136,7 +128,8 @@ func TestFamilyConnections_GetShowsEmptyState(t *testing.T) {
 }
 
 func TestFamilyConnections_GetShowsFormForAdult(t *testing.T) {
-	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, db, _, _, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := familyConnLoggedInRequest(t, authService, "GET", "/family-connections", "")
 	rr := httptest.NewRecorder()
@@ -153,31 +146,29 @@ func TestFamilyConnections_GetShowsFormForAdult(t *testing.T) {
 }
 
 func TestFamilyConnections_GetHidesFormForYouth(t *testing.T) {
-	_, _, profileRepo, linkRepo, _, _, youthProfile := setupFamilyConnectionsTest(t)
+	_, _, db, _, _, youthProfile := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
-	ctx := t.Context()
+	store := postgres.NewStore(db)
 
-	youthProfile.UserID = &youthProfile.ID
-	if err := profileRepo.Update(ctx, youthProfile); err != nil {
-		t.Fatalf("Update youth profile: %v", err)
+	youthUser := &user.User{
+		Email:        "alex.youth@scout.local",
+		PasswordHash: "password",
 	}
-
-	rbacRepo2 := mock.NewRBACRepository()
-	if err := rbacRepo2.SeedRoles(ctx); err != nil {
-		t.Fatalf("SeedRoles: %v", err)
-	}
-
-	userRepo2 := mock.NewUserRepository()
-	youthUser := &user.User{Email: "alex.youth@scout.local", PasswordHash: "password"}
-	if err := userRepo2.Create(ctx, youthUser); err != nil {
+	if err := store.User.Create(t.Context(), youthUser); err != nil {
 		t.Fatalf("Create youth user: %v", err)
 	}
 
-	hasher2 := &auth.MockHasher{}
-	store2 := auth.NewCookieStore("test-secret-key")
-	authService2 := auth.NewAuthService(userRepo2, rbacRepo2, hasher2, store2)
+	youthProfile.UserID = &youthUser.ID
+	if err := store.Profile.Update(t.Context(), youthProfile); err != nil {
+		t.Fatalf("Update youth profile: %v", err)
+	}
 
-	handler2 := NewFamilyConnectionsHandler(profileRepo, linkRepo, authService2, rbacRepo2, mock.NewEmailService())
+	hasher2 := &auth.MockHasher{}
+	cookieStore2 := auth.NewCookieStore("test-secret-key")
+	authService2 := auth.NewAuthService(store.User, store.RBAC, hasher2, cookieStore2)
+
+	handler2 := NewFamilyConnectionsHandler(store.Profile, store.ParentYouthLink, authService2, store.RBAC, mock.NewEmailService())
 
 	authHandler2 := NewAuthHandler(authService2)
 	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=alex.youth@scout.local&password=password"))
@@ -200,15 +191,15 @@ func TestFamilyConnections_GetHidesFormForYouth(t *testing.T) {
 }
 
 func TestFamilyConnections_GetShowsExistingConnections(t *testing.T) {
-	handler, authService, _, linkRepo, _, parentProfile, youthProfile := setupFamilyConnectionsTest(t)
+	handler, authService, db, _, parentProfile, youthProfile := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
-	ctx := t.Context()
 	link := &parentyouthlink.ParentYouthConnection{
 		ParentProfileID: parentProfile.ID,
 		YouthProfileID:  youthProfile.ID,
 		Status:          parentyouthlink.StatusApproved,
 	}
-	if err := linkRepo.Create(ctx, link); err != nil {
+	if err := postgres.NewStore(db).ParentYouthLink.Create(t.Context(), link); err != nil {
 		t.Fatalf("Create link: %v", err)
 	}
 
@@ -227,7 +218,8 @@ func TestFamilyConnections_GetShowsExistingConnections(t *testing.T) {
 }
 
 func TestFamilyConnections_PostValidBSAID(t *testing.T) {
-	handler, authService, _, linkRepo, _, parentProfile, _ := setupFamilyConnectionsTest(t)
+	handler, authService, db, _, parentProfile, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := familyConnLoggedInRequest(t, authService, "POST", "/family-connections", "bsa_id=YTH001")
 	rr := httptest.NewRecorder()
@@ -238,7 +230,7 @@ func TestFamilyConnections_PostValidBSAID(t *testing.T) {
 		t.Errorf("AddConnection returned status %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	links, err := linkRepo.ListByParent(t.Context(), parentProfile.ID)
+	links, err := postgres.NewStore(db).ParentYouthLink.ListByParent(t.Context(), parentProfile.ID)
 	if err != nil {
 		t.Fatalf("ListByParent: %v", err)
 	}
@@ -256,7 +248,8 @@ func TestFamilyConnections_PostValidBSAID(t *testing.T) {
 }
 
 func TestFamilyConnections_PostInvalidBSAID(t *testing.T) {
-	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, db, _, _, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := familyConnLoggedInRequest(t, authService, "POST", "/family-connections", "bsa_id=NONEXIST")
 	rr := httptest.NewRecorder()
@@ -274,7 +267,8 @@ func TestFamilyConnections_PostInvalidBSAID(t *testing.T) {
 }
 
 func TestFamilyConnections_PostAdultBSAID(t *testing.T) {
-	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, db, _, _, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := familyConnLoggedInRequest(t, authService, "POST", "/family-connections", "bsa_id=PAR001")
 	rr := httptest.NewRecorder()
@@ -292,17 +286,21 @@ func TestFamilyConnections_PostAdultBSAID(t *testing.T) {
 }
 
 func TestFamilyConnections_PostYouthAlreadyHasUser(t *testing.T) {
-	handler, authService, profileRepo, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, db, _, _, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
-	ctx := t.Context()
-	youthProfile, err := profileRepo.GetByBSAID(ctx, "YTH001")
+	store := postgres.NewStore(db)
+	youthProfile, err := store.Profile.GetByBSAID(t.Context(), "YTH001")
 	if err != nil {
 		t.Fatalf("GetByBSAID: %v", err)
 	}
 
-	registeredUserID := "registered-user-id"
-	youthProfile.UserID = &registeredUserID
-	if err := profileRepo.Update(ctx, youthProfile); err != nil {
+	registeredUser := &user.User{PasswordHash: "hash"}
+	if err := store.User.Create(t.Context(), registeredUser); err != nil {
+		t.Fatalf("Create registered user: %v", err)
+	}
+	youthProfile.UserID = &registeredUser.ID
+	if err := store.Profile.Update(t.Context(), youthProfile); err != nil {
 		t.Fatalf("Update youth profile: %v", err)
 	}
 
@@ -321,22 +319,9 @@ func TestFamilyConnections_PostYouthAlreadyHasUser(t *testing.T) {
 	}
 }
 
-func TestFamilyConnections_PostRedirectsWhenNotLoggedIn(t *testing.T) {
-	handler, _, _, _, _, _, _ := setupFamilyConnectionsTest(t)
-
-	req := httptest.NewRequest("POST", "/family-connections", strings.NewReader("bsa_id=YTH001"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-
-	handler.AddConnection(rr, req)
-
-	if rr.Code != http.StatusFound {
-		t.Errorf("AddConnection returned status %d, want %d (redirect)", rr.Code, http.StatusFound)
-	}
-}
-
 func TestFamilyConnections_PostSendsAdminNotification(t *testing.T) {
-	handler, authService, _, _, emailSvc, parentProfile, _ := setupFamilyConnectionsTest(t)
+	handler, authService, db, emailSvc, parentProfile, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := familyConnLoggedInRequest(t, authService, "POST", "/family-connections", "bsa_id=YTH001")
 	rr := httptest.NewRecorder()
@@ -366,8 +351,24 @@ func TestFamilyConnections_PostSendsAdminNotification(t *testing.T) {
 	}
 }
 
+func TestFamilyConnections_PostRedirectsWhenNotLoggedIn(t *testing.T) {
+	handler, _, db, _, _, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	req := httptest.NewRequest("POST", "/family-connections", strings.NewReader("bsa_id=YTH001"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.AddConnection(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("AddConnection returned status %d, want %d (redirect)", rr.Code, http.StatusFound)
+	}
+}
+
 func TestFamilyConnections_PostEmptyBSAID(t *testing.T) {
-	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, db, _, _, _ := setupFamilyConnectionsTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	req := familyConnLoggedInRequest(t, authService, "POST", "/family-connections", "bsa_id=")
 	rr := httptest.NewRecorder()

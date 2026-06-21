@@ -5,29 +5,37 @@ import (
 	"testing"
 
 	"scout-app/internal/domain/auth"
-	"scout-app/internal/storage/mock"
+	"scout-app/internal/domain/user"
+	"scout-app/internal/storage/postgres"
+	"scout-app/internal/testhelper"
 )
 
 func TestSeedRoles_AdminHasAllPermissions(t *testing.T) {
-	rbac := mock.NewRBACRepository()
+	db := testhelper.StartDB()
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	store := postgres.NewStore(db)
 	ctx := context.Background()
 
-	if err := rbac.SeedRoles(ctx); err != nil {
+	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
 		t.Fatalf("SeedRoles failed: %v", err)
 	}
 
-	// Assign admin role to a user and check permissions
-	adminRole, err := rbac.GetRoleByName(ctx, "admin")
+	adminRole, err := store.RBAC.GetRoleByName(ctx, "admin")
 	if err != nil {
 		t.Fatalf("GetRoleByName(admin) failed: %v", err)
 	}
 
-	userID := "test-user"
-	if err := rbac.AssignRoleToUser(ctx, userID, adminRole.ID); err != nil {
+	u := &user.User{PasswordHash: "password"}
+	if err := store.User.Create(ctx, u); err != nil {
+		t.Fatalf("Create user failed: %v", err)
+	}
+
+	if err := store.RBAC.AssignRoleToUser(ctx, u.ID, adminRole.ID); err != nil {
 		t.Fatalf("AssignRoleToUser failed: %v", err)
 	}
 
-	perms, err := rbac.GetUserPermissions(ctx, userID)
+	perms, err := store.RBAC.GetUserPermissions(ctx, u.ID)
 	if err != nil {
 		t.Fatalf("GetUserPermissions failed: %v", err)
 	}
@@ -50,24 +58,31 @@ func TestSeedRoles_AdminHasAllPermissions(t *testing.T) {
 }
 
 func TestSeedRoles_ScoutHasCorrectPermissions(t *testing.T) {
-	rbac := mock.NewRBACRepository()
+	db := testhelper.StartDB()
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	store := postgres.NewStore(db)
 	ctx := context.Background()
 
-	if err := rbac.SeedRoles(ctx); err != nil {
+	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
 		t.Fatalf("SeedRoles failed: %v", err)
 	}
 
-	scoutRole, err := rbac.GetRoleByName(ctx, "Scouts BSA")
+	scoutRole, err := store.RBAC.GetRoleByName(ctx, "Scouts BSA")
 	if err != nil {
 		t.Fatalf("GetRoleByName(Scouts BSA) failed: %v", err)
 	}
 
-	userID := "scout-user"
-	if err := rbac.AssignRoleToUser(ctx, userID, scoutRole.ID); err != nil {
+	u := &user.User{PasswordHash: "password"}
+	if err := store.User.Create(ctx, u); err != nil {
+		t.Fatalf("Create user failed: %v", err)
+	}
+
+	if err := store.RBAC.AssignRoleToUser(ctx, u.ID, scoutRole.ID); err != nil {
 		t.Fatalf("AssignRoleToUser failed: %v", err)
 	}
 
-	perms, err := rbac.GetUserPermissions(ctx, userID)
+	perms, err := store.RBAC.GetUserPermissions(ctx, u.ID)
 	if err != nil {
 		t.Fatalf("GetUserPermissions failed: %v", err)
 	}
@@ -77,7 +92,6 @@ func TestSeedRoles_ScoutHasCorrectPermissions(t *testing.T) {
 		permNames[p.Name] = true
 	}
 
-	// Scouts should NOT have event:create
 	if permNames["event:create"] {
 		t.Error("scout should not have event:create permission")
 	}
@@ -93,10 +107,13 @@ func TestSeedRoles_ScoutHasCorrectPermissions(t *testing.T) {
 }
 
 func TestSeedRoles_ScoutbookPositionRolesHaveNoPermissions(t *testing.T) {
-	rbac := mock.NewRBACRepository()
+	db := testhelper.StartDB()
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	store := postgres.NewStore(db)
 	ctx := context.Background()
 
-	if err := rbac.SeedRoles(ctx); err != nil {
+	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
 		t.Fatalf("SeedRoles failed: %v", err)
 	}
 
@@ -132,18 +149,22 @@ func TestSeedRoles_ScoutbookPositionRolesHaveNoPermissions(t *testing.T) {
 		"Youth Protection Champion",
 	}
 
-	userID := "position-role-user"
+	u := &user.User{PasswordHash: "password"}
+	if err := store.User.Create(ctx, u); err != nil {
+		t.Fatalf("Create user failed: %v", err)
+	}
+
 	for _, roleName := range positionRoles {
-		role, err := rbac.GetRoleByName(ctx, roleName)
+		role, err := store.RBAC.GetRoleByName(ctx, roleName)
 		if err != nil {
 			t.Fatalf("GetRoleByName(%q) failed: %v", roleName, err)
 		}
-		if err := rbac.AssignRoleToUser(ctx, userID, role.ID); err != nil {
+		if err := store.RBAC.AssignRoleToUser(ctx, u.ID, role.ID); err != nil {
 			t.Fatalf("AssignRoleToUser(%q) failed: %v", roleName, err)
 		}
 	}
 
-	perms, err := rbac.GetUserPermissions(ctx, userID)
+	perms, err := store.RBAC.GetUserPermissions(ctx, u.ID)
 	if err != nil {
 		t.Fatalf("GetUserPermissions failed: %v", err)
 	}
@@ -152,26 +173,36 @@ func TestSeedRoles_ScoutbookPositionRolesHaveNoPermissions(t *testing.T) {
 	}
 }
 
-// Ensure the domain.SeedRoles function works via the interface too
 func TestDomainSeedRoles(t *testing.T) {
-	rbac := mock.NewRBACRepository()
+	db := testhelper.StartDB()
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	store := postgres.NewStore(db)
 	ctx := context.Background()
 
-	if err := auth.SeedRoles(ctx, rbac); err != nil {
+	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
 		t.Fatalf("auth.SeedRoles failed: %v", err)
 	}
 
-	adminRole, err := rbac.GetRoleByName(ctx, "admin")
+	adminRole, err := store.RBAC.GetRoleByName(ctx, "admin")
 	if err != nil {
 		t.Fatalf("GetRoleByName(admin) failed: %v", err)
 	}
 
-	userID := "domain-test-user"
-	if err := rbac.AssignRoleToUser(ctx, userID, adminRole.ID); err != nil {
+	u := &user.User{PasswordHash: "password"}
+	if err := store.User.Create(ctx, u); err != nil {
+		t.Fatalf("Create user failed: %v", err)
+	}
+
+	if err := store.RBAC.AssignRoleToUser(ctx, u.ID, adminRole.ID); err != nil {
 		t.Fatalf("AssignRoleToUser failed: %v", err)
 	}
 
-	perms, err := rbac.GetUserPermissions(ctx, userID)
+	if err := store.RBAC.AssignRoleToUser(ctx, u.ID, adminRole.ID); err != nil {
+		t.Fatalf("AssignRoleToUser failed: %v", err)
+	}
+
+	perms, err := store.RBAC.GetUserPermissions(ctx, u.ID)
 	if err != nil {
 		t.Fatalf("GetUserPermissions failed: %v", err)
 	}

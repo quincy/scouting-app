@@ -11,47 +11,30 @@ import (
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/otpcode"
 	"scout-app/internal/domain/profile"
+	"scout-app/internal/domain/rbac"
+	"scout-app/internal/domain/user"
 	"scout-app/internal/storage/mock"
+	"scout-app/internal/storage/postgres"
+	"scout-app/internal/testhelper"
 )
 
-func setupRegistrationTest(t *testing.T) (*RegistrationHandler, *auth.AuthService, *mock.UserRepository, *mock.ProfileRepository, *mock.OTPCodeRepository, *mock.EmailService, *mock.RBACRepository) {
+func setupRegistrationTest(t *testing.T) (*RegistrationHandler, *auth.AuthService, user.Repository, profile.Repository, otpcode.Repository, *mock.EmailService, rbac.Repository) {
 	t.Helper()
 
-	userRepo := mock.NewUserRepository()
-	profileRepo := mock.NewProfileRepository()
-	parentYouthLinkRepo := mock.NewParentYouthLinkRepository()
-	rbacRepo := mock.NewRBACRepository()
-	eventRepo := mock.NewEventRepository(profileRepo)
-	otpRepo := mock.NewOTPCodeRepository()
+	db := testhelper.StartDB()
+	store := postgres.NewStore(db)
 	emailSvc := mock.NewEmailService()
 
 	hasher := &auth.MockHasher{}
-	store := auth.NewCookieStore("test-secret-key")
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, store)
+	cookieStore := auth.NewCookieStore("test-secret-key")
+	authService := auth.NewAuthService(store.User, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
-	if err := rbacRepo.SeedRoles(ctx); err != nil {
+	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
 		t.Fatalf("SeedRoles: %v", err)
 	}
-	if err := authService.SeedAdminUser(ctx); err != nil {
-		t.Fatalf("SeedAdminUser: %v", err)
-	}
 
-	adminUser, err := userRepo.GetByEmail(ctx, "admin@scout.local")
-	if err != nil {
-		t.Fatalf("GetByEmail admin: %v", err)
-	}
-	adminProfile := &profile.Profile{
-		FirstName:  "Admin",
-		LastName:   "User",
-		Email:      "admin@scout.local",
-		MemberType: profile.MemberTypeAdult,
-		Status:     profile.StatusActive,
-		UserID:     &adminUser.ID,
-	}
-	if err := profileRepo.Create(ctx, adminProfile); err != nil {
-		t.Fatalf("Create admin profile: %v", err)
-	}
+	seedAdminUser(t, store, hasher, ctx)
 
 	youthProfile := &profile.Profile{
 		FirstName:  "Alex",
@@ -60,7 +43,7 @@ func setupRegistrationTest(t *testing.T) (*RegistrationHandler, *auth.AuthServic
 		MemberType: profile.MemberTypeYouth,
 		Status:     profile.StatusActive,
 	}
-	if err := profileRepo.Create(ctx, youthProfile); err != nil {
+	if err := store.Profile.Create(ctx, youthProfile); err != nil {
 		t.Fatalf("Create youth profile: %v", err)
 	}
 
@@ -71,7 +54,7 @@ func setupRegistrationTest(t *testing.T) (*RegistrationHandler, *auth.AuthServic
 		MemberType: profile.MemberTypeAdult,
 		Status:     profile.StatusActive,
 	}
-	if err := profileRepo.Create(ctx, unregisteredAdult); err != nil {
+	if err := store.Profile.Create(ctx, unregisteredAdult); err != nil {
 		t.Fatalf("Create unregistered adult: %v", err)
 	}
 
@@ -82,7 +65,7 @@ func setupRegistrationTest(t *testing.T) (*RegistrationHandler, *auth.AuthServic
 		MemberType: profile.MemberTypeYouth,
 		Status:     profile.StatusActive,
 	}
-	if err := profileRepo.Create(ctx, unregisteredYouth); err != nil {
+	if err := store.Profile.Create(ctx, unregisteredYouth); err != nil {
 		t.Fatalf("Create unregistered youth: %v", err)
 	}
 
@@ -94,7 +77,7 @@ func setupRegistrationTest(t *testing.T) (*RegistrationHandler, *auth.AuthServic
 		Status:     profile.StatusActive,
 		Positions:  "Scoutmaster, Troop Admin",
 	}
-	if err := profileRepo.Create(ctx, unregisteredAdultWithPositions); err != nil {
+	if err := store.Profile.Create(ctx, unregisteredAdultWithPositions); err != nil {
 		t.Fatalf("Create unregistered adult with positions: %v", err)
 	}
 
@@ -106,16 +89,15 @@ func setupRegistrationTest(t *testing.T) (*RegistrationHandler, *auth.AuthServic
 		Status:     profile.StatusActive,
 		Positions:  "Patrol Leader, Scribe",
 	}
-	if err := profileRepo.Create(ctx, unregisteredYouthWithPositions); err != nil {
+	if err := store.Profile.Create(ctx, unregisteredYouthWithPositions); err != nil {
 		t.Fatalf("Create unregistered youth with positions: %v", err)
 	}
 
-	_ = parentYouthLinkRepo
-	_ = eventRepo
+	regHandler := NewRegistrationHandler(store.Profile, store.OTPCode, store.User, store.RBAC, emailSvc, hasher, cookieStore)
 
-	regHandler := NewRegistrationHandler(profileRepo, otpRepo, userRepo, rbacRepo, emailSvc, hasher, store)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
-	return regHandler, authService, userRepo, profileRepo, otpRepo, emailSvc, rbacRepo
+	return regHandler, authService, store.User, store.Profile, store.OTPCode, emailSvc, store.RBAC
 }
 
 // Test 1: GET /register renders form, no error
@@ -958,7 +940,7 @@ func TestRegistrationHandler_Complete_SuccessRedirect(t *testing.T) {
 
 // Test 20: GET /login?registered=1 — shows success banner
 func TestAuthHandler_LoginPage_WithRegisteredParam(t *testing.T) {
-	authHandler, _, _, _ := setupAuthTest(t)
+	authHandler, _, _ := setupAuthTest(t)
 
 	req := httptest.NewRequest("GET", "/login?registered=1", nil)
 	rr := httptest.NewRecorder()
@@ -985,7 +967,7 @@ func loginAndGetCookies(t *testing.T, authService *auth.AuthService) []*http.Coo
 	return loginRR.Result().Cookies()
 }
 
-func registerAndGetOTP(t *testing.T, handler *RegistrationHandler, authService *auth.AuthService, email string, otpRepo *mock.OTPCodeRepository, emailSvc *mock.EmailService) ([]*http.Cookie, string, string) {
+func registerAndGetOTP(t *testing.T, handler *RegistrationHandler, authService *auth.AuthService, email string, otpRepo otpcode.Repository, emailSvc *mock.EmailService) ([]*http.Cookie, string, string) {
 	t.Helper()
 	ctx := t.Context()
 

@@ -194,13 +194,10 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				ctx := context.Background()
-				if err := otpRepo.DeleteExpired(ctx); err != nil {
-					log.Printf("OTP cleanup: %v", err)
-				}
+		for range ticker.C {
+			ctx := context.Background()
+			if err := otpRepo.DeleteExpired(ctx); err != nil {
+				log.Printf("OTP cleanup: %v", err)
 			}
 		}
 	}()

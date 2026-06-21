@@ -17,26 +17,30 @@ func NewRBACRepository(db *sql.DB) *RBACRepository {
 }
 
 func (r *RBACRepository) CreateRole(ctx context.Context, role *rbac.Role) error {
-	if role.ID == "" {
-		role.ID = newUUID()
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM roles WHERE name = $1`, role.Name,
+	).Scan(&role.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r.db.QueryRowContext(ctx,
+			`INSERT INTO roles (id, name, created_at, updated_at) VALUES ($1, $2, NOW(), NOW())
+			 RETURNING id`,
+			newUUID(), role.Name,
+		).Scan(&role.ID)
 	}
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO roles (id, name, created_at, updated_at) VALUES ($1, $2, NOW(), NOW())
-		 ON CONFLICT (name) DO NOTHING`,
-		role.ID, role.Name,
-	)
 	return err
 }
 
 func (r *RBACRepository) CreatePermission(ctx context.Context, perm *rbac.Permission) error {
-	if perm.ID == "" {
-		perm.ID = newUUID()
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM permissions WHERE name = $1`, perm.Name,
+	).Scan(&perm.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r.db.QueryRowContext(ctx,
+			`INSERT INTO permissions (id, name, created_at, updated_at) VALUES ($1, $2, NOW(), NOW())
+			 RETURNING id`,
+			newUUID(), perm.Name,
+		).Scan(&perm.ID)
 	}
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO permissions (id, name, created_at, updated_at) VALUES ($1, $2, NOW(), NOW())
-		 ON CONFLICT (name) DO NOTHING`,
-		perm.ID, perm.Name,
-	)
 	return err
 }
 

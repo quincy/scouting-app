@@ -70,7 +70,7 @@ func TestRenderMarkdown_Basic(t *testing.T) {
 }
 
 func TestEventHandler_MarkdownPreview(t *testing.T) {
-	_, _, _, _, handler, _ := setupEventTest(t)
+	handler, _, _, _ := setupEventTest(t)
 
 	body := "description=**bold** and _italic_"
 	req := httptest.NewRequest("POST", "/admin/markdown-preview", strings.NewReader(body))
@@ -98,7 +98,7 @@ func TestEventHandler_MarkdownPreview(t *testing.T) {
 }
 
 func TestEventHandler_MarkdownPreview_XSS(t *testing.T) {
-	_, _, _, _, handler, _ := setupEventTest(t)
+	handler, _, _, _ := setupEventTest(t)
 
 	body := "description=<script>alert('xss')</script>"
 	req := httptest.NewRequest("POST", "/admin/markdown-preview", strings.NewReader(body))

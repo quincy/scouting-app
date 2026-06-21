@@ -424,7 +424,7 @@ func isVerifiedExpired(sess *sessions.Session) bool {
 	if err != nil {
 		return false
 	}
-	return time.Now().Sub(verifiedAt) > 30*time.Minute
+	return time.Since(verifiedAt) > 30*time.Minute
 }
 
 func maskEmail(email string) string {
