@@ -12,7 +12,8 @@ import (
 var templateFS embed.FS
 
 type Templates struct {
-	otpTemplate *template.Template
+	otpTemplate            *template.Template
+	adminNotificationTmpl  *template.Template
 }
 
 type otpData struct {
@@ -23,12 +24,20 @@ type otpData struct {
 	VerifyURL  string
 }
 
+type adminNotificationData struct {
+	AdminURL string
+}
+
 func NewTemplates() (*Templates, error) {
 	otp, err := template.ParseFS(templateFS, "templates/otp_verification.txt")
 	if err != nil {
 		return nil, fmt.Errorf("parse OTP template: %w", err)
 	}
-	return &Templates{otpTemplate: otp}, nil
+	admin, err := template.ParseFS(templateFS, "templates/admin_notification.txt")
+	if err != nil {
+		return nil, fmt.Errorf("parse admin notification template: %w", err)
+	}
+	return &Templates{otpTemplate: otp, adminNotificationTmpl: admin}, nil
 }
 
 func (t *Templates) RenderOTP(code, unitType, unitNumber, otpID string) (subject, body string, err error) {
@@ -42,7 +51,19 @@ func (t *Templates) RenderOTP(code, unitType, unitNumber, otpID string) (subject
 	}); err != nil {
 		return "", "", fmt.Errorf("render OTP email: %w", err)
 	}
-	// First line is Subject: header, rest is body
+	full := buf.String()
+	subject = extractSubject(full)
+	body = stripSubject(full)
+	return subject, body, nil
+}
+
+func (t *Templates) RenderAdminNotification(adminURL string) (subject, body string, err error) {
+	var buf bytes.Buffer
+	if err := t.adminNotificationTmpl.Execute(&buf, adminNotificationData{
+		AdminURL: adminURL,
+	}); err != nil {
+		return "", "", fmt.Errorf("render admin notification email: %w", err)
+	}
 	full := buf.String()
 	subject = extractSubject(full)
 	body = stripSubject(full)

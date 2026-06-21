@@ -61,6 +61,9 @@ func (r *memRBACRepo) SeedRoles(ctx context.Context) error                    { 
 func (r *memRBACRepo) RemoveRoleFromUser(ctx context.Context, userID, roleID string) error {
 	return nil
 }
+func (r *memRBACRepo) GetUsersByRoleName(ctx context.Context, name string) ([]string, error) {
+	return nil, nil
+}
 
 func TestBCryptHasher_Hash(t *testing.T) {
 	hasher := &BCryptHasher{}

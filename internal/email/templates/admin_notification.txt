@@ -1,0 +1,9 @@
+Subject: New Family Connection Request
+
+A new family connection request has been submitted and is awaiting your review.
+
+Please visit the admin panel to review and approve or reject the request:
+
+http://localhost:8080/admin/connections
+
+- Scout App

@@ -47,6 +47,30 @@ func TestRenderOTP(t *testing.T) {
 	}
 }
 
+func TestRenderAdminNotification(t *testing.T) {
+	tmpl, err := NewTemplates()
+	if err != nil {
+		t.Fatalf("NewTemplates failed: %v", err)
+	}
+
+	subject, body, err := tmpl.RenderAdminNotification("http://localhost:8080/admin/connections")
+	if err != nil {
+		t.Fatalf("RenderAdminNotification failed: %v", err)
+	}
+
+	if !strings.Contains(subject, "New Family Connection Request") {
+		t.Errorf("expected subject to contain 'New Family Connection Request', got %q", subject)
+	}
+
+	if !strings.Contains(body, "admin panel") {
+		t.Errorf("expected body to mention 'admin panel', got: %s", body)
+	}
+
+	if !strings.Contains(body, "/admin/connections") {
+		t.Errorf("expected body to contain admin URL, got: %s", body)
+	}
+}
+
 func TestBuildMessage(t *testing.T) {
 	msg := buildMessage("from@test.com", "to@test.com", "Subject Line", "Hello, this is the body.")
 

@@ -13,13 +13,14 @@ import (
 	"scout-app/internal/storage/mock"
 )
 
-func setupFamilyConnectionsTest(t *testing.T) (*FamilyConnectionsHandler, *auth.AuthService, *mock.ProfileRepository, *mock.ParentYouthLinkRepository, *profile.Profile, *profile.Profile) {
+func setupFamilyConnectionsTest(t *testing.T) (*FamilyConnectionsHandler, *auth.AuthService, *mock.ProfileRepository, *mock.ParentYouthLinkRepository, *mock.EmailService, *profile.Profile, *profile.Profile) {
 	t.Helper()
 
 	userRepo := mock.NewUserRepository()
 	profileRepo := mock.NewProfileRepository()
 	parentYouthLinkRepo := mock.NewParentYouthLinkRepository()
 	rbacRepo := mock.NewRBACRepository()
+	emailSvc := mock.NewEmailService()
 
 	hasher := &auth.MockHasher{}
 	store := auth.NewCookieStore("test-secret-key")
@@ -62,9 +63,9 @@ func setupFamilyConnectionsTest(t *testing.T) (*FamilyConnectionsHandler, *auth.
 		t.Fatalf("Create youth profile: %v", err)
 	}
 
-	handler := NewFamilyConnectionsHandler(profileRepo, parentYouthLinkRepo, authService, rbacRepo)
+	handler := NewFamilyConnectionsHandler(profileRepo, parentYouthLinkRepo, authService, rbacRepo, emailSvc)
 
-	return handler, authService, profileRepo, parentYouthLinkRepo, parentProfile, youthProfile
+	return handler, authService, profileRepo, parentYouthLinkRepo, emailSvc, parentProfile, youthProfile
 }
 
 func familyConnLoggedInRequest(t *testing.T, authService *auth.AuthService, method, path, body string) *http.Request {
@@ -90,7 +91,7 @@ func familyConnLoggedInRequest(t *testing.T, authService *auth.AuthService, meth
 }
 
 func TestFamilyConnections_GetRendersPage(t *testing.T) {
-	handler, authService, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
 
 	req := familyConnLoggedInRequest(t, authService, "GET", "/family-connections", "")
 	rr := httptest.NewRecorder()
@@ -108,7 +109,7 @@ func TestFamilyConnections_GetRendersPage(t *testing.T) {
 }
 
 func TestFamilyConnections_GetRedirectsWhenNotLoggedIn(t *testing.T) {
-	handler, _, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, _, _, _, _, _, _ := setupFamilyConnectionsTest(t)
 
 	req := httptest.NewRequest("GET", "/family-connections", nil)
 	rr := httptest.NewRecorder()
@@ -121,7 +122,7 @@ func TestFamilyConnections_GetRedirectsWhenNotLoggedIn(t *testing.T) {
 }
 
 func TestFamilyConnections_GetShowsEmptyState(t *testing.T) {
-	handler, authService, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
 
 	req := familyConnLoggedInRequest(t, authService, "GET", "/family-connections", "")
 	rr := httptest.NewRecorder()
@@ -135,7 +136,7 @@ func TestFamilyConnections_GetShowsEmptyState(t *testing.T) {
 }
 
 func TestFamilyConnections_GetShowsFormForAdult(t *testing.T) {
-	handler, authService, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
 
 	req := familyConnLoggedInRequest(t, authService, "GET", "/family-connections", "")
 	rr := httptest.NewRecorder()
@@ -152,7 +153,7 @@ func TestFamilyConnections_GetShowsFormForAdult(t *testing.T) {
 }
 
 func TestFamilyConnections_GetHidesFormForYouth(t *testing.T) {
-	_, _, profileRepo, linkRepo, _, youthProfile := setupFamilyConnectionsTest(t)
+	_, _, profileRepo, linkRepo, _, _, youthProfile := setupFamilyConnectionsTest(t)
 
 	ctx := t.Context()
 
@@ -176,7 +177,7 @@ func TestFamilyConnections_GetHidesFormForYouth(t *testing.T) {
 	store2 := auth.NewCookieStore("test-secret-key")
 	authService2 := auth.NewAuthService(userRepo2, rbacRepo2, hasher2, store2)
 
-	handler2 := NewFamilyConnectionsHandler(profileRepo, linkRepo, authService2, rbacRepo2)
+	handler2 := NewFamilyConnectionsHandler(profileRepo, linkRepo, authService2, rbacRepo2, mock.NewEmailService())
 
 	authHandler2 := NewAuthHandler(authService2)
 	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=alex.youth@scout.local&password=password"))
@@ -199,7 +200,7 @@ func TestFamilyConnections_GetHidesFormForYouth(t *testing.T) {
 }
 
 func TestFamilyConnections_GetShowsExistingConnections(t *testing.T) {
-	handler, authService, _, linkRepo, parentProfile, youthProfile := setupFamilyConnectionsTest(t)
+	handler, authService, _, linkRepo, _, parentProfile, youthProfile := setupFamilyConnectionsTest(t)
 
 	ctx := t.Context()
 	link := &parentyouthlink.ParentYouthConnection{
@@ -226,7 +227,7 @@ func TestFamilyConnections_GetShowsExistingConnections(t *testing.T) {
 }
 
 func TestFamilyConnections_PostValidBSAID(t *testing.T) {
-	handler, authService, _, linkRepo, parentProfile, _ := setupFamilyConnectionsTest(t)
+	handler, authService, _, linkRepo, _, parentProfile, _ := setupFamilyConnectionsTest(t)
 
 	req := familyConnLoggedInRequest(t, authService, "POST", "/family-connections", "bsa_id=YTH001")
 	rr := httptest.NewRecorder()
@@ -255,7 +256,7 @@ func TestFamilyConnections_PostValidBSAID(t *testing.T) {
 }
 
 func TestFamilyConnections_PostInvalidBSAID(t *testing.T) {
-	handler, authService, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
 
 	req := familyConnLoggedInRequest(t, authService, "POST", "/family-connections", "bsa_id=NONEXIST")
 	rr := httptest.NewRecorder()
@@ -273,7 +274,7 @@ func TestFamilyConnections_PostInvalidBSAID(t *testing.T) {
 }
 
 func TestFamilyConnections_PostAdultBSAID(t *testing.T) {
-	handler, authService, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
 
 	req := familyConnLoggedInRequest(t, authService, "POST", "/family-connections", "bsa_id=PAR001")
 	rr := httptest.NewRecorder()
@@ -291,7 +292,7 @@ func TestFamilyConnections_PostAdultBSAID(t *testing.T) {
 }
 
 func TestFamilyConnections_PostYouthAlreadyHasUser(t *testing.T) {
-	handler, authService, profileRepo, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, profileRepo, _, _, _, _ := setupFamilyConnectionsTest(t)
 
 	ctx := t.Context()
 	youthProfile, err := profileRepo.GetByBSAID(ctx, "YTH001")
@@ -321,7 +322,7 @@ func TestFamilyConnections_PostYouthAlreadyHasUser(t *testing.T) {
 }
 
 func TestFamilyConnections_PostRedirectsWhenNotLoggedIn(t *testing.T) {
-	handler, _, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, _, _, _, _, _, _ := setupFamilyConnectionsTest(t)
 
 	req := httptest.NewRequest("POST", "/family-connections", strings.NewReader("bsa_id=YTH001"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -334,8 +335,39 @@ func TestFamilyConnections_PostRedirectsWhenNotLoggedIn(t *testing.T) {
 	}
 }
 
+func TestFamilyConnections_PostSendsAdminNotification(t *testing.T) {
+	handler, authService, _, _, emailSvc, parentProfile, _ := setupFamilyConnectionsTest(t)
+
+	req := familyConnLoggedInRequest(t, authService, "POST", "/family-connections", "bsa_id=YTH001")
+	rr := httptest.NewRecorder()
+
+	handler.AddConnection(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("AddConnection returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	if len(emailSvc.SentNotifications) != 1 {
+		t.Fatalf("expected 1 admin notification, got %d", len(emailSvc.SentNotifications))
+	}
+
+	notif := emailSvc.SentNotifications[0]
+	if len(notif.To) == 0 {
+		t.Fatal("expected admin notification to have recipients")
+	}
+	if notif.To[0] != parentProfile.Email {
+		t.Errorf("expected notification to %q, got %q", parentProfile.Email, notif.To[0])
+	}
+	if !strings.Contains(notif.Subject, "New Family Connection") {
+		t.Errorf("expected subject to mention 'New Family Connection', got %q", notif.Subject)
+	}
+	if !strings.Contains(notif.Body, "/admin/connections") {
+		t.Errorf("expected body to contain link to /admin/connections, got: %s", notif.Body)
+	}
+}
+
 func TestFamilyConnections_PostEmptyBSAID(t *testing.T) {
-	handler, authService, _, _, _, _ := setupFamilyConnectionsTest(t)
+	handler, authService, _, _, _, _, _ := setupFamilyConnectionsTest(t)
 
 	req := familyConnLoggedInRequest(t, authService, "POST", "/family-connections", "bsa_id=")
 	rr := httptest.NewRecorder()

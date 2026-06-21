@@ -8,6 +8,41 @@ import (
 	"testing"
 )
 
+func TestSendAdminNotification_ViaSMTPServer(t *testing.T) {
+	tmpl, err := NewTemplates()
+	if err != nil {
+		t.Fatalf("NewTemplates failed: %v", err)
+	}
+
+	received := make(chan string, 1)
+	server := startFakeSMTPServer(t, received)
+
+	sender := NewSender("localhost", server.port, "user", "pass", "sender@test.com", "Troop", "077", tmpl)
+
+	err = sender.SendAdminNotification(context.Background(), []string{"admin1@test.com", "admin2@test.com"}, "Test Subject", "Test body content")
+	if err != nil {
+		t.Fatalf("SendAdminNotification failed: %v", err)
+	}
+
+	raw := <-received
+
+	if !strings.Contains(raw, "From: sender@test.com") {
+		t.Error("missing From header")
+	}
+	if !strings.Contains(raw, "To: admin1@test.com, admin2@test.com") {
+		t.Error("missing or wrong To header")
+	}
+	if !strings.Contains(raw, "Subject: Test Subject") {
+		t.Error("missing or wrong Subject")
+	}
+	if !strings.Contains(raw, "Test body content") {
+		t.Error("missing body content")
+	}
+	if !strings.Contains(raw, "Content-Type: text/plain; charset=UTF-8") {
+		t.Error("missing Content-Type header")
+	}
+}
+
 func TestSendOTP_ViaSMTPServer(t *testing.T) {
 	tmpl, err := NewTemplates()
 	if err != nil {

@@ -186,6 +186,31 @@ func (r *mockRBACRepository) ListAllRoles(ctx context.Context) ([]*rbac.Role, er
 	return roles, nil
 }
 
+func (r *mockRBACRepository) GetUsersByRoleName(ctx context.Context, name string) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	roleID := ""
+	for _, role := range r.roles {
+		if role.Name == name {
+			roleID = role.ID
+			break
+		}
+	}
+	if roleID == "" {
+		return nil, fmt.Errorf("role %q not found", name)
+	}
+	var userIDs []string
+	for uid, rids := range r.userRoles {
+		for _, rid := range rids {
+			if rid == roleID {
+				userIDs = append(userIDs, uid)
+				break
+			}
+		}
+	}
+	return userIDs, nil
+}
+
 type mockClient struct {
 	adults []Member
 	youths []Member

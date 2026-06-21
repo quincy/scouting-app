@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"scout-app/internal/domain/auth"
+	"scout-app/internal/domain/email"
 	"scout-app/internal/domain/parentyouthlink"
 	"scout-app/internal/domain/profile"
 	"scout-app/internal/domain/rbac"
@@ -19,6 +20,7 @@ type FamilyConnectionsHandler struct {
 	linkRepo    parentyouthlink.Repository
 	auth        *auth.AuthService
 	rbac        rbac.Repository
+	emailSvc    email.Service
 	tmpl        *template.Template
 }
 
@@ -42,6 +44,7 @@ func NewFamilyConnectionsHandler(
 	linkRepo parentyouthlink.Repository,
 	auth *auth.AuthService,
 	rbac rbac.Repository,
+	emailSvc email.Service,
 ) *FamilyConnectionsHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
@@ -51,6 +54,7 @@ func NewFamilyConnectionsHandler(
 		linkRepo:    linkRepo,
 		auth:        auth,
 		rbac:        rbac,
+		emailSvc:    emailSvc,
 		tmpl:        tmpl,
 	}
 }
@@ -70,6 +74,39 @@ func (h *FamilyConnectionsHandler) isAdmin(ctx context.Context, r *http.Request)
 		}
 	}
 	return false
+}
+
+func (h *FamilyConnectionsHandler) notifyAdmins(ctx context.Context, parentProfile, youthProfile *profile.Profile) {
+	adminUserIDs, err := h.rbac.GetUsersByRoleName(ctx, "admin")
+	if err != nil {
+		log.Printf("notifyAdmins: GetUsersByRoleName: %v", err)
+		return
+	}
+
+	var adminEmails []string
+	for _, uid := range adminUserIDs {
+		p, err := h.profileRepo.GetByUserID(ctx, uid)
+		if err != nil {
+			log.Printf("notifyAdmins: GetByUserID %s: %v", uid, err)
+			continue
+		}
+		if p.Email != "" {
+			adminEmails = append(adminEmails, p.Email)
+		}
+	}
+
+	if len(adminEmails) == 0 {
+		return
+	}
+
+	subject := "New Family Connection Request"
+	body := "A new family connection request has been submitted and is awaiting your review.\n\n" +
+		"Please visit the admin panel to review and approve or reject the request:\n" +
+		"http://localhost:8080/admin/connections"
+
+	if err := h.emailSvc.SendAdminNotification(ctx, adminEmails, subject, body); err != nil {
+		log.Printf("notifyAdmins: SendAdminNotification: %v", err)
+	}
 }
 
 func (h *FamilyConnectionsHandler) renderPage(w http.ResponseWriter, r *http.Request, data familyConnectionsPageData) {
@@ -236,6 +273,8 @@ func (h *FamilyConnectionsHandler) AddConnection(w http.ResponseWriter, r *http.
 		})
 		return
 	}
+
+	h.notifyAdmins(ctx, parentProfile, youthProfile)
 
 	conns := h.buildConnections(ctx, parentProfile.ID, isAdult)
 	h.renderPage(w, r, familyConnectionsPageData{

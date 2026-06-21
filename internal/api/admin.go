@@ -18,6 +18,7 @@ type rosterRow struct {
 	ID      string
 	Name    string
 	Email   string
+	BSAID   string
 	Status  string
 	Claimed bool
 	Links   []string
@@ -466,6 +467,7 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 			ID:      p.ID,
 			Name:    p.DisplayName(),
 			Email:   p.Email,
+			BSAID:   p.BSAID,
 			Status:  string(p.Status),
 			Claimed: claimed,
 			sortKey: strings.ToLower(p.LastName + ", " + p.FirstName),

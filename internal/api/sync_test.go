@@ -80,6 +80,9 @@ func (m *mockRBACRepo) ListAllRoles(ctx context.Context) ([]*rbac.Role, error) {
 func (m *mockRBACRepo) GetRoleByName(ctx context.Context, name string) (*rbac.Role, error) {
 	return &rbac.Role{ID: name + "-role-id", Name: name}, nil
 }
+func (m *mockRBACRepo) GetUsersByRoleName(ctx context.Context, name string) ([]string, error) {
+	return nil, nil
+}
 
 var mockRBAC = &mockRBACRepo{}
 

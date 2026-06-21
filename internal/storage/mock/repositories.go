@@ -227,6 +227,31 @@ func (r *RBACRepository) GetRoleByName(ctx context.Context, name string) (*rbac.
 	return nil, fmt.Errorf("role %q not found", name)
 }
 
+func (r *RBACRepository) GetUsersByRoleName(ctx context.Context, name string) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	roleID := ""
+	for _, role := range r.roles {
+		if role.Name == name {
+			roleID = role.ID
+			break
+		}
+	}
+	if roleID == "" {
+		return nil, fmt.Errorf("role %q not found", name)
+	}
+	var userIDs []string
+	for uid, rids := range r.userRoles {
+		for _, rid := range rids {
+			if rid == roleID {
+				userIDs = append(userIDs, uid)
+				break
+			}
+		}
+	}
+	return userIDs, nil
+}
+
 type EventRepository struct {
 	mu        sync.RWMutex
 	events    map[string]*event.Event
@@ -762,14 +787,21 @@ func (r *ScoutbookSessionRepository) GetLatest(ctx context.Context) (*scoutbooks
 }
 
 type EmailService struct {
-	SentOTPs []EmailOTP
-	mu       sync.RWMutex
+	SentOTPs           []EmailOTP
+	SentNotifications  []AdminNotification
+	mu                 sync.RWMutex
 }
 
 type EmailOTP struct {
 	To    string
 	Code  string
 	OTPID string
+}
+
+type AdminNotification struct {
+	To      []string
+	Subject string
+	Body    string
 }
 
 func NewEmailService() *EmailService {
@@ -780,6 +812,13 @@ func (s *EmailService) SendOTP(ctx context.Context, to, code string, otpID strin
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.SentOTPs = append(s.SentOTPs, EmailOTP{To: to, Code: code, OTPID: otpID})
+	return nil
+}
+
+func (s *EmailService) SendAdminNotification(ctx context.Context, to []string, subject, body string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SentNotifications = append(s.SentNotifications, AdminNotification{To: to, Subject: subject, Body: body})
 	return nil
 }
 

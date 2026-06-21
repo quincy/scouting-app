@@ -108,7 +108,7 @@ func main() {
 		profileRepo, otpRepo, userRepo, rbacRepo, emailSvc, hasher, sessionStore,
 	)
 
-	familyConnectionsHandler := api.NewFamilyConnectionsHandler(profileRepo, parentYouthLinkRepo, authService, rbacRepo)
+	familyConnectionsHandler := api.NewFamilyConnectionsHandler(profileRepo, parentYouthLinkRepo, authService, rbacRepo, emailSvc)
 
 	onboardingHandler := api.NewOnboardingHandler(
 		profileRepo, userRepo, rbacRepo, appConfigRepo, hasher, sessionStore,

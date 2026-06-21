@@ -142,4 +142,27 @@ func (r *RBACRepository) ListAllRoles(ctx context.Context) ([]*rbac.Role, error)
 	return roles, rows.Err()
 }
 
+func (r *RBACRepository) GetUsersByRoleName(ctx context.Context, name string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT ur.user_id
+		 FROM user_roles ur
+		 JOIN roles r ON r.id = ur.role_id
+		 WHERE r.name = $1`, name,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var userIDs []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		userIDs = append(userIDs, userID)
+	}
+	return userIDs, rows.Err()
+}
+
 var _ rbac.Repository = (*RBACRepository)(nil)

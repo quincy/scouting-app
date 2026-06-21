@@ -12,4 +12,5 @@ type Repository interface {
 	GetUserPermissions(ctx context.Context, userID string) ([]*Permission, error)
 	GetRoleByName(ctx context.Context, name string) (*Role, error)
 	ListAllRoles(ctx context.Context) ([]*Role, error)
+	GetUsersByRoleName(ctx context.Context, name string) ([]string, error)
 }

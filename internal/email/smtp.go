@@ -38,8 +38,15 @@ func (s *Sender) SendOTP(ctx context.Context, to, code string, otpID string) err
 	if err != nil {
 		return err
 	}
+	return s.send(ctx, subject, body, []string{to})
+}
 
-	msg := buildMessage(s.from, to, subject, body)
+func (s *Sender) SendAdminNotification(ctx context.Context, to []string, subject, body string) error {
+	return s.send(ctx, subject, body, to)
+}
+
+func (s *Sender) send(ctx context.Context, subject, body string, to []string) error {
+	msg := buildMessage(s.from, strings.Join(to, ", "), subject, body)
 	addr := fmt.Sprintf("%s:%s", s.host, s.port)
 	auth := smtp.PlainAuth("", s.user, s.pass, s.host)
 
@@ -49,7 +56,7 @@ func (s *Sender) SendOTP(ctx context.Context, to, code string, otpID string) err
 	default:
 	}
 
-	return smtp.SendMail(addr, auth, s.from, []string{to}, []byte(msg))
+	return smtp.SendMail(addr, auth, s.from, to, []byte(msg))
 }
 
 func buildMessage(from, to, subject, body string) string {
