@@ -1,0 +1,54 @@
+{{define "roles_table"}}
+<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+    <thead>
+        <tr style="background:#f5f5f5;text-align:left;">
+            <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Name</th>
+            <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Email</th>
+            <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Roles</th>
+            <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;width:140px;">Admin</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .}}
+        <tr style="border-top:1px solid #f0f0f0;">
+            <td style="padding:10px 14px;font-weight:500;">{{.Name}}</td>
+            <td style="padding:10px 14px;color:#555;font-size:0.875rem;">{{.Email}}</td>
+            <td style="padding:10px 14px;font-size:0.875rem;color:#555;">
+                {{if eq .Roles "(not registered)"}}<span style="color:#999;font-style:italic;">{{.Roles}}</span>{{else if eq .Roles "(none)"}}<span style="color:#999;">—</span>{{else}}{{.Roles}}{{end}}
+            </td>
+            <td style="padding:10px 14px;">
+                {{if eq .Roles "(not registered)"}}
+                    <span style="color:#999;font-size:0.8rem;">—</span>
+                {{else if .IsSelf}}
+                    <span style="color:#999;font-size:0.8rem;">(you)</span>
+                {{else if .HasAdmin}}
+                    <button hx-post="/admin/roles/{{.ID}}/remove-admin"
+                            hx-target="#admin-content"
+                            hx-swap="innerHTML"
+                            style="background:#c62828;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:0.8rem;cursor:pointer;">Revoke Admin</button>
+                {{else}}
+                    <button hx-post="/admin/roles/{{.ID}}/grant-admin"
+                            hx-target="#admin-content"
+                            hx-swap="innerHTML"
+                            style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:0.8rem;cursor:pointer;">Grant Admin</button>
+                {{end}}
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{end}}
+
+{{define "admin_roles"}}
+<div style="margin-bottom:32px;">
+    <h2 style="font-size:1.25rem;margin-bottom:8px;color:#16213e;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">Adults ({{len .Adults}})</h2>
+    {{if .Adults}}{{template "roles_table" .Adults}}{{else}}<p style="color:#999;padding:16px;">No adults found.</p>{{end}}
+</div>
+
+<div style="margin-bottom:32px;">
+    <h2 style="font-size:1.25rem;margin-bottom:8px;color:#16213e;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">Youth / Scouts ({{len .Youth}})</h2>
+    {{if .Youth}}{{template "roles_table" .Youth}}{{else}}<p style="color:#999;padding:16px;">No youth found.</p>{{end}}
+</div>
+
+<p style="margin-top:12px;font-size:0.8rem;color:#999;">Total: {{.Total}} profile(s)</p>
+{{end}}

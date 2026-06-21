@@ -38,6 +38,11 @@
                hx-target="#admin-content"
                hx-swap="innerHTML"
                hx-push-url="true">Sync</a>
+            <a href="/admin/roles"
+               hx-get="/admin/roles"
+               hx-target="#admin-content"
+               hx-swap="innerHTML"
+               hx-push-url="true">Roles</a>
         </nav>
         <div class="admin-content" id="admin-content">
             {{template "content_panel" .}}

@@ -75,6 +75,8 @@ func (m *mockRBACRepo) GetUserRoles(ctx context.Context, userID string) ([]*rbac
 func (m *mockRBACRepo) GetUserPermissions(ctx context.Context, userID string) ([]*rbac.Permission, error) {
 	return nil, nil
 }
+func (m *mockRBACRepo) ListAllRoles(ctx context.Context) ([]*rbac.Role, error) { return nil, nil }
+
 func (m *mockRBACRepo) GetRoleByName(ctx context.Context, name string) (*rbac.Role, error) {
 	return &rbac.Role{ID: name + "-role-id", Name: name}, nil
 }

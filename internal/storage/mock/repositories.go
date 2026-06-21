@@ -205,6 +205,17 @@ func (r *RBACRepository) GetUserPermissions(ctx context.Context, userID string) 
 	return permissions, nil
 }
 
+func (r *RBACRepository) ListAllRoles(ctx context.Context) ([]*rbac.Role, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var roles []*rbac.Role
+	for _, role := range r.roles {
+		roles = append(roles, role)
+	}
+	sort.Slice(roles, func(i, j int) bool { return roles[i].Name < roles[j].Name })
+	return roles, nil
+}
+
 func (r *RBACRepository) GetRoleByName(ctx context.Context, name string) (*rbac.Role, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

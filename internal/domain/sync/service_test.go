@@ -176,6 +176,16 @@ func (r *mockRBACRepository) GetRoleByName(ctx context.Context, name string) (*r
 	return nil, fmt.Errorf("role %q not found", name)
 }
 
+func (r *mockRBACRepository) ListAllRoles(ctx context.Context) ([]*rbac.Role, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var roles []*rbac.Role
+	for _, role := range r.roles {
+		roles = append(roles, role)
+	}
+	return roles, nil
+}
+
 type mockClient struct {
 	adults []Member
 	youths []Member

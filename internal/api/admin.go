@@ -11,6 +11,7 @@ import (
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/parentyouthlink"
 	"scout-app/internal/domain/profile"
+	"scout-app/internal/domain/rbac"
 )
 
 type rosterRow struct {
@@ -37,20 +38,123 @@ type adminPageData struct {
 type AdminHandler struct {
 	profileRepo         profile.Repository
 	parentYouthLinkRepo parentyouthlink.Repository
+	rbacRepo            rbac.Repository
 	auth                *auth.AuthService
 	tmpl                *template.Template
 }
 
-func NewAdminHandler(profileRepo profile.Repository, parentYouthLinkRepo parentyouthlink.Repository, auth *auth.AuthService) *AdminHandler {
+func NewAdminHandler(profileRepo profile.Repository, parentYouthLinkRepo parentyouthlink.Repository, rbacRepo rbac.Repository, auth *auth.AuthService) *AdminHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
 	return &AdminHandler{
 		profileRepo:         profileRepo,
 		parentYouthLinkRepo: parentYouthLinkRepo,
+		rbacRepo:            rbacRepo,
 		auth:                auth,
 		tmpl:                tmpl,
 	}
+}
+
+type adminRolesUserRow struct {
+	ID       string
+	Name     string
+	Email    string
+	Roles    string
+	HasAdmin bool
+	IsSelf   bool
+}
+
+type adminRolesPageData struct {
+	Title  string
+	Adults []adminRolesUserRow
+	Youth  []adminRolesUserRow
+	Total  int
+}
+
+func (h *AdminHandler) RolesPage(w http.ResponseWriter, r *http.Request) {
+	data := h.buildRolesData(r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if r.Header.Get("HX-Request") != "" {
+		t := template.Must(h.tmpl.Clone())
+		if err := t.ExecuteTemplate(w, "admin_roles", data); err != nil {
+			log.Printf("admin_roles template: %v", err)
+		}
+		return
+	}
+	renderAdminLayout(w, h.tmpl, "admin_roles", data)
+}
+
+func (h *AdminHandler) GrantAdmin(w http.ResponseWriter, r *http.Request) {
+	h.toggleAdmin(w, r, true)
+}
+
+func (h *AdminHandler) RemoveAdmin(w http.ResponseWriter, r *http.Request) {
+	h.toggleAdmin(w, r, false)
+}
+
+func (h *AdminHandler) toggleAdmin(w http.ResponseWriter, r *http.Request, grant bool) {
+	user, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	targetUserID := extractIDFromPathRole(r.URL.Path)
+	if targetUserID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	if grant && targetUserID == user.ID {
+		data := h.buildRolesData(r)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		t := template.Must(h.tmpl.Clone())
+		if err := t.ExecuteTemplate(w, "admin_roles", data); err != nil {
+			log.Printf("admin_roles template: %v", err)
+		}
+		return
+	}
+
+	ctx := r.Context()
+
+	adminRole, err := h.rbacRepo.GetRoleByName(ctx, "admin")
+	if err != nil {
+		log.Printf("get admin role: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if grant {
+		if err := h.rbacRepo.AssignRoleToUser(ctx, targetUserID, adminRole.ID); err != nil {
+			log.Printf("assign admin role: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		if err := h.rbacRepo.RemoveRoleFromUser(ctx, targetUserID, adminRole.ID); err != nil {
+			log.Printf("remove admin role: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	data := h.buildRolesData(r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	t := template.Must(h.tmpl.Clone())
+	if err := t.ExecuteTemplate(w, "admin_roles", data); err != nil {
+		log.Printf("admin_roles template: %v", err)
+	}
+}
+
+func extractIDFromPathRole(path string) string {
+	parts := strings.Split(strings.TrimRight(path, "/"), "/")
+	for i, p := range parts {
+		if p == "roles" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
 }
 
 func (h *AdminHandler) AdminPage(w http.ResponseWriter, r *http.Request) {
@@ -406,5 +510,100 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 		Claimed: claimedFilter,
 		Status:  statusFilter,
 		Total:   len(adults) + len(youth),
+	}
+}
+
+func (h *AdminHandler) buildRolesData(r *http.Request) adminRolesPageData {
+	ctx := r.Context()
+
+	allProfiles, err := h.profileRepo.ListAll(ctx)
+	if err != nil {
+		log.Printf("ListAll profiles: %v", err)
+		return adminRolesPageData{Title: "Admin: Roles"}
+	}
+
+	allRoles, err := h.rbacRepo.ListAllRoles(ctx)
+	if err != nil {
+		log.Printf("ListAll roles: %v", err)
+		return adminRolesPageData{Title: "Admin: Roles"}
+	}
+
+	adminRoleID := ""
+	for _, role := range allRoles {
+		if role.Name == "admin" {
+			adminRoleID = role.ID
+			break
+		}
+	}
+
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	currentUserID := ""
+	if err == nil && currentUser != nil {
+		currentUserID = currentUser.ID
+	}
+
+	buildRow := func(p *profile.Profile) (adminRolesUserRow, bool) {
+		row := adminRolesUserRow{
+			Name:  p.DisplayName(),
+			Email: p.Email,
+		}
+
+		if p.UserID == nil {
+			row.Roles = "(not registered)"
+			return row, true
+		}
+
+		row.ID = *p.UserID
+		row.IsSelf = *p.UserID == currentUserID
+
+		userRoles, err := h.rbacRepo.GetUserRoles(ctx, *p.UserID)
+		if err != nil {
+			log.Printf("GetUserRoles for %s: %v", *p.UserID, err)
+			return row, false
+		}
+
+		roleNames := make([]string, 0, len(userRoles))
+		for _, role := range userRoles {
+			roleNames = append(roleNames, role.Name)
+			if role.ID == adminRoleID {
+				row.HasAdmin = true
+			}
+		}
+		sort.Strings(roleNames)
+		row.Roles = strings.Join(roleNames, ", ")
+		if row.Roles == "" {
+			row.Roles = "(none)"
+		}
+		return row, true
+	}
+
+	var adults, youth []adminRolesUserRow
+	for _, p := range allProfiles {
+		row, ok := buildRow(p)
+		if !ok {
+			continue
+		}
+		if p.MemberType == profile.MemberTypeAdult {
+			adults = append(adults, row)
+		} else {
+			youth = append(youth, row)
+		}
+	}
+
+	sort.Slice(adults, func(i, j int) bool { return adults[i].Name < adults[j].Name })
+	sort.Slice(youth, func(i, j int) bool { return youth[i].Name < youth[j].Name })
+
+	if adults == nil {
+		adults = []adminRolesUserRow{}
+	}
+	if youth == nil {
+		youth = []adminRolesUserRow{}
+	}
+
+	return adminRolesPageData{
+		Title:  "Admin: Roles",
+		Adults: adults,
+		Youth:  youth,
+		Total:  len(adults) + len(youth),
 	}
 }

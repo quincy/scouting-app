@@ -124,4 +124,22 @@ func (r *RBACRepository) GetRoleByName(ctx context.Context, name string) (*rbac.
 	return rl, err
 }
 
+func (r *RBACRepository) ListAllRoles(ctx context.Context) ([]*rbac.Role, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name FROM roles ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []*rbac.Role
+	for rows.Next() {
+		rl := &rbac.Role{}
+		if err := rows.Scan(&rl.ID, &rl.Name); err != nil {
+			return nil, err
+		}
+		roles = append(roles, rl)
+	}
+	return roles, rows.Err()
+}
+
 var _ rbac.Repository = (*RBACRepository)(nil)

@@ -13,7 +13,7 @@ import (
 	"scout-app/internal/storage/mock"
 )
 
-func setupAdminConnectionsTest(t *testing.T) (*AdminHandler, *auth.AuthService, *mock.ProfileRepository, *mock.ParentYouthLinkRepository, *profile.Profile) {
+func setupAdminConnectionsTest(t *testing.T) (*AdminHandler, *auth.AuthService, *mock.UserRepository, *mock.ProfileRepository, *mock.ParentYouthLinkRepository, *mock.RBACRepository, *profile.Profile) {
 	t.Helper()
 
 	userRepo := mock.NewUserRepository()
@@ -51,9 +51,9 @@ func setupAdminConnectionsTest(t *testing.T) (*AdminHandler, *auth.AuthService, 
 		t.Fatalf("Create admin profile: %v", err)
 	}
 
-	handler := NewAdminHandler(profileRepo, linkRepo, authService)
+	handler := NewAdminHandler(profileRepo, linkRepo, rbacRepo, authService)
 
-	return handler, authService, profileRepo, linkRepo, adminProfile
+	return handler, authService, userRepo, profileRepo, linkRepo, rbacRepo, adminProfile
 }
 
 func adminConnLoggedInRequest(t *testing.T, authService *auth.AuthService, method, path, body string) *http.Request {
@@ -109,7 +109,7 @@ func addLink(t *testing.T, repo *mock.ParentYouthLinkRepository, parentID, youth
 }
 
 func TestAdminConnections_GetRendersPage(t *testing.T) {
-	handler, authService, _, _, _ := setupAdminConnectionsTest(t)
+	handler, authService, _, _, _, _, _ := setupAdminConnectionsTest(t)
 
 	req := adminConnLoggedInRequest(t, authService, "GET", "/admin/connections", "")
 	rr := httptest.NewRecorder()
@@ -130,7 +130,7 @@ func TestAdminConnections_GetRendersPage(t *testing.T) {
 }
 
 func TestAdminConnections_GetShowsPendingLinks(t *testing.T) {
-	handler, authService, profileRepo, linkRepo, _ := setupAdminConnectionsTest(t)
+	handler, authService, _, profileRepo, linkRepo, _, _ := setupAdminConnectionsTest(t)
 
 	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
 	youth := addProfile(t, profileRepo, "Sam", "Youth", "YTH001", "sam@test.com", profile.MemberTypeYouth)
@@ -154,7 +154,7 @@ func TestAdminConnections_GetShowsPendingLinks(t *testing.T) {
 }
 
 func TestAdminConnections_GetShowsActiveConnections(t *testing.T) {
-	handler, authService, profileRepo, linkRepo, _ := setupAdminConnectionsTest(t)
+	handler, authService, _, profileRepo, linkRepo, _, _ := setupAdminConnectionsTest(t)
 
 	now := time.Now()
 	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
@@ -187,7 +187,7 @@ func TestAdminConnections_GetShowsActiveConnections(t *testing.T) {
 }
 
 func TestAdminConnections_GetEmptyState(t *testing.T) {
-	handler, authService, _, _, _ := setupAdminConnectionsTest(t)
+	handler, authService, _, _, _, _, _ := setupAdminConnectionsTest(t)
 
 	req := adminConnLoggedInRequest(t, authService, "GET", "/admin/connections", "")
 	rr := httptest.NewRecorder()
@@ -204,7 +204,7 @@ func TestAdminConnections_GetEmptyState(t *testing.T) {
 }
 
 func TestAdminConnections_GetReturnsOKWhenNotLoggedIn(t *testing.T) {
-	handler, _, _, _, _ := setupAdminConnectionsTest(t)
+	handler, _, _, _, _, _, _ := setupAdminConnectionsTest(t)
 
 	req := httptest.NewRequest("GET", "/admin/connections", nil)
 	rr := httptest.NewRecorder()
@@ -218,7 +218,7 @@ func TestAdminConnections_GetReturnsOKWhenNotLoggedIn(t *testing.T) {
 }
 
 func TestAdminConnections_PostApprove(t *testing.T) {
-	handler, authService, profileRepo, linkRepo, adminProfile := setupAdminConnectionsTest(t)
+	handler, authService, _, profileRepo, linkRepo, _, adminProfile := setupAdminConnectionsTest(t)
 	adminUserID := *adminProfile.UserID
 
 	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
@@ -251,7 +251,7 @@ func TestAdminConnections_PostApprove(t *testing.T) {
 }
 
 func TestAdminConnections_PostReject(t *testing.T) {
-	handler, authService, profileRepo, linkRepo, _ := setupAdminConnectionsTest(t)
+	handler, authService, _, profileRepo, linkRepo, _, _ := setupAdminConnectionsTest(t)
 
 	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
 	youth := addProfile(t, profileRepo, "Sam", "Youth", "YTH001", "sam@test.com", profile.MemberTypeYouth)
@@ -277,7 +277,7 @@ func TestAdminConnections_PostReject(t *testing.T) {
 }
 
 func TestAdminConnections_PostRemove(t *testing.T) {
-	handler, authService, profileRepo, linkRepo, adminProfile := setupAdminConnectionsTest(t)
+	handler, authService, _, profileRepo, linkRepo, _, adminProfile := setupAdminConnectionsTest(t)
 	adminUserID := *adminProfile.UserID
 
 	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
@@ -307,7 +307,7 @@ func TestAdminConnections_PostRemove(t *testing.T) {
 }
 
 func TestAdminConnections_PostApproveInvalidID(t *testing.T) {
-	handler, authService, _, _, _ := setupAdminConnectionsTest(t)
+	handler, authService, _, _, _, _, _ := setupAdminConnectionsTest(t)
 
 	req := adminConnLoggedInRequest(t, authService, "POST", "/admin/connections/nonexistent/approve", "")
 	rr := httptest.NewRecorder()
@@ -320,7 +320,7 @@ func TestAdminConnections_PostApproveInvalidID(t *testing.T) {
 }
 
 func TestAdminConnections_GetFiltersActiveConnections(t *testing.T) {
-	handler, authService, profileRepo, linkRepo, _ := setupAdminConnectionsTest(t)
+	handler, authService, _, profileRepo, linkRepo, _, _ := setupAdminConnectionsTest(t)
 
 	now := time.Now()
 	parent1 := addProfile(t, profileRepo, "Alice", "Parent", "PAR001", "alice@test.com", profile.MemberTypeAdult)
@@ -358,7 +358,7 @@ func TestAdminConnections_GetFiltersActiveConnections(t *testing.T) {
 }
 
 func TestAdminConnections_GetOmitsRejectedAndRevoked(t *testing.T) {
-	handler, authService, profileRepo, linkRepo, _ := setupAdminConnectionsTest(t)
+	handler, authService, _, profileRepo, linkRepo, _, _ := setupAdminConnectionsTest(t)
 
 	parent := addProfile(t, profileRepo, "Jane", "Parent", "PAR001", "jane@test.com", profile.MemberTypeAdult)
 	youth := addProfile(t, profileRepo, "Sam", "Youth", "YTH001", "sam@test.com", profile.MemberTypeYouth)

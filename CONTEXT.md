@@ -111,3 +111,8 @@ An encrypted record of a Bearer JWT token obtained from Scoutbook, stored so the
 The process of importing roster data from Scoutbook into the app's **Profile** table. An admin pastes their Bearer JWT (obtained from the SPA at `advancements.scouting.org`), and the app calls the Scoutbook API at `api.scouting.org` (`POST /organizations/v2/{orgGuid}/orgAdults` and `POST /organizations/v2/{orgGuid}/orgYouths` with body `{includeRegistrationDetails:true, includeExpired:true}`), deduplicates by **BSA ID**, fetches email via `personprofile`, and upserts local **Profile** records. Profiles that no longer appear in Scoutbook are marked `inactive`.
 
 When a **Profile** is linked to a **User** and its **Positions** have changed, **Scoutbook Sync** reconciles the user's position-based **Roles** to match. Roles matching current positions are added; position-based roles no longer held are removed. **Status roles** (e.g., **Parent**) and **Privileged roles** (e.g., **Admin**) are never touched.
+
+## UI Conventions
+
+### Adult/Youth Separation
+Whenever a list of **Profiles** is displayed, **Adults** and **Youth** must appear as two separate, clearly-labeled sections (never combined into a single flat list). Each entry should be identifiable by its section as an adult or a youth without needing additional badges or labels. Examples: the Admin Roster page uses collapsible/hidden sections, the Admin Roles page uses consecutive sections. This applies to all profile listings, including HTMX partials. Stick to the language "Adults" and "Youth / Scouts" for section headers throughout the UI.

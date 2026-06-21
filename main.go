@@ -94,7 +94,7 @@ func main() {
 	syncSvc := sync.NewService(profileRepo, rbacRepo, sync.NewScoutbookClientAdapter(scoutbookClient))
 	syncHandler := api.NewSyncHandler(syncSvc, scoutbookClient, appConfigRepo)
 
-	adminHandler := api.NewAdminHandler(profileRepo, parentYouthLinkRepo, authService)
+	adminHandler := api.NewAdminHandler(profileRepo, parentYouthLinkRepo, rbacRepo, authService)
 
 	if emailSvc == nil {
 		emailTmpl, err := appemail.NewTemplates()
@@ -181,6 +181,9 @@ func main() {
 	app.Handle("/admin/connections/{id}/approve", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ApproveConnection)).Methods("POST")
 	app.Handle("/admin/connections/{id}/reject", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RejectConnection)).Methods("POST")
 	app.Handle("/admin/connections/{id}/remove", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RemoveConnection)).Methods("POST")
+	app.Handle("/admin/roles", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RolesPage)).Methods("GET")
+	app.Handle("/admin/roles/{id}/grant-admin", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.GrantAdmin)).Methods("POST")
+	app.Handle("/admin/roles/{id}/remove-admin", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RemoveAdmin)).Methods("POST")
 	app.Handle("/admin/markdown-preview", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.MarkdownPreview)).Methods("POST")
 
 	app.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.AdminPage)).Methods("GET")

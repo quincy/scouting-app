@@ -56,7 +56,8 @@ func (r *memRBACRepo) GetUserPermissions(ctx context.Context, userID string) ([]
 func (r *memRBACRepo) GetRoleByName(ctx context.Context, name string) (*rbac.Role, error) {
 	return &rbac.Role{ID: "admin-role", Name: "admin"}, nil
 }
-func (r *memRBACRepo) SeedRoles(ctx context.Context) error { return nil }
+func (r *memRBACRepo) ListAllRoles(ctx context.Context) ([]*rbac.Role, error) { return nil, nil }
+func (r *memRBACRepo) SeedRoles(ctx context.Context) error                    { return nil }
 func (r *memRBACRepo) RemoveRoleFromUser(ctx context.Context, userID, roleID string) error {
 	return nil
 }
