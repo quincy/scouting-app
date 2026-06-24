@@ -2,10 +2,22 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"scout-app/internal/domain/rbac"
 )
+
+func createTestUser(t *testing.T, db *sql.DB, id string) {
+	t.Helper()
+	_, err := db.ExecContext(context.Background(),
+		`INSERT INTO users (id, password_hash) VALUES ($1, 'hash') ON CONFLICT DO NOTHING`,
+		id,
+	)
+	if err != nil {
+		t.Fatalf("createTestUser: %v", err)
+	}
+}
 
 func TestPostgresRBACRepository_RolesAndPermissions(t *testing.T) {
 	if testDB == nil {
@@ -47,7 +59,8 @@ func TestPostgresRBACRepository_RolesAndPermissions(t *testing.T) {
 		t.Fatalf("LinkPermissionToRole: %v", err)
 	}
 
-	userID := "test-user-uuid"
+	userID := newUUID()
+	createTestUser(t, testDB, userID)
 	if err := repo.AssignRoleToUser(ctx, userID, adminRole.ID); err != nil {
 		t.Fatalf("AssignRoleToUser admin: %v", err)
 	}
@@ -110,14 +123,16 @@ func TestPostgresRBACRepository_AssignRoleIdempotent(t *testing.T) {
 	role := &rbac.Role{Name: "testrole"}
 	repo.CreateRole(ctx, role)
 
-	if err := repo.AssignRoleToUser(ctx, "user1", role.ID); err != nil {
+	userID := newUUID()
+	createTestUser(t, testDB, userID)
+	if err := repo.AssignRoleToUser(ctx, userID, role.ID); err != nil {
 		t.Fatalf("first assign: %v", err)
 	}
-	if err := repo.AssignRoleToUser(ctx, "user1", role.ID); err != nil {
+	if err := repo.AssignRoleToUser(ctx, userID, role.ID); err != nil {
 		t.Fatalf("second assign (idempotent) should not error: %v", err)
 	}
 
-	roles, _ := repo.GetUserRoles(ctx, "user1")
+	roles, _ := repo.GetUserRoles(ctx, userID)
 	if len(roles) != 1 {
 		t.Errorf("expected 1 role after duplicate assign, got %d", len(roles))
 	}

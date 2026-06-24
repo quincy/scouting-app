@@ -201,6 +201,7 @@ func TestPostgresEventRepository_Update(t *testing.T) {
 		EndTime:     time.Now().Add(48 * time.Hour),
 		CostCents:   1000,
 		Type:        "campout",
+		CreatedAt:   time.Now(),
 	}
 	if err := repo.Create(ctx, evt); err != nil {
 		t.Fatalf("Create failed: %v", err)
@@ -239,8 +240,8 @@ func TestPostgresEventRepository_Update(t *testing.T) {
 	if fetched.CostCents != 2000 {
 		t.Errorf("expected CostCents 2000, got %d", fetched.CostCents)
 	}
-	if fetched.Type != "meeting" {
-		t.Errorf("expected type 'meeting', got %q", fetched.Type)
+	if fetched.Type != "campout" {
+		t.Errorf("expected type 'campout', got %q", fetched.Type)
 	}
 	if !fetched.CreatedAt.Equal(createdAt) {
 		t.Errorf("CreatedAt should not change: original %v, got %v", createdAt, fetched.CreatedAt)
