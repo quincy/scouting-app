@@ -35,8 +35,8 @@ The goal of Milestone 1 (M1) is to provide a functional foundation for creating,
 
 ## Definition of Done
 
-*   [ ] Database schema implemented in CockroachDB.
-*   [ ] RBAC system enforces permissions correctly.
-*   [ ] Users can sign up and withdraw from events.
-*   [ ] Event list correctly handles chronological sorting and pagination.
-*   [ ] All Milestone 1 issues in `bd` are closed.
+* [x] Database schema implemented in CockroachDB.
+* [x] RBAC system enforces permissions correctly.
+* [x] Users can sign up and withdraw from events.
+* [x] Event list correctly handles chronological sorting and pagination.
+* [x] All Milestone 1 issues in `bd` are closed.
