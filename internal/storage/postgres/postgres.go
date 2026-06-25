@@ -48,7 +48,7 @@ func nullString(s string) *string {
 
 func coalesceTime(t time.Time) time.Time {
 	if t.IsZero() {
-		return time.Now()
+		return time.Now().Truncate(time.Microsecond)
 	}
-	return t
+	return t.Truncate(time.Microsecond)
 }

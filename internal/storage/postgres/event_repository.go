@@ -22,6 +22,8 @@ func (r *EventRepository) Create(ctx context.Context, e *event.Event) error {
 		e.ID = newUUID()
 	}
 	now := coalesceTime(e.CreatedAt)
+	e.CreatedAt = now
+	e.UpdatedAt = now
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO events (id, title, description, location, start_time, end_time, cost_cents, type, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
