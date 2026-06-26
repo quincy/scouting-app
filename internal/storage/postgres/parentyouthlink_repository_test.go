@@ -97,7 +97,13 @@ func TestPostgresParentYouthLinkRepository_UpdateStatus(t *testing.T) {
 	link := &parentyouthlink.ParentYouthConnection{ParentProfileID: parent.ID, YouthProfileID: youth.ID, Status: parentyouthlink.StatusPending}
 	linkRepo.Create(ctx, link)
 
-	if err := linkRepo.UpdateStatus(ctx, link.ID, parentyouthlink.StatusApproved, "admin-user-id"); err != nil {
+	adminID := newUUID()
+	_, err := testDB.ExecContext(ctx, `INSERT INTO users (id, password_hash) VALUES ($1, 'hash')`, adminID)
+	if err != nil {
+		t.Fatalf("create admin user: %v", err)
+	}
+
+	if err := linkRepo.UpdateStatus(ctx, link.ID, parentyouthlink.StatusApproved, adminID); err != nil {
 		t.Fatalf("UpdateStatus failed: %v", err)
 	}
 
@@ -108,8 +114,8 @@ func TestPostgresParentYouthLinkRepository_UpdateStatus(t *testing.T) {
 	if fetched.Status != parentyouthlink.StatusApproved {
 		t.Errorf("expected status approved, got %s", fetched.Status)
 	}
-	if fetched.ApprovedBy == nil || *fetched.ApprovedBy != "admin-user-id" {
-		t.Errorf("expected approved_by admin-user-id, got %v", fetched.ApprovedBy)
+	if fetched.ApprovedBy == nil || *fetched.ApprovedBy != adminID {
+		t.Errorf("expected approved_by %s, got %v", adminID, fetched.ApprovedBy)
 	}
 	if fetched.ApprovedAt == nil {
 		t.Error("expected non-nil approved_at")
