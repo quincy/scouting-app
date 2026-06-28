@@ -14,6 +14,8 @@ jobs:
 
   dependency-submission:
     needs: build
+    permissions:
+      contents: write
     uses: ./.github/workflows/dependency-submission.yml
 
   deploy:
