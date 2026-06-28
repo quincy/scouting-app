@@ -41,6 +41,10 @@ devloop-up:
 	@docker compose exec -T cockroachdb cockroach sql --insecure -e "CREATE DATABASE IF NOT EXISTS scoutapp"
 	@echo "Dev services ready."
 
+migrate:
+	@echo "Running database migrations..."
+	@go run ./cmd/migrate/ --env=local.env
+
 devloop-down:
 	@echo "Stopping dev services..."
 	@docker compose down
@@ -51,7 +55,7 @@ devloop-reset:
 	@docker compose down -v
 	@echo "Data volumes removed. Run 'make devloop-up' to start fresh."
 
-run: build devloop-up
+run: build devloop-up migrate
 	./scout-app --env=local.env
 
-.PHONY: build test fmt vet lint check clean ci devloop-up devloop-down devloop-reset run
+.PHONY: build test fmt vet lint check clean ci devloop-up migrate devloop-down devloop-reset run

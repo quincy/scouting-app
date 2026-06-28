@@ -31,8 +31,8 @@ import (
 	"github.com/gorilla/mux"
 )
 
-//go:embed migrations/*.sql
-var migrations embed.FS
+//go:embed static
+var staticFS embed.FS
 
 func main() {
 	cfg, err := config.Load()
@@ -53,14 +53,6 @@ func main() {
 			log.Printf("error closing database: %v", err)
 		}
 	}()
-
-	if cfg.AutoMigrate {
-		log.Println("Running database migrations...")
-		if err := storage.RunMigrations(db, migrations, "migrations"); err != nil {
-			log.Fatalf("Migration failed: %v", err)
-		}
-		log.Println("Migrations complete")
-	}
 
 	sessionStore := auth.NewCookieStore(cfg.SessionSecret)
 
@@ -118,7 +110,7 @@ func main() {
 	router.HandleFunc("/healthcheck", api.HealthCheckHandler).Methods("GET")
 	router.HandleFunc("/deepcheck", api.DeepCheckHandler(db)).Methods("GET")
 
-	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	router.PathPrefix("/static/").Handler(http.FileServer(http.FS(staticFS)))
 
 	// Onboarding routes (guarded by RedirectIfOnboarded)
 	onboardRouter := router.PathPrefix("/onboard").Subrouter()

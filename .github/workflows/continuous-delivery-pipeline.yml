@@ -1,0 +1,22 @@
+name: Continuous Deployment Pipeline
+
+on:
+  push:
+    branches: ["main"]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    uses: ./.github/workflows/continuous-integration-pipeline.yml
+
+  dependency-submission:
+    needs: build
+    uses: ./.github/workflows/dependency-submission.yml
+
+  deploy:
+    needs: build
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit

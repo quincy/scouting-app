@@ -1,0 +1,26 @@
+name: Submit Dependencies
+
+on:
+  # https://docs.github.com/en/actions/using-workflows/reusing-workflows
+  workflow_call:
+
+jobs:
+  dependency-submission:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache-dependency-path: go.sum
+
+      - name: Run snapshot action
+        uses: actions/go-dependency-submission@v2
+        with:
+          go-mod-path: go.mod
+          go-build-target: main.go
