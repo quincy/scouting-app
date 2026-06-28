@@ -11,7 +11,6 @@ import (
 type Config struct {
 	Addr                string
 	DatabaseURL         string
-	AutoMigrate         bool
 	SessionSecret       string
 	ScoutbookAPIBaseURL string
 	ScoutbookOrgGUID    string
@@ -29,7 +28,7 @@ func Load() (*Config, error) {
 	envFile := flag.String("env", "", "path to .env file")
 	flag.Parse()
 	if *envFile != "" {
-		if err := loadFile(*envFile); err != nil {
+		if err := LoadFile(*envFile); err != nil {
 			return nil, fmt.Errorf("loading env file: %w", err)
 		}
 	}
@@ -40,7 +39,6 @@ func ConfigFromEnv() (*Config, error) {
 	cfg := &Config{
 		Addr:                getEnv("ADDR", ":8080"),
 		DatabaseURL:         getEnv("DATABASE_URL", ""),
-		AutoMigrate:         getEnv("AUTO_MIGRATE", "") == "true",
 		SessionSecret:       getEnv("SESSION_SECRET", ""),
 		ScoutbookAPIBaseURL: getEnv("SCOUTBOOK_API_BASE_URL", "https://api.scouting.org"),
 		ScoutbookOrgGUID:    getEnv("SCOUTBOOK_ORG_GUID", ""),
@@ -59,7 +57,7 @@ func ConfigFromEnv() (*Config, error) {
 	return cfg, nil
 }
 
-func loadFile(path string) error {
+func LoadFile(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err

@@ -33,3 +33,6 @@
 {"id":"int-a9d96660","kind":"field_change","created_at":"2026-06-28T18:08:01.721385Z","actor":"Quincy Bowers","issue_id":"scout-app-6wv","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-db8aeecb","kind":"field_change","created_at":"2026-06-28T18:08:45.168574Z","actor":"Quincy Bowers","issue_id":"scout-app-e1g","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-fc3cfeba","kind":"field_change","created_at":"2026-06-28T18:09:00.544289Z","actor":"Quincy Bowers","issue_id":"scout-app-pg6","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-39ad5d3a","kind":"field_change","created_at":"2026-06-28T20:10:37.533409Z","actor":"Quincy Bowers","issue_id":"scout-app-p44","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-5f5e2399","kind":"field_change","created_at":"2026-06-28T20:11:16.150514Z","actor":"Quincy Bowers","issue_id":"scout-app-7tv","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
+{"id":"int-51157ec0","kind":"field_change","created_at":"2026-06-28T20:11:22.134374Z","actor":"Quincy Bowers","issue_id":"scout-app-djz","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}

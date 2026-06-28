@@ -51,7 +51,7 @@ func TestEnvTakesPrecedenceOverDotenv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := loadFile(envPath); err != nil {
+	if err := LoadFile(envPath); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,7 +86,7 @@ SMTP_PORT=587
 		t.Fatal(err)
 	}
 
-	if err := loadFile(envPath); err != nil {
+	if err := LoadFile(envPath); err != nil {
 		t.Fatal(err)
 	}
 
@@ -124,7 +124,7 @@ func TestCommentsAndBlankLinesIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := loadFile(envPath); err != nil {
+	if err := LoadFile(envPath); err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,7 +157,7 @@ func TestSessionSecretFromDotenv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := loadFile(envPath); err != nil {
+	if err := LoadFile(envPath); err != nil {
 		t.Fatal(err)
 	}
 
@@ -183,7 +183,7 @@ func TestScoutbookAPIBaseURLDefault(t *testing.T) {
 }
 
 func TestLoadFile_FileNotFound(t *testing.T) {
-	err := loadFile("/nonexistent/path/.env")
+	err := LoadFile("/nonexistent/path/.env")
 	if err == nil {
 		t.Fatal("expected error for nonexistent file, got nil")
 	}
@@ -192,7 +192,7 @@ func TestLoadFile_FileNotFound(t *testing.T) {
 func unsetAll(t *testing.T) {
 	t.Helper()
 	keys := []string{
-		"ADDR", "DATABASE_URL", "AUTO_MIGRATE",
+		"ADDR", "DATABASE_URL",
 		"SESSION_SECRET", "SCOUTBOOK_API_BASE_URL", "SCOUTBOOK_ORG_GUID",
 		"SCOUTBOOK_TOKEN", "SMTP_HOST", "SMTP_PORT", "SMTP_USER",
 		"SMTP_PASS", "SMTP_FROM", "UNIT_TYPE", "UNIT_NUMBER",
