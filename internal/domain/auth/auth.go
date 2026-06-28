@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"scout-app/internal/domain/profile"
 	"scout-app/internal/domain/rbac"
 	"scout-app/internal/domain/user"
 
@@ -52,18 +53,20 @@ const SessionName = "session"
 const sessionUserIDKey = "user_id"
 
 type AuthService struct {
-	users   user.Repository
-	rbac    rbac.Repository
-	hasher  Hasher
-	session *sessions.CookieStore
+	users    user.Repository
+	profiles profile.Repository
+	rbac     rbac.Repository
+	hasher   Hasher
+	session  *sessions.CookieStore
 }
 
-func NewAuthService(users user.Repository, rbac rbac.Repository, hasher Hasher, store *sessions.CookieStore) *AuthService {
+func NewAuthService(users user.Repository, profiles profile.Repository, rbac rbac.Repository, hasher Hasher, store *sessions.CookieStore) *AuthService {
 	return &AuthService{
-		users:   users,
-		rbac:    rbac,
-		hasher:  hasher,
-		session: store,
+		users:    users,
+		profiles: profiles,
+		rbac:     rbac,
+		hasher:   hasher,
+		session:  store,
 	}
 }
 
@@ -88,6 +91,9 @@ func (s *AuthService) Login(w http.ResponseWriter, r *http.Request, email, passw
 	}
 	if err := s.hasher.Verify(password, u.PasswordHash); err != nil {
 		return nil, errors.New("invalid credentials")
+	}
+	if err := s.checkProfileActive(r.Context(), u.ID); err != nil {
+		return nil, err
 	}
 	sess, err := s.session.Get(r, SessionName)
 	if err != nil {
@@ -125,6 +131,26 @@ func (s *AuthService) Logout(w http.ResponseWriter, r *http.Request) error {
 	sess.Options.MaxAge = -1
 	delete(sess.Values, sessionUserIDKey)
 	return sess.Save(r, w)
+}
+
+func (s *AuthService) checkProfileActive(ctx context.Context, userID string) error {
+	prof, err := s.profiles.GetByUserID(ctx, userID)
+	if err != nil {
+		return errors.New("invalid credentials")
+	}
+	if prof == nil || prof.Status != profile.StatusInactive {
+		return nil
+	}
+	roles, err := s.rbac.GetUserRoles(ctx, userID)
+	if err != nil {
+		return errors.New("invalid credentials")
+	}
+	for _, role := range roles {
+		if role.Name == "admin" {
+			return nil
+		}
+	}
+	return errors.New("account is inactive")
 }
 
 var defaultRoles = []struct {

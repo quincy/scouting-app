@@ -628,7 +628,7 @@ func (h *EventHandler) buildProfileSignUps(ctx context.Context, currentUserID st
 	var adultVMs []profileSignUpVM
 
 	userProfile, err := h.profiles.GetByUserID(ctx, currentUserID)
-	if err == nil {
+	if err == nil && userProfile.Status == profile.StatusActive {
 		isAttending := false
 		for _, a := range attendees {
 			if a.ID == userProfile.ID {
@@ -643,7 +643,7 @@ func (h *EventHandler) buildProfileSignUps(ctx context.Context, currentUserID st
 		})
 	}
 
-	if userProfile != nil {
+	if userProfile != nil && userProfile.Status == profile.StatusActive {
 		links, err := h.parentYouthLink.ListByParent(ctx, userProfile.ID)
 		if err == nil {
 			for _, link := range links {
@@ -652,6 +652,9 @@ func (h *EventHandler) buildProfileSignUps(ctx context.Context, currentUserID st
 				}
 				youthProfile, err := h.profiles.GetByID(ctx, link.YouthProfileID)
 				if err != nil {
+					continue
+				}
+				if youthProfile.Status != profile.StatusActive {
 					continue
 				}
 				isAttending := false
@@ -711,6 +714,17 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 
 	if !h.canManageProfile(ctx, currentUser.ID, profileID) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	profileToSignUp, err := h.profiles.GetByID(ctx, profileID)
+	if err != nil {
+		log.Printf("GetByID: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if profileToSignUp.Status == profile.StatusInactive {
+		http.Error(w, "Cannot sign up an inactive profile", http.StatusBadRequest)
 		return
 	}
 
@@ -783,7 +797,19 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.canManageProfile(ctx, currentUser.ID, profileID) {
+	profileToWithdraw, err := h.profiles.GetByID(ctx, profileID)
+	if err != nil {
+		log.Printf("GetByID: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if profileToWithdraw.Status == profile.StatusInactive && !h.isAdmin(ctx, r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if !h.canManageProfile(ctx, currentUser.ID, profileID) && !h.isAdmin(ctx, r) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}

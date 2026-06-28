@@ -30,7 +30,7 @@
             <tbody>
                 {{range .Connections}}
                 <tr>
-                    <td>{{.OtherName}}</td>
+                    <td>{{.OtherName}}{{if .OtherInactive}} <span style="color:#c62828;font-size:0.75rem;">(inactive)</span>{{end}}</td>
                     <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
                     <td>{{.RequestedAt}}</td>
                 </tr>

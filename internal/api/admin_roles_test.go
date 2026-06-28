@@ -22,7 +22,7 @@ func setupAdminRolesTest(t *testing.T) (*AdminHandler, *auth.AuthService, *sql.D
 
 	hasher := &auth.MockHasher{}
 	cookieStore := auth.NewCookieStore("test-secret-key")
-	authService := auth.NewAuthService(store.User, store.RBAC, hasher, cookieStore)
+	authService := auth.NewAuthService(store.User, store.Profile, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
 	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {

@@ -14,7 +14,12 @@ A specific type of **Event** that typically spans multiple days.
 A security principal authenticated via password. A User has no PII and no inherent email — personal information lives on the linked **Profile**. Users have **Roles** that determine their **Permissions**. Roles are assigned from three sources: **Registration** assigns **Parent** or **Scouts BSA**; **Scoutbook Sync** reconciles position-derived roles; and **Admin** can assign privileged roles like **Admin**. A User links to exactly one **Profile**.
 
 ### Profile
-A PII record synced from Scoutbook, identified by its **BSA ID**. Contains first name, last name, nickname, email, phone, birthdate, **Member Type**, and **Positions**. A Profile links to exactly zero or one **User**. When linked, the Profile is "claimed." Profiles are the entities that sign up for events as **Attendees**.
+A PII record synced from Scoutbook, identified by its **BSA ID**. Contains first name, last name, nickname, email, phone, birthdate, **Member Type**, **Positions**, and **Status**. A Profile links to exactly zero or one **User**. When linked, the Profile is "claimed." Profiles are the entities that sign up for events as **Attendees**.
+
+### Profile Status
+Indicates whether a **Profile** is currently part of the unit. Set to `inactive` by **Scoutbook Sync** when a profile's **BSA ID** no longer appears in the Scoutbook roster; set back to `active` if the profile reappears in a future sync. A profile is always created as `active`. The status controls what operations are permitted:
+- **Active**: All normal operations allowed (sign-up, login, registration, etc.).
+- **Inactive**: Cannot sign up for events, cannot log in (admins bypass login restriction), cannot register a new **User**. Withdrawing from events is only possible by a user with the **Admin** role. Inactive profiles are hidden from event sign-up dropdowns. The **Admin Roster** page displays status with a color-coded badge and supports filtering by status.
 
 ### Display Name
 A formatted name for a **Profile**, returned by `Profile.DisplayName()`. When the Profile has a non-empty **Nickname**, the format is `Nickname (FirstName) LastName`. Otherwise it falls back to `FirstName LastName`. Used consistently across all UI contexts.

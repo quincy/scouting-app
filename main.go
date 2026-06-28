@@ -79,7 +79,7 @@ func main() {
 
 	// Auth
 	hasher := &auth.BCryptHasher{}
-	authService := auth.NewAuthService(userRepo, rbacRepo, hasher, sessionStore)
+	authService := auth.NewAuthService(userRepo, profileRepo, rbacRepo, hasher, sessionStore)
 
 	// Scoutbook sync
 	scoutbookClient := scoutbook.NewClient(cfg.ScoutbookAPIBaseURL, cfg.ScoutbookToken, "")
@@ -169,6 +169,7 @@ func main() {
 
 	app.Handle("/admin", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.AdminPage)).Methods("GET")
 	app.Handle("/admin/roster", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RosterPage)).Methods("GET")
+	app.Handle("/admin/roster/{id}/toggle-status", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ToggleProfileStatus)).Methods("POST")
 	app.Handle("/admin/connections", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ConnectionsPage)).Methods("GET")
 	app.Handle("/admin/connections/{id}/approve", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ApproveConnection)).Methods("POST")
 	app.Handle("/admin/connections/{id}/reject", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RejectConnection)).Methods("POST")

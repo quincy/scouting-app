@@ -25,9 +25,10 @@ type FamilyConnectionsHandler struct {
 }
 
 type connectionVM struct {
-	OtherName   string
-	Status      string
-	RequestedAt string
+	OtherName     string
+	OtherInactive bool
+	Status        string
+	RequestedAt   string
 }
 
 type familyConnectionsPageData struct {
@@ -146,9 +147,10 @@ func (h *FamilyConnectionsHandler) buildConnections(ctx context.Context, profile
 			continue
 		}
 		vms = append(vms, connectionVM{
-			OtherName:   otherProfile.DisplayName(),
-			Status:      string(c.Status),
-			RequestedAt: c.RequestedAt.Format("Jan 2, 2006"),
+			OtherName:     otherProfile.DisplayName(),
+			OtherInactive: otherProfile.Status == profile.StatusInactive,
+			Status:        string(c.Status),
+			RequestedAt:   c.RequestedAt.Format("Jan 2, 2006"),
 		})
 	}
 	return vms

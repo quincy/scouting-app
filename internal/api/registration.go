@@ -102,6 +102,11 @@ func (h *RegistrationHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if prof.Status == profile.StatusInactive {
+		h.renderRegister(w, "Your profile is currently inactive. Please contact your Troop Webmaster for assistance.")
+		return
+	}
+
 	if prof.UserID != nil {
 		h.renderRegister(w, "This account has already been registered. <a href=\"/login\">Sign in</a> instead.")
 		return

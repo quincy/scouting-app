@@ -45,6 +45,10 @@ migrate:
 	@echo "Running database migrations..."
 	@go run ./cmd/migrate/ --env=local.env
 
+seed-inactive:
+	@echo "Creating inactive test profiles..."
+	@go run ./cmd/seed-inactive/ --env=local.env
+
 devloop-down:
 	@echo "Stopping dev services..."
 	@docker compose down
@@ -58,4 +62,4 @@ devloop-reset:
 run: build devloop-up migrate
 	./scout-app --env=local.env
 
-.PHONY: build test fmt vet lint check clean ci devloop-up migrate devloop-down devloop-reset run
+.PHONY: build test fmt vet lint check clean ci devloop-up migrate seed-inactive devloop-down devloop-reset run

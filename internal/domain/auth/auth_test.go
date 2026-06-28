@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"scout-app/internal/domain/profile"
 	"scout-app/internal/domain/rbac"
 	"scout-app/internal/domain/user"
 )
@@ -35,7 +36,9 @@ func (r *memUserRepo) GetByEmail(ctx context.Context, email string) (*user.User,
 	return u, nil
 }
 
-type memRBACRepo struct{}
+type memRBACRepo struct {
+	roles []*rbac.Role
+}
 
 func (r *memRBACRepo) CreateRole(ctx context.Context, role *rbac.Role) error { return nil }
 func (r *memRBACRepo) CreatePermission(ctx context.Context, perm *rbac.Permission) error {
@@ -48,7 +51,7 @@ func (r *memRBACRepo) LinkPermissionToRole(ctx context.Context, roleID, permID s
 	return nil
 }
 func (r *memRBACRepo) GetUserRoles(ctx context.Context, userID string) ([]*rbac.Role, error) {
-	return nil, nil
+	return r.roles, nil
 }
 func (r *memRBACRepo) GetUserPermissions(ctx context.Context, userID string) ([]*rbac.Permission, error) {
 	return nil, nil
@@ -63,6 +66,57 @@ func (r *memRBACRepo) RemoveRoleFromUser(ctx context.Context, userID, roleID str
 }
 func (r *memRBACRepo) GetUsersByRoleName(ctx context.Context, name string) ([]string, error) {
 	return nil, nil
+}
+
+type memProfileRepo struct {
+	profiles map[string]*profile.Profile
+}
+
+func (r *memProfileRepo) Create(ctx context.Context, p *profile.Profile) error {
+	r.profiles[p.ID] = p
+	return nil
+}
+func (r *memProfileRepo) GetByID(ctx context.Context, id string) (*profile.Profile, error) {
+	return r.profiles[id], nil
+}
+func (r *memProfileRepo) GetByEmail(ctx context.Context, email string) (*profile.Profile, error) {
+	for _, p := range r.profiles {
+		if p.Email == email {
+			return p, nil
+		}
+	}
+	return nil, nil
+}
+func (r *memProfileRepo) GetByBSAID(ctx context.Context, bsaID string) (*profile.Profile, error) {
+	return nil, nil
+}
+func (r *memProfileRepo) GetByUserID(ctx context.Context, userID string) (*profile.Profile, error) {
+	for _, p := range r.profiles {
+		if p.UserID != nil && *p.UserID == userID {
+			return p, nil
+		}
+	}
+	return nil, nil
+}
+func (r *memProfileRepo) ListAll(ctx context.Context) ([]*profile.Profile, error) {
+	var result []*profile.Profile
+	for _, p := range r.profiles {
+		result = append(result, p)
+	}
+	return result, nil
+}
+func (r *memProfileRepo) ListByStatus(ctx context.Context, status profile.Status) ([]*profile.Profile, error) {
+	var result []*profile.Profile
+	for _, p := range r.profiles {
+		if p.Status == status {
+			result = append(result, p)
+		}
+	}
+	return result, nil
+}
+func (r *memProfileRepo) Update(ctx context.Context, p *profile.Profile) error {
+	r.profiles[p.ID] = p
+	return nil
 }
 
 func TestBCryptHasher_Hash(t *testing.T) {
@@ -125,9 +179,10 @@ func TestMockHasher_Verify_Wrong(t *testing.T) {
 
 func TestAuthService_Login_WrongPassword(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
 	hasher := &MockHasher{}
 	store := NewCookieStore("test-secret-key")
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{}, hasher, store)
 
 	u := &user.User{
 		ID:           "user-1",
@@ -148,9 +203,10 @@ func TestAuthService_Login_WrongPassword(t *testing.T) {
 
 func TestAuthService_Login_UnknownEmail(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
 	hasher := &MockHasher{}
 	store := NewCookieStore("test-secret-key")
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{}, hasher, store)
 
 	req := httptest.NewRequest("POST", "/login", nil)
 	rr := httptest.NewRecorder()
@@ -163,9 +219,10 @@ func TestAuthService_Login_UnknownEmail(t *testing.T) {
 
 func TestAuthService_GetAuthenticatedUser_NoSession(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
 	hasher := &MockHasher{}
 	store := NewCookieStore("test-secret-key")
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{}, hasher, store)
 
 	req := httptest.NewRequest("GET", "/events", nil)
 
@@ -180,9 +237,10 @@ func TestAuthService_GetAuthenticatedUser_NoSession(t *testing.T) {
 
 func TestAuthService_GetAuthenticatedUser_ValidSession(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
 	hasher := &MockHasher{}
 	store := NewCookieStore("test-secret-key")
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{}, hasher, store)
 
 	u := &user.User{
 		ID:           "user-1",
@@ -191,6 +249,13 @@ func TestAuthService_GetAuthenticatedUser_ValidSession(t *testing.T) {
 		CreatedAt:    time.Now(),
 	}
 	userRepo.Create(context.Background(), u)
+	userID := u.ID
+	profileRepo.Create(context.Background(), &profile.Profile{
+		ID:     "profile-1",
+		Email:  "admin@scout.local",
+		Status: profile.StatusActive,
+		UserID: &userID,
+	})
 
 	req := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -221,9 +286,10 @@ func TestAuthService_GetAuthenticatedUser_ValidSession(t *testing.T) {
 
 func TestAuthService_Logout(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
 	hasher := &MockHasher{}
 	store := NewCookieStore("test-secret-key")
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{}, hasher, store)
 
 	u := &user.User{
 		ID:           "user-1",
@@ -232,6 +298,13 @@ func TestAuthService_Logout(t *testing.T) {
 		CreatedAt:    time.Now(),
 	}
 	userRepo.Create(context.Background(), u)
+	userID := u.ID
+	profileRepo.Create(context.Background(), &profile.Profile{
+		ID:     "profile-1",
+		Email:  "admin@scout.local",
+		Status: profile.StatusActive,
+		UserID: &userID,
+	})
 
 	req := httptest.NewRequest("POST", "/login", nil)
 	rr := httptest.NewRecorder()
@@ -267,9 +340,10 @@ func TestAuthService_Logout(t *testing.T) {
 
 func TestAuthService_Login_ValidCredentials(t *testing.T) {
 	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
 	hasher := &MockHasher{}
 	store := NewCookieStore("test-secret-key")
-	svc := NewAuthService(userRepo, &memRBACRepo{}, hasher, store)
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{}, hasher, store)
 
 	u := &user.User{
 		ID:           "user-1",
@@ -278,6 +352,13 @@ func TestAuthService_Login_ValidCredentials(t *testing.T) {
 		CreatedAt:    time.Now(),
 	}
 	userRepo.Create(context.Background(), u)
+	userID := u.ID
+	profileRepo.Create(context.Background(), &profile.Profile{
+		ID:     "profile-1",
+		Email:  "admin@scout.local",
+		Status: profile.StatusActive,
+		UserID: &userID,
+	})
 
 	req := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -304,5 +385,73 @@ func TestAuthService_Login_ValidCredentials(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected session cookie to be set")
+	}
+}
+
+func TestAuthService_Login_InactiveProfile_Blocked(t *testing.T) {
+	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
+	hasher := &MockHasher{}
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{}, hasher, store)
+
+	u := &user.User{
+		ID:           "user-1",
+		Email:        "member@scout.local",
+		PasswordHash: "password",
+		CreatedAt:    time.Now(),
+	}
+	userRepo.Create(context.Background(), u)
+	userID := u.ID
+	profileRepo.Create(context.Background(), &profile.Profile{
+		ID:     "profile-1",
+		Email:  "member@scout.local",
+		Status: profile.StatusInactive,
+		UserID: &userID,
+	})
+
+	req := httptest.NewRequest("POST", "/login", nil)
+	rr := httptest.NewRecorder()
+
+	_, err := svc.Login(rr, req, "member@scout.local", "password")
+	if err == nil {
+		t.Fatal("expected error for inactive profile, got nil")
+	}
+	if !strings.Contains(err.Error(), "inactive") {
+		t.Errorf("expected error mentioning inactive, got: %v", err)
+	}
+}
+
+func TestAuthService_Login_InactiveProfile_AdminBypass(t *testing.T) {
+	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
+	hasher := &MockHasher{}
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{roles: []*rbac.Role{{ID: "admin-role", Name: "admin"}}}, hasher, store)
+
+	u := &user.User{
+		ID:           "user-1",
+		Email:        "admin@scout.local",
+		PasswordHash: "password",
+		CreatedAt:    time.Now(),
+	}
+	userRepo.Create(context.Background(), u)
+	userID := u.ID
+	profileRepo.Create(context.Background(), &profile.Profile{
+		ID:     "profile-1",
+		Email:  "admin@scout.local",
+		Status: profile.StatusInactive,
+		UserID: &userID,
+	})
+
+	req := httptest.NewRequest("POST", "/login", nil)
+	rr := httptest.NewRecorder()
+
+	got, err := svc.Login(rr, req, "admin@scout.local", "password")
+	if err != nil {
+		t.Fatalf("admin should bypass inactive check, got error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected user, got nil")
 	}
 }

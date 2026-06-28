@@ -27,7 +27,7 @@ func setupRegistrationTest(t *testing.T) (*RegistrationHandler, *auth.AuthServic
 
 	hasher := &auth.MockHasher{}
 	cookieStore := auth.NewCookieStore("test-secret-key")
-	authService := auth.NewAuthService(store.User, store.RBAC, hasher, cookieStore)
+	authService := auth.NewAuthService(store.User, store.Profile, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
 	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
@@ -142,6 +142,37 @@ func TestRegistrationHandler_Register_ProfileNotFound(t *testing.T) {
 	body := rr.Body.String()
 	if !strings.Contains(body, "No account found for this email address") {
 		t.Errorf("expected 'no account found' message, got:\n%s", body)
+	}
+}
+
+func TestRegistrationHandler_Register_InactiveProfile(t *testing.T) {
+	handler, _, _, profileRepo, _, _, _ := setupRegistrationTest(t)
+
+	ctx := t.Context()
+	inactiveProfile := &profile.Profile{
+		FirstName:  "Inactive",
+		LastName:   "Member",
+		Email:      "inactive.member@scout.local",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusInactive,
+	}
+	if err := profileRepo.Create(ctx, inactiveProfile); err != nil {
+		t.Fatalf("Create inactive profile: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/register", strings.NewReader("email=inactive.member@scout.local"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.Register(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Register returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "inactive") {
+		t.Errorf("expected message mentioning inactive, got:\n%s", body)
 	}
 }
 

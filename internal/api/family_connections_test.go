@@ -26,7 +26,7 @@ func setupFamilyConnectionsTest(t *testing.T) (*FamilyConnectionsHandler, *auth.
 
 	hasher := &auth.MockHasher{}
 	cookieStore := auth.NewCookieStore("test-secret-key")
-	authService := auth.NewAuthService(store.User, store.RBAC, hasher, cookieStore)
+	authService := auth.NewAuthService(store.User, store.Profile, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
 	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
@@ -166,7 +166,7 @@ func TestFamilyConnections_GetHidesFormForYouth(t *testing.T) {
 
 	hasher2 := &auth.MockHasher{}
 	cookieStore2 := auth.NewCookieStore("test-secret-key")
-	authService2 := auth.NewAuthService(store.User, store.RBAC, hasher2, cookieStore2)
+	authService2 := auth.NewAuthService(store.User, store.Profile, store.RBAC, hasher2, cookieStore2)
 
 	handler2 := NewFamilyConnectionsHandler(store.Profile, store.ParentYouthLink, authService2, store.RBAC, mock.NewEmailService())
 

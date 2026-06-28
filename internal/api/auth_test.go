@@ -24,7 +24,7 @@ func setupAuthTest(t *testing.T) (*AuthHandler, *auth.AuthService, *sql.DB) {
 	}
 
 	cookieStore := auth.NewCookieStore("test-secret-key")
-	authService := auth.NewAuthService(store.User, store.RBAC, hasher, cookieStore)
+	authService := auth.NewAuthService(store.User, store.Profile, store.RBAC, hasher, cookieStore)
 	authHandler := NewAuthHandler(authService)
 	return authHandler, authService, db
 }

@@ -39,6 +39,7 @@
                 <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Status</th>
                 <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Claimed</th>
                 <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Youth Links</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;width:100px;">Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -55,6 +56,27 @@
                 </td>
                 <td style="padding:10px 14px;font-size:0.875rem;color:#555;">
                     {{if .Links}}{{range $i, $name := .Links}}{{if $i}}, {{end}}{{$name}}{{end}}{{else}}—{{end}}
+                </td>
+                <td style="padding:10px 14px;">
+                    {{if eq .Status "active"}}
+                        {{if .IsSelf}}
+                            <button hx-post="/admin/roster/{{.ID}}/toggle-status"
+                                    hx-target="#admin-content"
+                                    hx-swap="innerHTML"
+                                    hx-confirm="You are about to inactivate your own account. You may lose access. Continue?"
+                                    style="background:#c62828;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:0.75rem;cursor:pointer;">Inactivate</button>
+                        {{else}}
+                            <button hx-post="/admin/roster/{{.ID}}/toggle-status"
+                                    hx-target="#admin-content"
+                                    hx-swap="innerHTML"
+                                    style="background:#c62828;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:0.75rem;cursor:pointer;">Inactivate</button>
+                        {{end}}
+                    {{else}}
+                        <button hx-post="/admin/roster/{{.ID}}/toggle-status"
+                                hx-target="#admin-content"
+                                hx-swap="innerHTML"
+                                style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:0.75rem;cursor:pointer;">Activate</button>
+                    {{end}}
                 </td>
             </tr>
             {{end}}
@@ -77,6 +99,7 @@
                 <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Status</th>
                 <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Claimed</th>
                 <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Linked Adult</th>
+                <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;width:100px;">Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -93,6 +116,27 @@
                 </td>
                 <td style="padding:10px 14px;font-size:0.875rem;color:#555;">
                     {{if .Links}}{{index .Links 0}}{{else}}—{{end}}
+                </td>
+                <td style="padding:10px 14px;">
+                    {{if eq .Status "active"}}
+                        {{if .IsSelf}}
+                            <button hx-post="/admin/roster/{{.ID}}/toggle-status"
+                                    hx-target="#admin-content"
+                                    hx-swap="innerHTML"
+                                    hx-confirm="You are about to inactivate your own account. You may lose access. Continue?"
+                                    style="background:#c62828;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:0.75rem;cursor:pointer;">Inactivate</button>
+                        {{else}}
+                            <button hx-post="/admin/roster/{{.ID}}/toggle-status"
+                                    hx-target="#admin-content"
+                                    hx-swap="innerHTML"
+                                    style="background:#c62828;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:0.75rem;cursor:pointer;">Inactivate</button>
+                        {{end}}
+                    {{else}}
+                        <button hx-post="/admin/roster/{{.ID}}/toggle-status"
+                                hx-target="#admin-content"
+                                hx-swap="innerHTML"
+                                style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:0.75rem;cursor:pointer;">Activate</button>
+                    {{end}}
                 </td>
             </tr>
             {{end}}

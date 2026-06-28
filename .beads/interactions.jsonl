@@ -38,3 +38,4 @@
 {"id":"int-51157ec0","kind":"field_change","created_at":"2026-06-28T20:11:22.134374Z","actor":"Quincy Bowers","issue_id":"scout-app-djz","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-6762dfa2","kind":"field_change","created_at":"2026-06-28T20:34:08.487841Z","actor":"Quincy Bowers","issue_id":"scout-app-nnj","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-a0c5adac","kind":"field_change","created_at":"2026-06-28T20:36:22.338351Z","actor":"Quincy Bowers","issue_id":"scout-app-4zs","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-62fe8593","kind":"field_change","created_at":"2026-06-28T22:17:09.828273Z","actor":"Quincy Bowers","issue_id":"scout-app-vjo","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}

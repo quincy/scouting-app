@@ -21,6 +21,7 @@ type rosterRow struct {
 	BSAID   string
 	Status  string
 	Claimed bool
+	IsSelf  bool
 	Links   []string
 	sortKey string
 }
@@ -177,6 +178,48 @@ func (h *AdminHandler) RosterPage(w http.ResponseWriter, r *http.Request) {
 	renderAdminLayout(w, h.tmpl, "admin_roster", data)
 }
 
+func (h *AdminHandler) ToggleProfileStatus(w http.ResponseWriter, r *http.Request) {
+	user, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	profileID := muxVars(r)["id"]
+	if profileID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	p, err := h.profileRepo.GetByID(ctx, profileID)
+	if err != nil {
+		log.Printf("GetByID: %v", err)
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+
+	if p.Status == profile.StatusActive {
+		p.Status = profile.StatusInactive
+	} else {
+		p.Status = profile.StatusActive
+	}
+
+	if err := h.profileRepo.Update(ctx, p); err != nil {
+		log.Printf("Update profile: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	data := h.buildRosterData(r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	t := template.Must(h.tmpl.Clone())
+	if err := t.ExecuteTemplate(w, "admin_roster", data); err != nil {
+		log.Printf("admin_roster template: %v", err)
+	}
+}
+
 func renderAdminLayout(w http.ResponseWriter, tmpl *template.Template, contentTmpl string, data any) {
 	def := fmt.Sprintf(`{{define "content_panel"}}{{template "%s" .}}{{end}}`, contentTmpl)
 	t := template.Must(template.Must(tmpl.Clone()).Parse(def))
@@ -186,21 +229,25 @@ func renderAdminLayout(w http.ResponseWriter, tmpl *template.Template, contentTm
 }
 
 type pendingLinkRow struct {
-	ID          string
-	ParentName  string
-	YouthName   string
-	YouthBSAID  string
-	RequestedAt string
+	ID             string
+	ParentName     string
+	YouthName      string
+	YouthBSAID     string
+	RequestedAt    string
+	ParentInactive bool
+	YouthInactive  bool
 }
 
 type activeConnectionRow struct {
-	ID         string
-	ParentName string
-	YouthName  string
-	YouthBSAID string
-	Status     string
-	ApprovedAt string
-	ApprovedBy string
+	ID             string
+	ParentName     string
+	YouthName      string
+	YouthBSAID     string
+	Status         string
+	ApprovedAt     string
+	ApprovedBy     string
+	ParentInactive bool
+	YouthInactive  bool
 }
 
 type adminConnectionsPageData struct {
@@ -331,15 +378,24 @@ func (h *AdminHandler) buildConnectionsData(r *http.Request) adminConnectionsPag
 		return ""
 	}
 
+	isInactive := func(id string) bool {
+		if p, ok := profileMap[id]; ok {
+			return p.Status == profile.StatusInactive
+		}
+		return false
+	}
+
 	for _, link := range allLinks {
 		switch link.Status {
 		case parentyouthlink.StatusPending:
 			pending = append(pending, pendingLinkRow{
-				ID:          link.ID,
-				ParentName:  resolveName(link.ParentProfileID),
-				YouthName:   resolveName(link.YouthProfileID),
-				YouthBSAID:  resolveBSAID(link.YouthProfileID),
-				RequestedAt: link.RequestedAt.Format("Jan 2, 2006 3:04 PM"),
+				ID:             link.ID,
+				ParentName:     resolveName(link.ParentProfileID),
+				YouthName:      resolveName(link.YouthProfileID),
+				YouthBSAID:     resolveBSAID(link.YouthProfileID),
+				RequestedAt:    link.RequestedAt.Format("Jan 2, 2006 3:04 PM"),
+				ParentInactive: isInactive(link.ParentProfileID),
+				YouthInactive:  isInactive(link.YouthProfileID),
 			})
 		case parentyouthlink.StatusApproved, parentyouthlink.StatusRevoked:
 			parentName := resolveName(link.ParentProfileID)
@@ -372,13 +428,15 @@ func (h *AdminHandler) buildConnectionsData(r *http.Request) adminConnectionsPag
 			}
 
 			active = append(active, activeConnectionRow{
-				ID:         link.ID,
-				ParentName: parentName,
-				YouthName:  youthName,
-				YouthBSAID: resolveBSAID(link.YouthProfileID),
-				Status:     displayStatus,
-				ApprovedAt: approvedAt,
-				ApprovedBy: approvedBy,
+				ID:             link.ID,
+				ParentName:     parentName,
+				YouthName:      youthName,
+				YouthBSAID:     resolveBSAID(link.YouthProfileID),
+				Status:         displayStatus,
+				ApprovedAt:     approvedAt,
+				ApprovedBy:     approvedBy,
+				ParentInactive: isInactive(link.ParentProfileID),
+				YouthInactive:  isInactive(link.YouthProfileID),
 			})
 		}
 	}
@@ -442,6 +500,12 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 	}
 
 	var adults, youth []rosterRow
+
+	currentUserID := ""
+	if u, e := h.auth.GetAuthenticatedUser(r); e == nil && u != nil {
+		currentUserID = u.ID
+	}
+
 	for _, p := range allProfiles {
 		if search != "" {
 			needle := strings.ToLower(search)
@@ -470,6 +534,7 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 			BSAID:   p.BSAID,
 			Status:  string(p.Status),
 			Claimed: claimed,
+			IsSelf:  p.UserID != nil && *p.UserID == currentUserID,
 			sortKey: strings.ToLower(p.LastName + ", " + p.FirstName),
 		}
 
