@@ -12,4 +12,4 @@ The `triage` skill moves issues through a state machine using the following labe
 | `ready-for-human` | `ready-for-human` | Needs human implementation   |
 | `wontfix`         | `wontfix`         | Will not be actioned         |
 
-> Note: Beads supports labels via `bd update <id> --label <name>`.
+> Note: Apply labels via `gh api repos/quincy/scouting-app/issues/{number} -X PATCH -f labels[]="label-name"`.
