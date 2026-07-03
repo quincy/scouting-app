@@ -176,8 +176,8 @@ func TestRegistrationHandler_Register_InactiveProfile(t *testing.T) {
 	}
 }
 
-// Test 3: POST /register — profile already claimed
-func TestRegistrationHandler_Register_AlreadyClaimed(t *testing.T) {
+// Test 3: POST /register — profile already registered
+func TestRegistrationHandler_Register_AlreadyRegistered(t *testing.T) {
 	handler, _, _, _, _, _, _ := setupRegistrationTest(t)
 
 	req := httptest.NewRequest("POST", "/register", strings.NewReader("email=admin@scout.local"))

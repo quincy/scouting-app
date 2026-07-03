@@ -9,6 +9,9 @@
 </head>
 <body class="main-page">
     {{template "header" .}}
+    <div class="back-link">
+        <a href="/events">&larr; Back to events</a>
+    </div>
     <div class="card">
         {{if .Error}}
         <div class="error">{{.Error}}</div>
@@ -54,7 +57,6 @@
         </form>
         {{end}}
 
-        <div class="link"><a href="/events">Back to events</a></div>
     </div>
 </body>
 </html>

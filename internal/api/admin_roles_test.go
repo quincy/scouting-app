@@ -58,7 +58,7 @@ func TestAdminRoles_GetRendersPage(t *testing.T) {
 	}
 }
 
-func TestAdminRoles_GetShowsClaimedUsers(t *testing.T) {
+func TestAdminRoles_GetShowsRegisteredUsers(t *testing.T) {
 	handler, authService, db, _ := setupAdminRolesTest(t)
 	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
@@ -96,21 +96,21 @@ func TestAdminRoles_GetShowsClaimedUsers(t *testing.T) {
 	}
 }
 
-func TestAdminRoles_ShowsUnclaimedProfiles(t *testing.T) {
+func TestAdminRoles_ShowsUnregisteredProfiles(t *testing.T) {
 	handler, authService, db, _ := setupAdminRolesTest(t)
 	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
 	store := postgres.NewStore(db)
 
-	unclaimed := &profile.Profile{
-		FirstName:  "Unclaimed",
+	unregistered := &profile.Profile{
+		FirstName:  "Unregistered",
 		LastName:   "User",
-		Email:      "unclaimed@scout.local",
+		Email:      "unregistered@scout.local",
 		MemberType: profile.MemberTypeAdult,
 		Status:     profile.StatusActive,
 	}
-	if err := store.Profile.Create(t.Context(), unclaimed); err != nil {
-		t.Fatalf("Create unclaimed profile: %v", err)
+	if err := store.Profile.Create(t.Context(), unregistered); err != nil {
+		t.Fatalf("Create unregistered profile: %v", err)
 	}
 
 	req := familyConnLoggedInRequest(t, authService, "GET", "/admin/roles", "")
@@ -119,11 +119,11 @@ func TestAdminRoles_ShowsUnclaimedProfiles(t *testing.T) {
 	handler.RolesPage(rr, req)
 
 	body := rr.Body.String()
-	if !strings.Contains(body, "Unclaimed User") {
-		t.Errorf("expected unclaimed profile to be shown, got:\n%s", body)
+	if !strings.Contains(body, "Unregistered User") {
+		t.Errorf("expected unregistered profile to be shown, got:\n%s", body)
 	}
 	if !strings.Contains(body, "not registered") {
-		t.Errorf("expected unclaimed profile to show 'not registered', got:\n%s", body)
+		t.Errorf("expected unregistered profile to show 'not registered', got:\n%s", body)
 	}
 }
 

@@ -12,11 +12,12 @@ if you should move on to the next unchecked triage item.
 
 # Milestone 3
 
-- [ ] Admin pages should be accessible via admin specific permissions: admin:roster, admin:connections, etc.
-- [ ] Send email is failing in prod because of missing config
-- [ ] Settings page where all static config can be updated
-- [ ] Configure email server via settings instead of local.env
-- [ ] User profile page that shows everything in their profile plus events they have signed up for
+- [x] Admin pages should be accessible via admin specific permissions: admin:roster, admin:connections, etc. → #4
+- [x] Send email is failing in prod because of missing config → #6 (merged with email config item)
+- [x] Settings page where all static config can be updated → #5
+- [x] Configure email server via settings instead of local.env → #6 (merged with email failure item)
+- [x] Move /admin/markdown-preview to /events/markdown-preview → #8
+- [x] User profile page that shows everything in their profile plus events they have signed up for → #7
 
 # Milestone 4
 

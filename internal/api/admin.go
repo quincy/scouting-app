@@ -20,7 +20,7 @@ type rosterRow struct {
 	Email   string
 	BSAID   string
 	Status  string
-	Claimed bool
+	Registered bool
 	IsSelf  bool
 	Links   []string
 	sortKey string
@@ -32,7 +32,7 @@ type adminPageData struct {
 	Youth  []rosterRow
 
 	Search  string
-	Claimed string
+	Registered string
 	Status  string
 	Total   int
 }
@@ -460,7 +460,7 @@ func (h *AdminHandler) buildConnectionsData(r *http.Request) adminConnectionsPag
 
 func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 	search := r.URL.Query().Get("search")
-	claimedFilter := r.URL.Query().Get("claimed")
+	registeredFilter := r.URL.Query().Get("registered")
 	statusFilter := r.URL.Query().Get("status")
 
 	ctx := r.Context()
@@ -473,8 +473,8 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 			Adults:  []rosterRow{},
 			Youth:   []rosterRow{},
 			Search:  search,
-			Claimed: claimedFilter,
-			Status:  statusFilter,
+			Registered: registeredFilter,
+		Status:     statusFilter,
 		}
 	}
 
@@ -516,11 +516,11 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 				continue
 			}
 		}
-		claimed := p.UserID != nil
-		if claimedFilter == "true" && !claimed {
+		registered := p.UserID != nil
+		if registeredFilter == "true" && !registered {
 			continue
 		}
-		if claimedFilter == "false" && claimed {
+		if registeredFilter == "false" && registered {
 			continue
 		}
 		if statusFilter != "" && string(p.Status) != statusFilter {
@@ -533,7 +533,7 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 			Email:   p.Email,
 			BSAID:   p.BSAID,
 			Status:  string(p.Status),
-			Claimed: claimed,
+			Registered: registered,
 			IsSelf:  p.UserID != nil && *p.UserID == currentUserID,
 			sortKey: strings.ToLower(p.LastName + ", " + p.FirstName),
 		}
@@ -574,7 +574,7 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 		Adults:  adults,
 		Youth:   youth,
 		Search:  search,
-		Claimed: claimedFilter,
+		Registered: registeredFilter,
 		Status:  statusFilter,
 		Total:   len(adults) + len(youth),
 	}
