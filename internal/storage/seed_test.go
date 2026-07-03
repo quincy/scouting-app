@@ -45,6 +45,7 @@ func TestSeedRoles_AdminHasAllPermissions(t *testing.T) {
 		"event:view":     false,
 		"event:signup":   false,
 		"event:withdraw": false,
+		"admin:settings": false,
 	}
 	for _, p := range perms {
 		expected[p.Name] = true
@@ -207,7 +208,7 @@ func TestDomainSeedRoles(t *testing.T) {
 		t.Fatalf("GetUserPermissions failed: %v", err)
 	}
 
-	if len(perms) != 4 {
-		t.Errorf("expected 4 permissions for admin, got %d: %v", len(perms), perms)
+	if len(perms) != 5 {
+		t.Errorf("expected 5 permissions for admin, got %d: %v", len(perms), perms)
 	}
 }

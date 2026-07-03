@@ -456,12 +456,7 @@ func (h *OnboardingHandler) clearForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OnboardingHandler) timezonesWithSelected(selected string) []timezoneOption {
-	opts := make([]timezoneOption, len(commonTimezones))
-	for i, tz := range commonTimezones {
-		opts[i] = tz
-		opts[i].Selected = tz.Value == selected
-	}
-	return opts
+	return timezonesWithSelected(selected)
 }
 
 func stringOr(v interface{}) string {
