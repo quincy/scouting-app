@@ -3,6 +3,7 @@ package email
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/smtp"
 	"strings"
 
@@ -11,33 +12,29 @@ import (
 )
 
 type Sender struct {
-	host          string
-	port          string
-	user          string
-	pass          string
-	from          string
 	appConfigRepo appconfig.Repository
 	templates     *Templates
 }
 
-func NewSender(host, port, user, pass, from string, appConfigRepo appconfig.Repository, templates *Templates) *Sender {
+func NewSender(appConfigRepo appconfig.Repository, templates *Templates) *Sender {
 	return &Sender{
-		host:          host,
-		port:          port,
-		user:          user,
-		pass:          pass,
-		from:          from,
 		appConfigRepo: appConfigRepo,
 		templates:     templates,
 	}
 }
 
+func (s *Sender) loadSMTPConfig(ctx context.Context) (host, port, user, pass, from string) {
+	host = appconfig.GetWithHierarchy(ctx, s.appConfigRepo, "SMTP_HOST", appconfig.KeySMTPHost, "localhost")
+	port = appconfig.GetWithHierarchy(ctx, s.appConfigRepo, "SMTP_PORT", appconfig.KeySMTPPort, "1025")
+	user = appconfig.GetWithHierarchy(ctx, s.appConfigRepo, "SMTP_USER", appconfig.KeySMTPUser, "")
+	pass = appconfig.GetWithHierarchy(ctx, s.appConfigRepo, "SMTP_PASS", appconfig.KeySMTPPass, "")
+	from = appconfig.GetWithHierarchy(ctx, s.appConfigRepo, "SMTP_FROM", appconfig.KeySMTPFrom, "")
+	return
+}
+
 func (s *Sender) loadUnitInfo(ctx context.Context) (unitType, unitNumber string) {
-	unitType, _ = s.appConfigRepo.Get(ctx, appconfig.KeyUnitType)
-	if unitType == "" {
-		unitType = "Troop"
-	}
-	unitNumber, _ = s.appConfigRepo.Get(ctx, appconfig.KeyUnitNumber)
+	unitType = appconfig.GetWithHierarchy(ctx, s.appConfigRepo, "UNIT_TYPE", appconfig.KeyUnitType, "Troop")
+	unitNumber = appconfig.GetWithHierarchy(ctx, s.appConfigRepo, "UNIT_NUMBER", appconfig.KeyUnitNumber, "")
 	return
 }
 
@@ -55,9 +52,11 @@ func (s *Sender) SendAdminNotification(ctx context.Context, to []string, subject
 }
 
 func (s *Sender) send(ctx context.Context, subject, body string, to []string) error {
-	msg := buildMessage(s.from, strings.Join(to, ", "), subject, body)
-	addr := fmt.Sprintf("%s:%s", s.host, s.port)
-	auth := smtp.PlainAuth("", s.user, s.pass, s.host)
+	host, port, user, pass, from := s.loadSMTPConfig(ctx)
+
+	msg := buildMessage(from, strings.Join(to, ", "), subject, body)
+	addr := fmt.Sprintf("%s:%s", host, port)
+	auth := smtp.PlainAuth("", user, pass, host)
 
 	select {
 	case <-ctx.Done():
@@ -65,7 +64,7 @@ func (s *Sender) send(ctx context.Context, subject, body string, to []string) er
 	default:
 	}
 
-	return smtp.SendMail(addr, auth, s.from, to, []byte(msg))
+	return smtp.SendMail(addr, auth, from, to, []byte(msg))
 }
 
 func buildMessage(from, to, subject, body string) string {
@@ -83,6 +82,14 @@ func buildMessage(from, to, subject, body string) string {
 	b.WriteString("\n\n")
 	b.WriteString(body)
 	return b.String()
+}
+
+func CheckSMTPConfig(ctx context.Context, repo appconfig.Repository) {
+	host := appconfig.GetWithHierarchy(ctx, repo, "SMTP_HOST", appconfig.KeySMTPHost, "localhost")
+	from := appconfig.GetWithHierarchy(ctx, repo, "SMTP_FROM", appconfig.KeySMTPFrom, "")
+	if host == "localhost" && from == "" {
+		log.Println("WARNING: SMTP_HOST is not configured (no env var and no DB value). Email sending will use default localhost:1025.")
+	}
 }
 
 var _ domainemail.Service = (*Sender)(nil)

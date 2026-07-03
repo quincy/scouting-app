@@ -33,13 +33,14 @@ ci: clean check test build
 
 devloop-up:
 	@echo "Starting dev services..."
-	@docker compose up -d cockroachdb
+	@docker compose up -d
 	@echo "Waiting for database to be ready..."
 	@until docker compose exec -T cockroachdb cockroach sql --insecure -e "SELECT 1" 2>/dev/null; do \
 		sleep 1; \
 	done
 	@docker compose exec -T cockroachdb cockroach sql --insecure -e "CREATE DATABASE IF NOT EXISTS scoutapp"
 	@echo "Dev services ready."
+	@echo "MailHog UI: http://localhost:8025"
 
 migrate:
 	@echo "Running database migrations..."
