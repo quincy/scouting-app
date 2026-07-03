@@ -56,17 +56,17 @@ func NewRegistrationHandler(
 }
 
 type registerPageData struct {
-	Error string
+	Error template.HTML
 }
 
 type verifyPageData struct {
 	OTPID       string
 	MaskedEmail string
-	Error       string
+	Error       template.HTML
 }
 
 type completePageData struct {
-	Error string
+	Error template.HTML
 }
 
 // GET /register
@@ -90,7 +90,7 @@ func (h *RegistrationHandler) Register(w http.ResponseWriter, r *http.Request) {
 	email = strings.ToLower(email)
 
 	if email == "" {
-		h.renderRegister(w, "Please enter your email address.")
+		h.renderRegister(w, template.HTML("Please enter your email address."))
 		return
 	}
 
@@ -98,17 +98,17 @@ func (h *RegistrationHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	prof, err := h.profileRepo.GetByEmail(ctx, email)
 	if err != nil {
-		h.renderRegister(w, "No account found for this email address. Double-check that the email you entered matches the email registered with your Scoutbook account. If you continue having trouble, contact your Troop Webmaster for help.")
+		h.renderRegister(w, template.HTML("No account found for this email address. Double-check that the email you entered matches the email registered with your Scoutbook account. If you continue having trouble, contact your Troop Webmaster for help."))
 		return
 	}
 
 	if prof.Status == profile.StatusInactive {
-		h.renderRegister(w, "Your profile is currently inactive. Please contact your Troop Webmaster for assistance.")
+		h.renderRegister(w, template.HTML("Your profile is currently inactive. Please contact your Troop Webmaster for assistance."))
 		return
 	}
 
 	if prof.UserID != nil {
-		h.renderRegister(w, "This account has already been registered. <a href=\"/login\">Sign in</a> instead.")
+		h.renderRegister(w, template.HTML("This account has already been registered. <a href=\"/login\">Sign in</a> instead."))
 		return
 	}
 
@@ -119,7 +119,7 @@ func (h *RegistrationHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if count >= 5 {
-		h.renderRegister(w, "Too many verification code requests. Please try again later.")
+		h.renderRegister(w, template.HTML("Too many verification code requests. Please try again later."))
 		return
 	}
 
@@ -160,7 +160,7 @@ func (h *RegistrationHandler) Register(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/register/verify?otp_id="+otp.ID, http.StatusFound)
 }
 
-func (h *RegistrationHandler) renderRegister(w http.ResponseWriter, errMsg string) {
+func (h *RegistrationHandler) renderRegister(w http.ResponseWriter, errMsg template.HTML) {
 	data := registerPageData{Error: errMsg}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl.ExecuteTemplate(w, "register.html", data); err != nil {
@@ -243,7 +243,7 @@ func (h *RegistrationHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		data := verifyPageData{
 			OTPID:       otpID,
 			MaskedEmail: maskEmail(otp.Email),
-			Error:       "Invalid verification code. Please try again.",
+			Error:       template.HTML("Invalid verification code. Please try again."),
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := h.tmpl.ExecuteTemplate(w, "register_verify.html", data); err != nil {
@@ -341,7 +341,7 @@ func (h *RegistrationHandler) Complete(w http.ResponseWriter, r *http.Request) {
 
 	password := r.FormValue("password")
 	if password == "" {
-		h.renderComplete(w, "Please enter a password.")
+		h.renderComplete(w, template.HTML("Please enter a password."))
 		return
 	}
 
@@ -411,7 +411,7 @@ func (h *RegistrationHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login?registered=1", http.StatusFound)
 }
 
-func (h *RegistrationHandler) renderComplete(w http.ResponseWriter, errMsg string) {
+func (h *RegistrationHandler) renderComplete(w http.ResponseWriter, errMsg template.HTML) {
 	data := completePageData{Error: errMsg}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl.ExecuteTemplate(w, "register_complete.html", data); err != nil {

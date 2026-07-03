@@ -128,11 +128,8 @@ func NewEventHandler(repo event.Repository, auth *auth.AuthService, rbac rbac.Re
 }
 
 func (h *EventHandler) loadUnitInfo(ctx context.Context) (unitType, unitNumber string) {
-	unitType, _ = h.appConfigRepo.Get(ctx, appconfig.KeyUnitType)
-	if unitType == "" {
-		unitType = "Troop"
-	}
-	unitNumber, _ = h.appConfigRepo.Get(ctx, appconfig.KeyUnitNumber)
+	unitType = appconfig.GetWithHierarchy(ctx, h.appConfigRepo, "UNIT_TYPE", appconfig.KeyUnitType, "Troop")
+	unitNumber = appconfig.GetWithHierarchy(ctx, h.appConfigRepo, "UNIT_NUMBER", appconfig.KeyUnitNumber, "")
 	return
 }
 

@@ -13,7 +13,9 @@
     <div class="error">{{.Error}}</div>
     {{end}}
 
-    <form hx-post="/admin/settings" hx-target="#admin-content" hx-swap="innerHTML">
+    <h3 style="margin-top:24px;margin-bottom:12px;font-size:1.1rem;color:#16213e;">Unit</h3>
+
+    <form hx-post="/admin/settings" hx-target="#admin-content" hx-swap="innerHTML" id="settings-form">
         <div class="form-group">
             <label for="org_guid">Scoutbook Organization GUID</label>
             <input type="text" id="org_guid" name="org_guid" value="{{.OrgGUID}}">
@@ -47,7 +49,45 @@
             </select>
         </div>
 
+        <h3 style="margin-top:24px;margin-bottom:12px;font-size:1.1rem;color:#16213e;">Email</h3>
+
+        <div class="form-group">
+            <label for="smtp_host">SMTP Host</label>
+            <input type="text" id="smtp_host" name="smtp_host" value="{{.SMTPHost}}" placeholder="localhost">
+        </div>
+
+        <div class="form-group">
+            <label for="smtp_port">SMTP Port</label>
+            <input type="text" id="smtp_port" name="smtp_port" value="{{.SMTPPort}}" placeholder="1025">
+        </div>
+
+        <div class="form-group">
+            <label for="smtp_user">SMTP Username</label>
+            <input type="text" id="smtp_user" name="smtp_user" value="{{.SMTPUser}}">
+        </div>
+
+        <div class="form-group">
+            <label for="smtp_pass">SMTP Password</label>
+            <input type="password" id="smtp_pass" name="smtp_pass" value="" placeholder="Leave blank to keep current password">
+        </div>
+
+        <div class="form-group">
+            <label for="smtp_from">SMTP From Address</label>
+            <input type="email" id="smtp_from" name="smtp_from" value="{{.SMTPFrom}}">
+        </div>
+
         <button type="submit" class="btn-primary" style="margin-top:16px;">Save Settings</button>
     </form>
+
+    <div id="test-email-result" style="margin-top:16px;"></div>
+    <button class="btn-secondary" style="margin-top:8px;"
+            hx-post="/admin/settings/test-email"
+            hx-target="#test-email-result"
+            hx-swap="innerHTML">Send Test Email</button>
 </div>
+{{end}}
+
+{{define "admin_settings_test_email_result"}}
+{{if .Success}}<div class="flash-success">{{.Success}}</div>{{end}}
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 {{end}}

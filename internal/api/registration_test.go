@@ -194,6 +194,12 @@ func TestRegistrationHandler_Register_AlreadyRegistered(t *testing.T) {
 	if !strings.Contains(body, "already been registered") {
 		t.Errorf("expected 'already been registered' message, got:\n%s", body)
 	}
+	if strings.Contains(body, "&lt;a href=\"/login\"&gt;") {
+		t.Errorf("HTML in error message was escaped, got:\n%s", body)
+	}
+	if !strings.Contains(body, "<a href=\"/login\">Sign in</a> instead.") {
+		t.Errorf("expected unescaped link in error message, got:\n%s", body)
+	}
 }
 
 // Test 4: POST /register — rate limited

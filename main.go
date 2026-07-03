@@ -87,15 +87,17 @@ func main() {
 	syncHandler := api.NewSyncHandler(syncSvc, scoutbookClient, appConfigRepo)
 
 	adminHandler := api.NewAdminHandler(profileRepo, parentYouthLinkRepo, rbacRepo, authService)
-	settingsHandler := api.NewSettingsHandler(appConfigRepo)
 
 	if emailSvc == nil {
 		emailTmpl, err := appemail.NewTemplates()
 		if err != nil {
 			log.Fatalf("Failed to load email templates: %v", err)
 		}
-		emailSvc = appemail.NewSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom, appConfigRepo, emailTmpl)
+		emailSvc = appemail.NewSender(appConfigRepo, emailTmpl)
 	}
+	appemail.CheckSMTPConfig(context.Background(), appConfigRepo)
+
+	settingsHandler := api.NewSettingsHandler(appConfigRepo, emailSvc, authService, profileRepo)
 
 	regHandler := api.NewRegistrationHandler(
 		profileRepo, otpRepo, userRepo, rbacRepo, emailSvc, hasher, sessionStore,
@@ -187,6 +189,7 @@ func main() {
 
 	app.Handle("/admin/settings", api.RequirePermission(authService, rbacRepo, "admin:settings", settingsHandler.SettingsPage)).Methods("GET")
 	app.Handle("/admin/settings", api.RequirePermission(authService, rbacRepo, "admin:settings", settingsHandler.SettingsSave)).Methods("POST")
+	app.Handle("/admin/settings/test-email", api.RequirePermission(authService, rbacRepo, "admin:settings", settingsHandler.TestEmail)).Methods("POST")
 
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
