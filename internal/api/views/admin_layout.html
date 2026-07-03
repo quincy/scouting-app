@@ -43,6 +43,11 @@
                hx-target="#admin-content"
                hx-swap="innerHTML"
                hx-push-url="true">Roles</a>
+            <a href="/admin/settings"
+               hx-get="/admin/settings"
+               hx-target="#admin-content"
+               hx-swap="innerHTML"
+               hx-push-url="true">Settings</a>
         </nav>
         <div class="admin-content" id="admin-content">
             {{template "content_panel" .}}

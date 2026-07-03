@@ -6,35 +6,44 @@ import (
 	"net/smtp"
 	"strings"
 
+	"scout-app/internal/domain/appconfig"
 	domainemail "scout-app/internal/domain/email"
 )
 
 type Sender struct {
-	host       string
-	port       string
-	user       string
-	pass       string
-	from       string
-	unitType   string
-	unitNumber string
-	templates  *Templates
+	host          string
+	port          string
+	user          string
+	pass          string
+	from          string
+	appConfigRepo appconfig.Repository
+	templates     *Templates
 }
 
-func NewSender(host, port, user, pass, from, unitType, unitNumber string, templates *Templates) *Sender {
+func NewSender(host, port, user, pass, from string, appConfigRepo appconfig.Repository, templates *Templates) *Sender {
 	return &Sender{
-		host:       host,
-		port:       port,
-		user:       user,
-		pass:       pass,
-		from:       from,
-		unitType:   unitType,
-		unitNumber: unitNumber,
-		templates:  templates,
+		host:          host,
+		port:          port,
+		user:          user,
+		pass:          pass,
+		from:          from,
+		appConfigRepo: appConfigRepo,
+		templates:     templates,
 	}
 }
 
+func (s *Sender) loadUnitInfo(ctx context.Context) (unitType, unitNumber string) {
+	unitType, _ = s.appConfigRepo.Get(ctx, appconfig.KeyUnitType)
+	if unitType == "" {
+		unitType = "Troop"
+	}
+	unitNumber, _ = s.appConfigRepo.Get(ctx, appconfig.KeyUnitNumber)
+	return
+}
+
 func (s *Sender) SendOTP(ctx context.Context, to, code string, otpID string) error {
-	subject, body, err := s.templates.RenderOTP(code, s.unitType, s.unitNumber, otpID)
+	unitType, unitNumber := s.loadUnitInfo(ctx)
+	subject, body, err := s.templates.RenderOTP(code, unitType, unitNumber, otpID)
 	if err != nil {
 		return err
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"scout-app/internal/domain/appconfig"
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/event"
 	"scout-app/internal/domain/parentyouthlink"
@@ -58,7 +59,11 @@ func setupEventTest(t *testing.T) (*EventHandler, *auth.AuthService, *postgres.S
 
 	_, adminProfile := seedAdminUser(t, store, hasher, ctx)
 
-	handler := NewEventHandler(store.Event, authService, store.RBAC, store.Profile, store.ParentYouthLink, "Troop", "077")
+	appCfg := appconfig.NewInMemoryRepository()
+	appCfg.Set(ctx, appconfig.KeyUnitType, "Troop")
+	appCfg.Set(ctx, appconfig.KeyUnitNumber, "077")
+
+	handler := NewEventHandler(store.Event, authService, store.RBAC, store.Profile, store.ParentYouthLink, appCfg)
 	SetMuxVars(func(r *http.Request) map[string]string {
 		return map[string]string{"id": r.URL.Query().Get("id")}
 	})

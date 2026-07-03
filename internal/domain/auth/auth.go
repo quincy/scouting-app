@@ -157,7 +157,7 @@ var defaultRoles = []struct {
 	Name        string
 	Permissions []string
 }{
-	{Name: "admin", Permissions: []string{"event:create", "event:view", "event:signup", "event:withdraw"}},
+	{Name: "admin", Permissions: []string{"event:create", "event:view", "event:signup", "event:withdraw", "admin:settings"}},
 	{Name: "Scoutmaster", Permissions: []string{"event:create", "event:view", "event:signup", "event:withdraw"}},
 	{Name: "Assistant Scoutmaster", Permissions: []string{"event:create", "event:view", "event:signup", "event:withdraw"}},
 	{Name: "Scouts BSA", Permissions: []string{"event:view", "event:signup", "event:withdraw"}},
@@ -195,7 +195,7 @@ var defaultRoles = []struct {
 
 func SeedRoles(ctx context.Context, rbacRepo rbac.Repository) error {
 	permIDs := make(map[string]string)
-	for _, permName := range []string{"event:create", "event:view", "event:signup", "event:withdraw"} {
+	for _, permName := range []string{"event:create", "event:view", "event:signup", "event:withdraw", "admin:settings"} {
 		perm := &rbac.Permission{Name: permName}
 		if err := rbacRepo.CreatePermission(ctx, perm); err != nil {
 			return err

@@ -1,0 +1,53 @@
+{{define "admin_settings"}}
+<div class="admin-card">
+    <h2>Settings</h2>
+    <p style="color:#555;margin-bottom:16px;font-size:0.9rem;">
+        Configure your unit's static settings. Changes take effect immediately.
+    </p>
+
+    {{if .FlashSuccess}}
+    <div class="flash-success">{{.FlashSuccess}}</div>
+    {{end}}
+
+    {{if .Error}}
+    <div class="error">{{.Error}}</div>
+    {{end}}
+
+    <form hx-post="/admin/settings" hx-target="#admin-content" hx-swap="innerHTML">
+        <div class="form-group">
+            <label for="org_guid">Scoutbook Organization GUID</label>
+            <input type="text" id="org_guid" name="org_guid" value="{{.OrgGUID}}">
+            <div class="hint">Found in your Scoutbook organization settings.</div>
+        </div>
+
+        <div class="form-group">
+            <label for="unit_type">Unit Type</label>
+            <select id="unit_type" name="unit_type">
+                <option value="">Select unit type...</option>
+                <option value="Troop" {{if eq .UnitType "Troop"}}selected{{end}}>Troop</option>
+                <option value="Pack" {{if eq .UnitType "Pack"}}selected{{end}}>Pack</option>
+                <option value="Crew" {{if eq .UnitType "Crew"}}selected{{end}}>Crew</option>
+                <option value="Ship" {{if eq .UnitType "Ship"}}selected{{end}}>Ship</option>
+                <option value="Post" {{if eq .UnitType "Post"}}selected{{end}}>Post</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="unit_number">Unit Number</label>
+            <input type="text" id="unit_number" name="unit_number" value="{{.UnitNumber}}">
+        </div>
+
+        <div class="form-group">
+            <label for="timezone">Default Timezone</label>
+            <select id="timezone" name="timezone">
+                <option value="">Select timezone...</option>
+                {{range .Timezones}}
+                <option value="{{.Value}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+                {{end}}
+            </select>
+        </div>
+
+        <button type="submit" class="btn-primary" style="margin-top:16px;">Save Settings</button>
+    </form>
+</div>
+{{end}}

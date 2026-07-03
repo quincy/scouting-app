@@ -6,6 +6,8 @@ import (
 	"net/textproto"
 	"strings"
 	"testing"
+
+	"scout-app/internal/domain/appconfig"
 )
 
 func TestSendAdminNotification_ViaSMTPServer(t *testing.T) {
@@ -17,7 +19,10 @@ func TestSendAdminNotification_ViaSMTPServer(t *testing.T) {
 	received := make(chan string, 1)
 	server := startFakeSMTPServer(t, received)
 
-	sender := NewSender("localhost", server.port, "user", "pass", "sender@test.com", "Troop", "077", tmpl)
+	appCfg := appconfig.NewInMemoryRepository()
+	appCfg.Set(context.Background(), appconfig.KeyUnitType, "Troop")
+	appCfg.Set(context.Background(), appconfig.KeyUnitNumber, "077")
+	sender := NewSender("localhost", server.port, "user", "pass", "sender@test.com", appCfg, tmpl)
 
 	err = sender.SendAdminNotification(context.Background(), []string{"admin1@test.com", "admin2@test.com"}, "Test Subject", "Test body content")
 	if err != nil {
@@ -52,7 +57,10 @@ func TestSendOTP_ViaSMTPServer(t *testing.T) {
 	received := make(chan string, 1)
 	server := startFakeSMTPServer(t, received)
 
-	sender := NewSender("localhost", server.port, "user", "pass", "sender@test.com", "Troop", "077", tmpl)
+	appCfg := appconfig.NewInMemoryRepository()
+	appCfg.Set(context.Background(), appconfig.KeyUnitType, "Troop")
+	appCfg.Set(context.Background(), appconfig.KeyUnitNumber, "077")
+	sender := NewSender("localhost", server.port, "user", "pass", "sender@test.com", appCfg, tmpl)
 
 	err = sender.SendOTP(context.Background(), "recipient@test.com", "654321", "otp-uuid-456")
 	if err != nil {

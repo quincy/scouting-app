@@ -87,13 +87,14 @@ func main() {
 	syncHandler := api.NewSyncHandler(syncSvc, scoutbookClient, appConfigRepo)
 
 	adminHandler := api.NewAdminHandler(profileRepo, parentYouthLinkRepo, rbacRepo, authService)
+	settingsHandler := api.NewSettingsHandler(appConfigRepo)
 
 	if emailSvc == nil {
 		emailTmpl, err := appemail.NewTemplates()
 		if err != nil {
 			log.Fatalf("Failed to load email templates: %v", err)
 		}
-		emailSvc = appemail.NewSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom, cfg.UnitType, cfg.UnitNumber, emailTmpl)
+		emailSvc = appemail.NewSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom, appConfigRepo, emailTmpl)
 	}
 
 	regHandler := api.NewRegistrationHandler(
@@ -152,7 +153,7 @@ func main() {
 	app.Handle("/family-connections", api.RequireAuth(authService, familyConnectionsHandler.FamilyConnectionsPage)).Methods("GET")
 	app.Handle("/family-connections", api.RequireAuth(authService, familyConnectionsHandler.AddConnection)).Methods("POST")
 
-	eventHandler := api.NewEventHandler(eventRepo, authService, rbacRepo, profileRepo, parentYouthLinkRepo, cfg.UnitType, cfg.UnitNumber)
+	eventHandler := api.NewEventHandler(eventRepo, authService, rbacRepo, profileRepo, parentYouthLinkRepo, appConfigRepo)
 	api.SetMuxVars(mux.Vars)
 	app.Handle("/events", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListEvents)).Methods("GET")
 	app.Handle("/events/upcoming", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.ListUpcoming)).Methods("GET")
@@ -183,6 +184,9 @@ func main() {
 	app.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.StoreToken)).Methods("POST")
 	app.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")
 	app.Handle("/admin/sync/revert", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Revert)).Methods("POST")
+
+	app.Handle("/admin/settings", api.RequirePermission(authService, rbacRepo, "admin:settings", settingsHandler.SettingsPage)).Methods("GET")
+	app.Handle("/admin/settings", api.RequirePermission(authService, rbacRepo, "admin:settings", settingsHandler.SettingsSave)).Methods("POST")
 
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
