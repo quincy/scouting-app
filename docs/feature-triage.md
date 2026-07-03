@@ -21,23 +21,32 @@ if you should move on to the next unchecked triage item.
 
 # Milestone 4
 
-- [ ] Track drivers and available seatbelts
+- [x] Track drivers, available seatbelts vs used seatbelts → #9
+- [x] Track event roles like (SPL, Coordinator, Medical Officer) → #13
+- [x] Send reminder emails to troop / attendees → #17
+
+# Milestone 5
+
 - [ ] Track cooks and cooking patrols
 - [ ] Track tenting buddies with age verification
 - [ ] Printable camp roster
-- [ ] Track event roles like (SPL, Coordinator, Medical Officer)
-- [ ] Bead report
+
+# Milestone 6
+
 - [ ] Track Safeguarding Youth Training
 - [ ] Track patrol membership
 - [ ] Track health form dates
-- [ ] Send reminder emails to troop / attendees
 
-# Milestone 5 (Lance0
+# Milestone 7 (Lance)
+
+- [ ] Bead report
+
+# Milestone 8 (Lance)
 
 - [ ] Track payment status for an event
 - [ ] Handle payments through Stripe
 
-# Milestone 6
+# Milestone 9
 
 - [ ] Send ETA communication
 - [ ] Post event info to BAND

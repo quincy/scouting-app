@@ -41,7 +41,31 @@ A **Profile** that has been signed up to participate in a specific **Event**. An
 Indicates whether an **Attendee** is currently participating (`signed_up`) or has been removed (`canceled`).
 
 ### Responsibility
-A designated role an **Attendee** holds for a specific **Event** (e.g., `driver`, `cook`). An Attendee may hold multiple responsibilities.
+A designated function an **Attendee** holds for a specific **Event** (e.g., `driver`, `spl`, `coordinator`, `medical_officer`, `cook`). An Attendee may hold multiple responsibilities. A `driver` responsibility includes a **Seatbelt Count** indicating the total number of seatbelts in that driver's vehicle (including the driver's own seatbelt). Some responsibilities are **Singleton** — only one attendee can hold them per event.
+
+### Coordinator
+A **Singleton** **Responsibility** for an **Event**, auto-assigned to the event creator. Coordinates the event logistics. Reassignable by anyone with `event:create` permission.
+
+### SPL (Senior Patrol Leader)
+A **Singleton** **Responsibility** for an **Event**, auto-assigned on sign-up to a **Youth** attendee whose **Profile** holds the `Senior Patrol Leader` **Position**. Reassignable by anyone with `event:create` permission.
+
+### Medical Officer
+A **Singleton** **Responsibility** for an **Event**, assignable by anyone with `event:create` permission.
+
+### Singleton
+A **Responsibility** that only one **Attendee** can hold per **Event**. Reassigning a singleton to a different attendee requires confirmation and automatically removes it from the previous holder.
+
+### Seatbelt Count
+The total number of seatbelts available in a **Driver**'s vehicle, inclusive of the driver's own seatbelt. Stored on the **Driver** responsibility record. Used to compute the event's **Available Seatbelts**.
+
+### Driver
+An **Attendee** who holds the `driver` **Responsibility** for an **Event**. Each Driver provides a specific number of **Seatbelt Count** for their vehicle. Assignable by the driver themself or by anyone with `event:create` permission.
+
+### Available Seatbelts
+The sum of all **Seatbelt Counts** across all **Drivers** for an **Event**. Must be >= the number of **Attendees** (Required Seatbelts) for the event to have sufficient capacity.
+
+### Required Seatbelts
+The total number of **Attendees** (with `signed_up` status) for an **Event**. Each attendee consumes one seatbelt.
 
 ### Event Type
 A classification of an **Event** (e.g., `campout`). Defined as a fixed set of known values.
@@ -63,6 +87,18 @@ A Scoutbook-assigned title held by a **Profile** (e.g., `Scoutmaster`, `Patrol L
 
 ### Event Cost
 The amount in currency required for a **User** to participate in an **Event**. For the MVP, this is a fixed value per **Event** for informational purposes.
+
+### Event Communication
+A message sent to **Profiles** about an **Event**. Two types: `announcement` (sent once after event creation) and `reminder` (sent later, may include an additional message). Sent by a user with `event:create` permission. The email body contains the event's description rendered as HTML (via **goldmark**). The **Reply-To** header is set to the **Coordinator**'s profile email.
+
+### Announcement
+An initial **Event Communication** notifying the **Troop** about a newly created **Event**. Subject format: `[{UnitType} {UnitNumber}] {EventType} {EventTitle}`. Can only be sent once; subsequent sends are **Reminders**.
+
+### Reminder
+A follow-up **Event Communication** sent after the **Announcement**. May include an additional markdown message above the event description. Can be sent to either all **Attendees** or the entire **Troop** (all active **Profiles** with an email).
+
+### Sent Communication
+A record of a sent **Event Communication**, stored in `event_communications` with the subject, HTML body, additional message (if any), sender, recipient scope, and timestamp. Recipient **Profile** IDs are stored in `event_communication_recipients`. Displayed in the **Event** detail page with recipient names (never email addresses).
 
 ### Upcoming Events
 A chronological list of **Active Events** (future events).

@@ -15,15 +15,15 @@ import (
 )
 
 type rosterRow struct {
-	ID      string
-	Name    string
-	Email   string
-	BSAID   string
-	Status  string
+	ID         string
+	Name       string
+	Email      string
+	BSAID      string
+	Status     string
 	Registered bool
-	IsSelf  bool
-	Links   []string
-	sortKey string
+	IsSelf     bool
+	Links      []string
+	sortKey    string
 }
 
 type adminPageData struct {
@@ -31,10 +31,10 @@ type adminPageData struct {
 	Adults []rosterRow
 	Youth  []rosterRow
 
-	Search  string
+	Search     string
 	Registered string
-	Status  string
-	Total   int
+	Status     string
+	Total      int
 }
 
 type AdminHandler struct {
@@ -469,12 +469,12 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 	if err != nil {
 		log.Printf("ListAll profiles: %v", err)
 		return adminPageData{
-			Title:   "Admin: Roster",
-			Adults:  []rosterRow{},
-			Youth:   []rosterRow{},
-			Search:  search,
+			Title:      "Admin: Roster",
+			Adults:     []rosterRow{},
+			Youth:      []rosterRow{},
+			Search:     search,
 			Registered: registeredFilter,
-		Status:     statusFilter,
+			Status:     statusFilter,
 		}
 	}
 
@@ -528,14 +528,14 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 		}
 
 		row := rosterRow{
-			ID:      p.ID,
-			Name:    p.DisplayName(),
-			Email:   p.Email,
-			BSAID:   p.BSAID,
-			Status:  string(p.Status),
+			ID:         p.ID,
+			Name:       p.DisplayName(),
+			Email:      p.Email,
+			BSAID:      p.BSAID,
+			Status:     string(p.Status),
 			Registered: registered,
-			IsSelf:  p.UserID != nil && *p.UserID == currentUserID,
-			sortKey: strings.ToLower(p.LastName + ", " + p.FirstName),
+			IsSelf:     p.UserID != nil && *p.UserID == currentUserID,
+			sortKey:    strings.ToLower(p.LastName + ", " + p.FirstName),
 		}
 
 		if p.MemberType == profile.MemberTypeAdult {
@@ -570,13 +570,13 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 	}
 
 	return adminPageData{
-		Title:   "Admin: Roster",
-		Adults:  adults,
-		Youth:   youth,
-		Search:  search,
+		Title:      "Admin: Roster",
+		Adults:     adults,
+		Youth:      youth,
+		Search:     search,
 		Registered: registeredFilter,
-		Status:  statusFilter,
-		Total:   len(adults) + len(youth),
+		Status:     statusFilter,
+		Total:      len(adults) + len(youth),
 	}
 }
 
