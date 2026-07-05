@@ -1,5 +1,11 @@
 # Agent Instructions
 
+### Test-Driven Development (TDD) — REQUIRED
+
+Before writing any production code you MUST load the `tdd` skill and follow its
+red-green-refactor workflow. The CI pipeline includes `make cover-ci` which
+fails if any changed non-test file has 0% statement coverage.
+
 # Documentation
 
 Documentation for the project is found in the docs folder. This is considered
@@ -18,11 +24,6 @@ Standard canonical roles are used. See `docs/agents/triage-labels.md`.
 ### Domain docs
 
 Single-context layout with root `CONTEXT.md`. See `docs/agents/domain.md`.
-
-### Test-Driven Development (TDD)
-
-All code modifications must use the `tdd` skill (Test-Driven Development with the red-green-refactor loop) to verify
-implementation correctness and ensure core logic is thoroughly tested.
 
 ### Non-Interactive Shell Commands
 

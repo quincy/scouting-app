@@ -25,11 +25,48 @@ sec:
 vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
+cover:
+	go test -coverprofile=coverage.out -count=1 ./...
+	go tool cover -html=coverage.out
+	rm -f coverage.out
+
+cover-ci:
+	@echo "Checking coverage on changed files..."
+	@base=$$(git rev-parse origin/main 2>/dev/null || git rev-parse main 2>/dev/null || git rev-list --max-parents=0 HEAD); \
+	changed=$$(git diff --name-only "$$base"...HEAD -- '*.go' | grep -v '_test\.go$$' | grep -v '^cmd/' || true); \
+	if [ -z "$$changed" ]; then \
+		echo "  No changed production Go files to check."; \
+		exit 0; \
+	fi; \
+	fail=0; \
+	for f in $$changed; do \
+		dir=$$(dirname $$f); \
+		pkg=./$$dir; \
+		coverfile=/tmp/cover-$$(echo $$dir | tr '/' '-').out; \
+		go test -coverprofile=$$coverfile "$$pkg" 2>/dev/null >/dev/null || true; \
+		if [ -f "$$coverfile" ]; then \
+			pct=$$(go tool cover -func=$$coverfile | awk -v f="^$$f:" '$0 ~ f {print $$NF}'); \
+			if [ "$$pct" = "0.0%" ]; then \
+				echo "  FAIL  $$f  (0.0% coverage)"; \
+				fail=1; \
+			elif [ -n "$$pct" ]; then \
+				echo "  OK    $$f  ($$pct)"; \
+			fi; \
+			rm -f $$coverfile; \
+		fi; \
+	done; \
+	if [ "$$fail" -eq 1 ]; then \
+		echo ""; \
+		echo "Some changed files have 0% coverage. Write tests before committing."; \
+		exit 1; \
+	fi; \
+	echo "  All changed files have coverage."
+
 clean:
 	go clean
 	rm -f scout-app
 
-ci: clean check test build
+ci: clean check test cover-ci build
 
 devloop-up:
 	@echo "Starting dev services..."
@@ -63,4 +100,4 @@ devloop-reset:
 run: build devloop-up migrate
 	./scout-app --env=local.env
 
-.PHONY: build test fmt vet lint check clean ci devloop-up migrate seed-inactive devloop-down devloop-reset run
+.PHONY: build test fmt vet lint check cover cover-ci clean ci devloop-up migrate seed-inactive devloop-down devloop-reset run

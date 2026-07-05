@@ -114,3 +114,39 @@ func TestClient_ServerError(t *testing.T) {
 		t.Fatal("expected error for server error, got nil")
 	}
 }
+
+func TestClient_HTTPDoError(t *testing.T) {
+	ctx := t.Context()
+	client := NewClient("http://127.0.0.1:1", "test-token", "org-123")
+	_, err := client.FetchRoster(ctx, EndpointUnitAdults)
+	if err == nil {
+		t.Fatal("expected error for connection failure, got nil")
+	}
+}
+
+func TestClient_MalformedJSON(t *testing.T) {
+	ctx := t.Context()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{invalid`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-token", "org-123")
+	_, err := client.FetchRoster(ctx, EndpointUnitAdults)
+	if err == nil {
+		t.Fatal("expected error for malformed JSON, got nil")
+	}
+}
+
+func TestClient_GettersSetters(t *testing.T) {
+	client := NewClient("http://example.com", "initial-token", "initial-guid")
+	if got := client.OrgGUID(); got != "initial-guid" {
+		t.Errorf("OrgGUID() = %q, want %q", got, "initial-guid")
+	}
+	client.SetToken("new-token")
+	client.SetOrgGUID("new-guid")
+	if got := client.OrgGUID(); got != "new-guid" {
+		t.Errorf("OrgGUID() after SetOrgGUID = %q, want %q", got, "new-guid")
+	}
+}
