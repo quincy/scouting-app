@@ -169,4 +169,72 @@ func (r *RBACRepository) GetUsersByRoleName(ctx context.Context, name string) ([
 	return userIDs, rows.Err()
 }
 
+func (r *RBACRepository) ListAllPermissions(ctx context.Context) ([]*rbac.Permission, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name FROM permissions ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var perms []*rbac.Permission
+	for rows.Next() {
+		perm := &rbac.Permission{}
+		if err := rows.Scan(&perm.ID, &perm.Name); err != nil {
+			return nil, err
+		}
+		perms = append(perms, perm)
+	}
+	return perms, rows.Err()
+}
+
+func (r *RBACRepository) GetRolePermissions(ctx context.Context, roleID string) ([]*rbac.Permission, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT p.id, p.name
+		 FROM permissions p
+		 JOIN role_permissions rp ON rp.permission_id = p.id
+		 WHERE rp.role_id = $1
+		 ORDER BY p.name`, roleID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var perms []*rbac.Permission
+	for rows.Next() {
+		perm := &rbac.Permission{}
+		if err := rows.Scan(&perm.ID, &perm.Name); err != nil {
+			return nil, err
+		}
+		perms = append(perms, perm)
+	}
+	return perms, rows.Err()
+}
+
+func (r *RBACRepository) SetRolePermissions(ctx context.Context, roleID string, permIDs []string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM role_permissions WHERE role_id = $1`, roleID,
+	); err != nil {
+		return err
+	}
+
+	for _, permID := range permIDs {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO role_permissions (role_id, permission_id, created_at) VALUES ($1, $2, NOW())
+			 ON CONFLICT DO NOTHING`,
+			roleID, permID,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 var _ rbac.Repository = (*RBACRepository)(nil)

@@ -133,9 +133,6 @@ func TruncateAll(t TB, db *sql.DB) {
 		"otp_codes",
 		"profiles",
 		"user_roles",
-		"role_permissions",
-		"permissions",
-		"roles",
 		"users",
 	}
 	ctx := context.Background()

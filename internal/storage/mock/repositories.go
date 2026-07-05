@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"scout-app/internal/domain/appconfig"
-	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/email"
 	"scout-app/internal/domain/event"
 	"scout-app/internal/domain/otpcode"
@@ -88,10 +87,6 @@ func NewRBACRepository() *RBACRepository {
 		userRoles:       make(map[string][]string),
 		rolePermissions: make(map[string][]string),
 	}
-}
-
-func (r *RBACRepository) SeedRoles(ctx context.Context) error {
-	return auth.SeedRoles(ctx, r)
 }
 
 func (r *RBACRepository) CreateRole(ctx context.Context, role *rbac.Role) error {
@@ -225,6 +220,46 @@ func (r *RBACRepository) GetRoleByName(ctx context.Context, name string) (*rbac.
 		}
 	}
 	return nil, fmt.Errorf("role %q not found", name)
+}
+
+func (r *RBACRepository) ListAllPermissions(ctx context.Context) ([]*rbac.Permission, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var perms []*rbac.Permission
+	for _, perm := range r.permissions {
+		perms = append(perms, perm)
+	}
+	sort.Slice(perms, func(i, j int) bool { return perms[i].Name < perms[j].Name })
+	return perms, nil
+}
+
+func (r *RBACRepository) GetRolePermissions(ctx context.Context, roleID string) ([]*rbac.Permission, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	pids := r.rolePermissions[roleID]
+	var perms []*rbac.Permission
+	for _, pid := range pids {
+		if perm, ok := r.permissions[pid]; ok {
+			perms = append(perms, perm)
+		}
+	}
+	sort.Slice(perms, func(i, j int) bool { return perms[i].Name < perms[j].Name })
+	return perms, nil
+}
+
+func (r *RBACRepository) SetRolePermissions(ctx context.Context, roleID string, permIDs []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.roles[roleID]; !ok {
+		return errors.New("role not found")
+	}
+	for _, permID := range permIDs {
+		if _, ok := r.permissions[permID]; !ok {
+			return fmt.Errorf("permission %q not found", permID)
+		}
+	}
+	r.rolePermissions[roleID] = permIDs
+	return nil
 }
 
 func (r *RBACRepository) GetUsersByRoleName(ctx context.Context, name string) ([]string, error) {

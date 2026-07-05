@@ -58,20 +58,55 @@ func NewAdminHandler(profileRepo profile.Repository, parentYouthLinkRepo parenty
 	}
 }
 
-type adminRolesUserRow struct {
+type rolePermissionRow struct {
+	RoleID      string
+	RoleName    string
+	Permissions string
+	UserCount   int
+	UserNames   string
+}
+
+type permissionCheckbox struct {
 	ID       string
 	Name     string
-	Email    string
-	Roles    string
-	HasAdmin bool
-	IsSelf   bool
+	Checked  bool
+	Disabled bool
+}
+
+type rolePermissionModalData struct {
+	RoleID      string
+	RoleName    string
+	Permissions []permissionCheckbox
 }
 
 type adminRolesPageData struct {
-	Title  string
-	Adults []adminRolesUserRow
-	Youth  []adminRolesUserRow
-	Total  int
+	Title      string
+	AdultRoles []rolePermissionRow
+	YouthRoles []rolePermissionRow
+	CloseModal bool
+}
+
+func isYouthRole(name string) bool {
+	switch name {
+	case "Scouts BSA",
+		"Assistant Patrol Leader",
+		"Assistant Senior Patrol Leader",
+		"Chaplain Aide",
+		"Den Chief",
+		"Historian",
+		"Librarian",
+		"OA Unit Representative",
+		"Outdoor Ethics Guide",
+		"Patrol Admin",
+		"Patrol Leader",
+		"Quartermaster",
+		"Scribe",
+		"Senior Patrol Leader",
+		"Troop Guide",
+		"Webmaster":
+		return true
+	}
+	return false
 }
 
 func (h *AdminHandler) RolesPage(w http.ResponseWriter, r *http.Request) {
@@ -85,6 +120,183 @@ func (h *AdminHandler) RolesPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	renderAdminLayout(w, h.tmpl, "admin_roles", data)
+}
+
+func (h *AdminHandler) RolesEditModal(w http.ResponseWriter, r *http.Request) {
+	roleID := muxVars(r)["id"]
+	if roleID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	roles, err := h.rbacRepo.ListAllRoles(ctx)
+	if err != nil {
+		log.Printf("ListAllRoles: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var role *rbac.Role
+	for _, rl := range roles {
+		if rl.ID == roleID {
+			role = rl
+			break
+		}
+	}
+	if role == nil {
+		http.Error(w, "Role not found", http.StatusNotFound)
+		return
+	}
+
+	allPerms, err := h.rbacRepo.ListAllPermissions(ctx)
+	if err != nil {
+		log.Printf("ListAllPermissions: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	rolePerms, err := h.rbacRepo.GetRolePermissions(ctx, roleID)
+	if err != nil {
+		log.Printf("GetRolePermissions: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	rolePermSet := make(map[string]bool)
+	for _, p := range rolePerms {
+		rolePermSet[p.ID] = true
+	}
+
+	isAdminRole := role.Name == "admin"
+
+	var checkboxes []permissionCheckbox
+	for _, p := range allPerms {
+		disabled := isAdminRole && p.Name == "admin:rbac"
+		checkboxes = append(checkboxes, permissionCheckbox{
+			ID:       p.ID,
+			Name:     p.Name,
+			Checked:  rolePermSet[p.ID] || disabled,
+			Disabled: disabled,
+		})
+	}
+
+	data := rolePermissionModalData{
+		RoleID:      roleID,
+		RoleName:    role.Name,
+		Permissions: checkboxes,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	t := template.Must(h.tmpl.Clone())
+	if err := t.ExecuteTemplate(w, "admin_roles_modal", data); err != nil {
+		log.Printf("admin_roles_modal template: %v", err)
+	}
+}
+
+func (h *AdminHandler) RolesSavePermissions(w http.ResponseWriter, r *http.Request) {
+	roleID := muxVars(r)["id"]
+	if roleID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	permIDs := r.Form["permissions"]
+
+	ctx := r.Context()
+	if err := h.rbacRepo.SetRolePermissions(ctx, roleID, permIDs); err != nil {
+		log.Printf("SetRolePermissions: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	data := h.buildRolesData(r)
+	data.CloseModal = true
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	t := template.Must(h.tmpl.Clone())
+	if err := t.ExecuteTemplate(w, "admin_roles", data); err != nil {
+		log.Printf("admin_roles template: %v", err)
+	}
+}
+
+func (h *AdminHandler) RolesUsersModal(w http.ResponseWriter, r *http.Request) {
+	roleID := muxVars(r)["id"]
+	if roleID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	roles, err := h.rbacRepo.ListAllRoles(ctx)
+	if err != nil {
+		log.Printf("ListAllRoles: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var role *rbac.Role
+	for _, rl := range roles {
+		if rl.ID == roleID {
+			role = rl
+			break
+		}
+	}
+	if role == nil {
+		http.Error(w, "Role not found", http.StatusNotFound)
+		return
+	}
+
+	allProfiles, err := h.profileRepo.ListAll(ctx)
+	if err != nil {
+		log.Printf("ListAll profiles: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	userIDToName := make(map[string]string)
+	for _, p := range allProfiles {
+		if p.UserID != nil {
+			userIDToName[*p.UserID] = p.DisplayName()
+		}
+	}
+
+	userIDs, err := h.rbacRepo.GetUsersByRoleName(ctx, role.Name)
+	if err != nil {
+		log.Printf("GetUsersByRoleName: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var userNames []string
+	for _, uid := range userIDs {
+		if name, ok := userIDToName[uid]; ok {
+			userNames = append(userNames, name)
+		} else {
+			userNames = append(userNames, uid)
+		}
+	}
+	sort.Strings(userNames)
+
+	data := struct {
+		RoleName string
+		Users    []string
+	}{
+		RoleName: role.Name,
+		Users:    userNames,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	t := template.Must(h.tmpl.Clone())
+	if err := t.ExecuteTemplate(w, "admin_roles_users_modal", data); err != nil {
+		log.Printf("admin_roles_users_modal template: %v", err)
+	}
 }
 
 func (h *AdminHandler) GrantAdmin(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +314,14 @@ func (h *AdminHandler) toggleAdmin(w http.ResponseWriter, r *http.Request, grant
 		return
 	}
 
-	targetUserID := extractIDFromPathRole(r.URL.Path)
+	parts := strings.Split(strings.TrimRight(r.URL.Path, "/"), "/")
+	targetUserID := ""
+	for i, p := range parts {
+		if p == "roles" && i+1 < len(parts) {
+			targetUserID = parts[i+1]
+			break
+		}
+	}
 	if targetUserID == "" {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
@@ -111,6 +330,7 @@ func (h *AdminHandler) toggleAdmin(w http.ResponseWriter, r *http.Request, grant
 	if grant && targetUserID == user.ID {
 		data := h.buildRolesData(r)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("HX-Trigger-After-Swap", "closeModal")
 		t := template.Must(h.tmpl.Clone())
 		if err := t.ExecuteTemplate(w, "admin_roles", data); err != nil {
 			log.Printf("admin_roles template: %v", err)
@@ -147,16 +367,6 @@ func (h *AdminHandler) toggleAdmin(w http.ResponseWriter, r *http.Request, grant
 	if err := t.ExecuteTemplate(w, "admin_roles", data); err != nil {
 		log.Printf("admin_roles template: %v", err)
 	}
-}
-
-func extractIDFromPathRole(path string) string {
-	parts := strings.Split(strings.TrimRight(path, "/"), "/")
-	for i, p := range parts {
-		if p == "roles" && i+1 < len(parts) {
-			return parts[i+1]
-		}
-	}
-	return ""
 }
 
 func (h *AdminHandler) AdminPage(w http.ResponseWriter, r *http.Request) {
@@ -586,91 +796,82 @@ func (h *AdminHandler) buildRolesData(r *http.Request) adminRolesPageData {
 	allProfiles, err := h.profileRepo.ListAll(ctx)
 	if err != nil {
 		log.Printf("ListAll profiles: %v", err)
-		return adminRolesPageData{Title: "Admin: Roles"}
+		return adminRolesPageData{Title: "Admin: Roles & Permissions"}
+	}
+
+	userIDToName := make(map[string]string)
+	for _, p := range allProfiles {
+		if p.UserID != nil {
+			userIDToName[*p.UserID] = p.DisplayName()
+		}
 	}
 
 	allRoles, err := h.rbacRepo.ListAllRoles(ctx)
 	if err != nil {
 		log.Printf("ListAll roles: %v", err)
-		return adminRolesPageData{Title: "Admin: Roles"}
+		return adminRolesPageData{Title: "Admin: Roles & Permissions"}
 	}
 
-	adminRoleID := ""
+	var adultRows, youthRows []rolePermissionRow
 	for _, role := range allRoles {
-		if role.Name == "admin" {
-			adminRoleID = role.ID
-			break
-		}
-	}
-
-	currentUser, err := h.auth.GetAuthenticatedUser(r)
-	currentUserID := ""
-	if err == nil && currentUser != nil {
-		currentUserID = currentUser.ID
-	}
-
-	buildRow := func(p *profile.Profile) (adminRolesUserRow, bool) {
-		row := adminRolesUserRow{
-			Name:  p.DisplayName(),
-			Email: p.Email,
-		}
-
-		if p.UserID == nil {
-			row.Roles = "(not registered)"
-			return row, true
-		}
-
-		row.ID = *p.UserID
-		row.IsSelf = *p.UserID == currentUserID
-
-		userRoles, err := h.rbacRepo.GetUserRoles(ctx, *p.UserID)
+		perms, err := h.rbacRepo.GetRolePermissions(ctx, role.ID)
 		if err != nil {
-			log.Printf("GetUserRoles for %s: %v", *p.UserID, err)
-			return row, false
-		}
-
-		roleNames := make([]string, 0, len(userRoles))
-		for _, role := range userRoles {
-			roleNames = append(roleNames, role.Name)
-			if role.ID == adminRoleID {
-				row.HasAdmin = true
-			}
-		}
-		sort.Strings(roleNames)
-		row.Roles = strings.Join(roleNames, ", ")
-		if row.Roles == "" {
-			row.Roles = "(none)"
-		}
-		return row, true
-	}
-
-	var adults, youth []adminRolesUserRow
-	for _, p := range allProfiles {
-		row, ok := buildRow(p)
-		if !ok {
+			log.Printf("GetRolePermissions for %s: %v", role.Name, err)
 			continue
 		}
-		if p.MemberType == profile.MemberTypeAdult {
-			adults = append(adults, row)
+
+		permNames := make([]string, 0, len(perms))
+		for _, p := range perms {
+			permNames = append(permNames, p.Name)
+		}
+		sort.Strings(permNames)
+
+		permStr := strings.Join(permNames, ", ")
+		if permStr == "" {
+			permStr = "(none)"
+		}
+
+		userIDs, err := h.rbacRepo.GetUsersByRoleName(ctx, role.Name)
+		userCount := 0
+		var userNames []string
+		if err == nil {
+			userCount = len(userIDs)
+			for _, uid := range userIDs {
+				if name, ok := userIDToName[uid]; ok {
+					userNames = append(userNames, name)
+				}
+			}
+		}
+		sort.Strings(userNames)
+
+		row := rolePermissionRow{
+			RoleID:      role.ID,
+			RoleName:    role.Name,
+			Permissions: permStr,
+			UserCount:   userCount,
+			UserNames:   strings.Join(userNames, ", "),
+		}
+
+		if isYouthRole(role.Name) {
+			youthRows = append(youthRows, row)
 		} else {
-			youth = append(youth, row)
+			adultRows = append(adultRows, row)
 		}
 	}
 
-	sort.Slice(adults, func(i, j int) bool { return adults[i].Name < adults[j].Name })
-	sort.Slice(youth, func(i, j int) bool { return youth[i].Name < youth[j].Name })
+	sort.Slice(adultRows, func(i, j int) bool { return adultRows[i].RoleName < adultRows[j].RoleName })
+	sort.Slice(youthRows, func(i, j int) bool { return youthRows[i].RoleName < youthRows[j].RoleName })
 
-	if adults == nil {
-		adults = []adminRolesUserRow{}
+	if adultRows == nil {
+		adultRows = []rolePermissionRow{}
 	}
-	if youth == nil {
-		youth = []adminRolesUserRow{}
+	if youthRows == nil {
+		youthRows = []rolePermissionRow{}
 	}
 
 	return adminRolesPageData{
-		Title:  "Admin: Roles",
-		Adults: adults,
-		Youth:  youth,
-		Total:  len(adults) + len(youth),
+		Title:      "Admin: Roles & Permissions",
+		AdultRoles: adultRows,
+		YouthRoles: youthRows,
 	}
 }

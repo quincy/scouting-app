@@ -26,10 +26,6 @@ func setupAdminConnectionsTest(t *testing.T) (*AdminHandler, *auth.AuthService, 
 	authService := auth.NewAuthService(store.User, store.Profile, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
-	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
-		t.Fatalf("SeedRoles: %v", err)
-	}
-
 	_, adminProfile := seedAdminUser(t, store, hasher, ctx)
 
 	handler := NewAdminHandler(store.Profile, store.ParentYouthLink, store.RBAC, authService)

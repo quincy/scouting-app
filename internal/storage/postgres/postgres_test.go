@@ -38,9 +38,6 @@ func truncateAll(t *testing.T) {
 		"otp_codes",
 		"profiles",
 		"user_roles",
-		"role_permissions",
-		"permissions",
-		"roles",
 		"users",
 	}
 	truncateTables(t, tables...)

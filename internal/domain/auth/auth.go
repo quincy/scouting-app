@@ -153,69 +153,6 @@ func (s *AuthService) checkProfileActive(ctx context.Context, userID string) err
 	return errors.New("account is inactive")
 }
 
-var defaultRoles = []struct {
-	Name        string
-	Permissions []string
-}{
-	{Name: "admin", Permissions: []string{"event:create", "event:view", "event:signup", "event:withdraw", "admin:settings"}},
-	{Name: "Scoutmaster", Permissions: []string{"event:create", "event:view", "event:signup", "event:withdraw"}},
-	{Name: "Assistant Scoutmaster", Permissions: []string{"event:create", "event:view", "event:signup", "event:withdraw"}},
-	{Name: "Scouts BSA", Permissions: []string{"event:view", "event:signup", "event:withdraw"}},
-	{Name: "parent", Permissions: []string{"event:view", "event:signup", "event:withdraw"}},
-	{Name: "Assistant Patrol Leader", Permissions: nil},
-	{Name: "Assistant Senior Patrol Leader", Permissions: nil},
-	{Name: "Chaplain Aide", Permissions: nil},
-	{Name: "Chartered Organization Rep.", Permissions: nil},
-	{Name: "Committee Chairman", Permissions: nil},
-	{Name: "Committee Member", Permissions: nil},
-	{Name: "Den Chief", Permissions: nil},
-	{Name: "Executive Officer", Permissions: nil},
-	{Name: "Historian", Permissions: nil},
-	{Name: "Librarian", Permissions: nil},
-	{Name: "Life-to-Eagle Coordinator", Permissions: nil},
-	{Name: "OA Unit Representative", Permissions: nil},
-	{Name: "Outdoor Ethics Guide", Permissions: nil},
-	{Name: "Patrol Admin", Permissions: nil},
-	{Name: "Patrol Leader", Permissions: nil},
-	{Name: "Quartermaster", Permissions: nil},
-	{Name: "Scribe", Permissions: nil},
-	{Name: "Senior Patrol Leader", Permissions: nil},
-	{Name: "Troop Admin", Permissions: nil},
-	{Name: "Troop Guide", Permissions: nil},
-	{Name: "Unit Advancement Chair", Permissions: nil},
-	{Name: "Unit College Scouter Reserve", Permissions: nil},
-	{Name: "Unit Outdoors / Activities Chair", Permissions: nil},
-	{Name: "Unit Public Relations Chair", Permissions: nil},
-	{Name: "Unit Scouter Reserve", Permissions: nil},
-	{Name: "Unit Training Chair", Permissions: nil},
-	{Name: "Unit Treasurer", Permissions: nil},
-	{Name: "Webmaster", Permissions: nil},
-	{Name: "Youth Protection Champion", Permissions: nil},
-}
-
-func SeedRoles(ctx context.Context, rbacRepo rbac.Repository) error {
-	permIDs := make(map[string]string)
-	for _, permName := range []string{"event:create", "event:view", "event:signup", "event:withdraw", "admin:settings"} {
-		perm := &rbac.Permission{Name: permName}
-		if err := rbacRepo.CreatePermission(ctx, perm); err != nil {
-			return err
-		}
-		permIDs[permName] = perm.ID
-	}
-	for _, rl := range defaultRoles {
-		role := &rbac.Role{Name: rl.Name}
-		if err := rbacRepo.CreateRole(ctx, role); err != nil {
-			return err
-		}
-		for _, permName := range rl.Permissions {
-			if err := rbacRepo.LinkPermissionToRole(ctx, role.ID, permIDs[permName]); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 func (s *AuthService) SeedAdminUser(ctx context.Context) error {
 	hash, err := s.hasher.Hash("password")
 	if err != nil {
