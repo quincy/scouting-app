@@ -1,54 +1,161 @@
-{{define "roles_table"}}
-<table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
-    <thead>
-        <tr style="background:#f5f5f5;text-align:left;">
-            <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Name</th>
-            <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Email</th>
-            <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;">Roles</th>
-            <th style="padding:10px 14px;font-size:0.8rem;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:0.5px;width:140px;">Admin</th>
-        </tr>
-    </thead>
-    <tbody>
-        {{range .}}
-        <tr style="border-top:1px solid #f0f0f0;">
-            <td style="padding:10px 14px;font-weight:500;">{{.Name}}</td>
-            <td style="padding:10px 14px;color:#555;font-size:0.875rem;">{{.Email}}</td>
-            <td style="padding:10px 14px;font-size:0.875rem;color:#555;">
-                {{if eq .Roles "(not registered)"}}<span style="color:#999;font-style:italic;">{{.Roles}}</span>{{else if eq .Roles "(none)"}}<span style="color:#999;">—</span>{{else}}{{.Roles}}{{end}}
-            </td>
-            <td style="padding:10px 14px;">
-                {{if eq .Roles "(not registered)"}}
-                    <span style="color:#999;font-size:0.8rem;">—</span>
-                {{else if .IsSelf}}
-                    <span style="color:#999;font-size:0.8rem;">(you)</span>
-                {{else if .HasAdmin}}
-                    <button hx-post="/admin/roles/{{.ID}}/remove-admin"
-                            hx-target="#admin-content"
-                            hx-swap="innerHTML"
-                            style="background:#c62828;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:0.8rem;cursor:pointer;">Revoke Admin</button>
-                {{else}}
-                    <button hx-post="/admin/roles/{{.ID}}/grant-admin"
-                            hx-target="#admin-content"
-                            hx-swap="innerHTML"
-                            style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:0.8rem;cursor:pointer;">Grant Admin</button>
-                {{end}}
-            </td>
-        </tr>
-        {{end}}
-    </tbody>
-</table>
+{{define "admin_roles"}}
+<div id="roles-list">
+    <h2 class="roles-title">Roles & Permissions</h2>
+
+    <h3 class="roles-subtitle">Adult Roles ({{len .AdultRoles}})</h3>
+    {{if .AdultRoles}}
+    <table class="roles-table">
+        <thead>
+            <tr>
+                <th>Role</th>
+                <th class="users-col">Users With Role</th>
+                <th>Permissions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .AdultRoles}}
+            <tr>
+                <td class="role-name">{{.RoleName}}</td>
+                <td class="user-cell"
+                    hx-get="/admin/roles/{{.RoleID}}/users"
+                    hx-target="#modal-container"
+                    hx-swap="innerHTML"
+                    hx-trigger="click"
+                    onclick="document.getElementById('modal-overlay').classList.add('open')">
+                    <span class="user-text">{{.UserCount}}</span>
+                    <span class="eye-icon">
+                        <svg class="svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </span>
+                </td>
+                <td class="perm-cell"
+                    hx-get="/admin/roles/{{.RoleID}}/edit"
+                    hx-target="#modal-container"
+                    hx-swap="innerHTML"
+                    hx-trigger="click"
+                    onclick="document.getElementById('modal-overlay').classList.add('open')">
+                    <span class="perm-text">{{.Permissions}}</span>
+                    <span class="edit-icon">
+                        <svg class="svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </span>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p class="roles-empty">No adult roles found.</p>
+    {{end}}
+
+    <h3 class="roles-subtitle">Youth Roles ({{len .YouthRoles}})</h3>
+    {{if .YouthRoles}}
+    <table class="roles-table">
+        <thead>
+            <tr>
+                <th>Role</th>
+                <th class="users-col">Users With Role</th>
+                <th>Permissions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .YouthRoles}}
+            <tr>
+                <td class="role-name">{{.RoleName}}</td>
+                <td class="user-cell"
+                    hx-get="/admin/roles/{{.RoleID}}/users"
+                    hx-target="#modal-container"
+                    hx-swap="innerHTML"
+                    hx-trigger="click"
+                    onclick="document.getElementById('modal-overlay').classList.add('open')">
+                    <span class="user-text">{{.UserCount}}</span>
+                    <span class="eye-icon">
+                        <svg class="svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </span>
+                </td>
+                <td class="perm-cell"
+                    hx-get="/admin/roles/{{.RoleID}}/edit"
+                    hx-target="#modal-container"
+                    hx-swap="innerHTML"
+                    hx-trigger="click"
+                    onclick="document.getElementById('modal-overlay').classList.add('open')">
+                    <span class="perm-text">{{.Permissions}}</span>
+                    <span class="edit-icon">
+                        <svg class="svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </span>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p class="roles-empty">No youth roles found.</p>
+    {{end}}
+</div>
+
+<div id="modal-overlay" class="modal-overlay"{{if .CloseModal}} hx-swap-oob="true"{{end}} onclick="if(event.target===this)closeModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div id="modal-container">Loading...</div>
+    </div>
+</div>
+
+<script>
+    function closeModal() {
+        document.getElementById('modal-overlay').classList.remove('open');
+    }
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeModal();
+    });
+</script>
 {{end}}
 
-{{define "admin_roles"}}
-<div style="margin-bottom:32px;">
-    <h2 style="font-size:1.25rem;margin-bottom:8px;color:#16213e;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">Adults ({{len .Adults}})</h2>
-    {{if .Adults}}{{template "roles_table" .Adults}}{{else}}<p style="color:#999;padding:16px;">No adults found.</p>{{end}}
+{{define "admin_roles_modal"}}
+<div class="modal-header">
+    <h3>Edit: {{.RoleName}}</h3>
 </div>
+<form id="perm-form" hx-post="/admin/roles/{{.RoleID}}/permissions"
+      hx-target="#roles-list"
+      hx-swap="outerHTML">
+    {{range .Permissions}}
+    <div class="permission-checkbox">
+        <input type="checkbox" name="permissions" value="{{.ID}}" id="perm-{{.ID}}"{{if .Checked}} checked{{end}}{{if .Disabled}} disabled{{end}}>
+        <label for="perm-{{.ID}}">{{.Name}}{{if .Disabled}} (required){{end}}</label>
+    </div>
+    {{end}}
+    <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="submit" id="save-btn" class="btn-primary" disabled>Save</button>
+    </div>
+</form>
+<script>
+    (function(){
+        var form = document.getElementById('perm-form');
+        if (!form) return;
+        var checkboxes = Array.from(form.querySelectorAll('input[type="checkbox"]:not(:disabled)'));
+        var saveBtn = document.getElementById('save-btn');
+        var initial = checkboxes.map(function(cb){ return cb.checked; });
+        function updateSave(){
+            saveBtn.disabled = checkboxes.every(function(cb, i){ return cb.checked === initial[i]; });
+        }
+        checkboxes.forEach(function(cb){ cb.addEventListener('change', updateSave); });
+    })();
+</script>
+{{end}}
 
-<div style="margin-bottom:32px;">
-    <h2 style="font-size:1.25rem;margin-bottom:8px;color:#16213e;border-bottom:2px solid #e0e0e0;padding-bottom:8px;">Youth / Scouts ({{len .Youth}})</h2>
-    {{if .Youth}}{{template "roles_table" .Youth}}{{else}}<p style="color:#999;padding:16px;">No youth found.</p>{{end}}
+{{define "admin_roles_users_modal"}}
+<div class="modal-header">
+    <h3>Users with role: {{.RoleName}}</h3>
 </div>
-
-<p style="margin-top:12px;font-size:0.8rem;color:#999;">Total: {{.Total}} profile(s)</p>
+<div class="users-wrapper">
+    {{if .Users}}
+    <ul class="users-list">
+        {{range .Users}}
+        <li>{{.}}</li>
+        {{end}}
+    </ul>
+    {{else}}
+    <p class="users-empty">No users have this role.</p>
+    {{end}}
+</div>
+<div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="closeModal()">Dismiss</button>
+</div>
 {{end}}

@@ -29,10 +29,6 @@ func setupFamilyConnectionsTest(t *testing.T) (*FamilyConnectionsHandler, *auth.
 	authService := auth.NewAuthService(store.User, store.Profile, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
-	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
-		t.Fatalf("SeedRoles: %v", err)
-	}
-
 	_, parentProfile := seedAdminUser(t, store, hasher, ctx)
 	parentProfile.BSAID = "PAR001"
 	parentProfile.FirstName = "Parent"

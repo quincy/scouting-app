@@ -59,7 +59,6 @@ func (m *mockSyncRepo) Update(ctx context.Context, p *profile.Profile) error { r
 
 type mockRBACRepo struct{}
 
-func (m *mockRBACRepo) SeedRoles(ctx context.Context) error                               { return nil }
 func (m *mockRBACRepo) CreateRole(ctx context.Context, r *rbac.Role) error                { return nil }
 func (m *mockRBACRepo) CreatePermission(ctx context.Context, p *rbac.Permission) error    { return nil }
 func (m *mockRBACRepo) AssignRoleToUser(ctx context.Context, userID, roleID string) error { return nil }
@@ -82,6 +81,15 @@ func (m *mockRBACRepo) GetRoleByName(ctx context.Context, name string) (*rbac.Ro
 }
 func (m *mockRBACRepo) GetUsersByRoleName(ctx context.Context, name string) ([]string, error) {
 	return nil, nil
+}
+func (m *mockRBACRepo) ListAllPermissions(ctx context.Context) ([]*rbac.Permission, error) {
+	return nil, nil
+}
+func (m *mockRBACRepo) GetRolePermissions(ctx context.Context, roleID string) ([]*rbac.Permission, error) {
+	return nil, nil
+}
+func (m *mockRBACRepo) SetRolePermissions(ctx context.Context, roleID string, permIDs []string) error {
+	return nil
 }
 
 var mockRBAC = &mockRBACRepo{}

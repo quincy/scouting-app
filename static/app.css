@@ -883,13 +883,51 @@ button.full-width:hover { background: #0d47a1; }
   display: flex; align-items: center; justify-content: center;
   z-index: 1000;
 }
+#modal-overlay { display: none; }
+#modal-overlay.open { display: flex; }
 .modal-dialog {
   background: #fff; border-radius: 8px; padding: 24px;
   max-width: 480px; width: 90%; box-shadow: 0 4px 24px rgba(0,0,0,0.2);
 }
 .modal-dialog h3 { margin: 0 0 12px; font-size: 1.25rem; }
 .modal-dialog p { margin: 0 0 20px; color: #555; }
-.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-content {
+  background: #fff; border-radius: 12px; padding: 24px;
+  min-width: 400px; max-width: 500px; box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px; padding-bottom: 12px;
+  border-bottom: 1px solid #e0e0e0;
+}
+.modal-header h3 { margin: 0; font-size: 1.1rem; color: #16213e; }
+.modal-close {
+  background: none; border: none; font-size: 1.5rem;
+  cursor: pointer; color: #999; padding: 0; line-height: 1;
+}
+.modal-close:hover { color: #333; }
+.permission-checkbox {
+  display: flex; align-items: center; padding: 8px 0;
+  border-bottom: 1px solid #f5f5f5; cursor: pointer;
+}
+.permission-checkbox:last-child { border-bottom: none; }
+.permission-checkbox input[type="checkbox"] { width: 18px; height: 18px; margin-right: 12px; cursor: pointer; }
+.permission-checkbox label { font-size: 0.9rem; color: #333; cursor: pointer; flex: 1; }
+.permission-checkbox input:disabled + label { color: #999; cursor: not-allowed; }
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 16px; padding-top: 12px; border-top: 1px solid #e0e0e0;
+}
+.btn-secondary {
+  background: #f5f5f5; color: #333; border: 1px solid #ddd;
+  border-radius: 6px; padding: 8px 16px; font-size: 0.85rem; cursor: pointer;
+}
+.btn-primary {
+  background: #1976d2; color: #fff; border: none;
+  border-radius: 6px; padding: 8px 16px; font-size: 0.85rem; cursor: pointer;
+}
+.btn-primary:hover { background: #1565c0; }
+.btn-primary:disabled { background: #b0bec5; cursor: not-allowed; }
 .btn-danger {
   background: #c62828; color: #fff; border: none;
   border-radius: 6px; padding: 10px 24px; font-size: 1rem;
@@ -902,3 +940,51 @@ button.full-width:hover { background: #0d47a1; }
   cursor: pointer;
 }
 .btn-cancel:hover { background: #bdbdbd; }
+
+/* === Roles & Permissions === */
+.roles-title {
+  font-size: 1.25rem; margin-bottom: 16px; color: #16213e;
+  border-bottom: 2px solid #e0e0e0; padding-bottom: 8px;
+}
+.roles-subtitle { font-size: 1rem; margin-bottom: 8px; color: #16213e; }
+.roles-table {
+  width: 100%; border-collapse: collapse; background: #fff;
+  border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;
+  margin-bottom: 24px;
+}
+.roles-table thead tr { background: #f5f5f5; text-align: left; }
+.roles-table th {
+  padding: 10px 14px; font-size: 0.8rem; font-weight: 600;
+  color: #555; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.roles-table th.users-col { width: 120px; text-align: center; }
+.roles-table tbody tr { border-top: 1px solid #f0f0f0; }
+.roles-table td { padding: 10px 14px; }
+.roles-table td.role-name { font-weight: 500; }
+.roles-table td.user-cell { font-size: 0.875rem; color: #555; }
+.roles-table td.perm-cell { font-size: 0.875rem; color: #555; }
+.perm-cell { cursor: pointer; position: relative; }
+.perm-cell .perm-text { display: inline; }
+.perm-cell .edit-icon {
+  display: none; vertical-align: middle; margin-left: 6px; opacity: 0.6;
+}
+.perm-cell:hover .edit-icon { display: inline-block; }
+.perm-cell:hover .perm-text { color: #1976d2; }
+.user-cell { cursor: pointer; text-align: center; position: relative; }
+.user-cell .user-text { display: inline; }
+.user-cell .eye-icon {
+  display: none; vertical-align: middle; margin-left: 4px; opacity: 0.6;
+}
+tr:hover .user-cell .user-text,
+tr:hover .perm-cell .perm-text { color: #1976d2; }
+tr:hover .user-cell .eye-icon,
+tr:hover .perm-cell .edit-icon { display: inline-block; }
+.roles-empty { color: #999; padding: 16px; }
+.users-wrapper { margin-bottom: 16px; }
+.users-list { list-style: none; padding: 0; margin: 0; }
+.users-list li {
+  padding: 8px 0; border-bottom: 1px solid #f5f5f5;
+  font-size: 0.9rem; color: #333;
+}
+.users-empty { color: #999; font-size: 0.9rem; }
+.svg-icon { vertical-align: middle; }

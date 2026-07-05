@@ -29,15 +29,15 @@ func newMockRBACRepository() *mockRBACRepository {
 		userRoles:       make(map[string][]string),
 		rolePermissions: make(map[string][]string),
 	}
-	_ = r.SeedRoles(context.Background())
+	seedRoles(r)
 	return r
 }
 
-func (r *mockRBACRepository) SeedRoles(ctx context.Context) error {
+func seedRoles(r *mockRBACRepository) {
 	permIDs := make(map[string]string)
 	for _, permName := range []string{"event:create", "event:view", "event:signup", "event:withdraw"} {
 		perm := &rbac.Permission{Name: permName}
-		_ = r.CreatePermission(ctx, perm)
+		_ = r.CreatePermission(context.Background(), perm)
 		permIDs[permName] = perm.ID
 	}
 
@@ -55,12 +55,11 @@ func (r *mockRBACRepository) SeedRoles(ctx context.Context) error {
 	}
 	for _, rd := range roleDefs {
 		role := &rbac.Role{Name: rd.Name}
-		_ = r.CreateRole(ctx, role)
+		_ = r.CreateRole(context.Background(), role)
 		for _, pn := range rd.Permissions {
-			_ = r.LinkPermissionToRole(ctx, role.ID, permIDs[pn])
+			_ = r.LinkPermissionToRole(context.Background(), role.ID, permIDs[pn])
 		}
 	}
-	return nil
 }
 
 func (r *mockRBACRepository) CreateRole(ctx context.Context, role *rbac.Role) error {
@@ -209,6 +208,39 @@ func (r *mockRBACRepository) GetUsersByRoleName(ctx context.Context, name string
 		}
 	}
 	return userIDs, nil
+}
+
+func (r *mockRBACRepository) ListAllPermissions(ctx context.Context) ([]*rbac.Permission, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var perms []*rbac.Permission
+	for _, perm := range r.permissions {
+		perms = append(perms, perm)
+	}
+	return perms, nil
+}
+
+func (r *mockRBACRepository) GetRolePermissions(ctx context.Context, roleID string) ([]*rbac.Permission, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	pids := r.rolePermissions[roleID]
+	var perms []*rbac.Permission
+	for _, pid := range pids {
+		if perm, ok := r.permissions[pid]; ok {
+			perms = append(perms, perm)
+		}
+	}
+	return perms, nil
+}
+
+func (r *mockRBACRepository) SetRolePermissions(ctx context.Context, roleID string, permIDs []string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.roles[roleID]; !ok {
+		return fmt.Errorf("role %q not found", roleID)
+	}
+	r.rolePermissions[roleID] = permIDs
+	return nil
 }
 
 type mockClient struct {

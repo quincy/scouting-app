@@ -23,11 +23,6 @@ func setupSettingsTest(t *testing.T) (*SettingsHandler, *auth.AuthService, *post
 	cookieStore := auth.NewCookieStore("test-secret-key")
 	authService := auth.NewAuthService(store.User, store.Profile, store.RBAC, hasher, cookieStore)
 
-	ctx := t.Context()
-	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
-		t.Fatalf("SeedRoles: %v", err)
-	}
-
 	appCfg := appconfig.NewInMemoryRepository()
 	emailSvc := mock.NewEmailService()
 	handler := NewSettingsHandler(appCfg, emailSvc, authService, store.Profile)

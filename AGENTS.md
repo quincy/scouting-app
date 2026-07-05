@@ -56,4 +56,8 @@ this git repository. You are NEVER allowed to remove files outside the git repos
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 
+### CSS Style Guidance
+
+All styling must go in `static/app.css`. Never use inline `style` attributes or `<style>` blocks in HTML templates. Use CSS classes with meaningful names. This keeps styles consistent and discoverable across the project.
+
 

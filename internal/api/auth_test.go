@@ -18,11 +18,6 @@ func setupAuthTest(t *testing.T) (*AuthHandler, *auth.AuthService, *sql.DB) {
 	store := postgres.NewStore(db)
 	hasher := &auth.MockHasher{}
 
-	ctx := t.Context()
-	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
-		t.Fatalf("SeedRoles: %v", err)
-	}
-
 	cookieStore := auth.NewCookieStore("test-secret-key")
 	authService := auth.NewAuthService(store.User, store.Profile, store.RBAC, hasher, cookieStore)
 	authHandler := NewAuthHandler(authService)

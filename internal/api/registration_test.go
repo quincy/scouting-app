@@ -30,10 +30,6 @@ func setupRegistrationTest(t *testing.T) (*RegistrationHandler, *auth.AuthServic
 	authService := auth.NewAuthService(store.User, store.Profile, store.RBAC, hasher, cookieStore)
 
 	ctx := t.Context()
-	if err := auth.SeedRoles(ctx, store.RBAC); err != nil {
-		t.Fatalf("SeedRoles: %v", err)
-	}
-
 	seedAdminUser(t, store, hasher, ctx)
 
 	youthProfile := &profile.Profile{
