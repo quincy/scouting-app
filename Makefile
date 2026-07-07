@@ -45,7 +45,7 @@ cover-ci:
 		coverfile=/tmp/cover-$$(echo $$dir | tr '/' '-').out; \
 		go test -coverprofile=$$coverfile "$$pkg" 2>/dev/null >/dev/null || true; \
 		if [ -f "$$coverfile" ]; then \
-			pct=$$(go tool cover -func=$$coverfile | awk -v f="^$$f:" '$0 ~ f {print $$NF}'); \
+			pct=$$(go tool cover -func=$$coverfile | awk -v f="$$f:" 'index($$0, f) > 0 {print $$NF}'); \
 			if [ "$$pct" = "0.0%" ]; then \
 				echo "  FAIL  $$f  (0.0% coverage)"; \
 				fail=1; \
