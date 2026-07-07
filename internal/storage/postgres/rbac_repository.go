@@ -169,6 +169,30 @@ func (r *RBACRepository) GetUsersByRoleName(ctx context.Context, name string) ([
 	return userIDs, rows.Err()
 }
 
+func (r *RBACRepository) GetUsersByPermission(ctx context.Context, permission string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT DISTINCT ur.user_id
+		 FROM user_roles ur
+		 JOIN role_permissions rp ON rp.role_id = ur.role_id
+		 JOIN permissions p ON p.id = rp.permission_id
+		 WHERE p.name = $1`, permission,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var userIDs []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		userIDs = append(userIDs, userID)
+	}
+	return userIDs, rows.Err()
+}
+
 func (r *RBACRepository) ListAllPermissions(ctx context.Context) ([]*rbac.Permission, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id, name FROM permissions ORDER BY name`)
 	if err != nil {

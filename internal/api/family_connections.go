@@ -78,25 +78,28 @@ func (h *FamilyConnectionsHandler) isAdmin(ctx context.Context, r *http.Request)
 }
 
 func (h *FamilyConnectionsHandler) notifyAdmins(ctx context.Context, parentProfile, youthProfile *profile.Profile) {
-	adminUserIDs, err := h.rbac.GetUsersByRoleName(ctx, "admin")
+	userIDs, err := h.rbac.GetUsersByPermission(ctx, "admin:connections")
 	if err != nil {
-		log.Printf("notifyAdmins: GetUsersByRoleName: %v", err)
+		log.Printf("notifyAdmins: GetUsersByPermission: %v", err)
 		return
 	}
 
-	var adminEmails []string
-	for _, uid := range adminUserIDs {
+	var emails []string
+	for _, uid := range userIDs {
 		p, err := h.profileRepo.GetByUserID(ctx, uid)
 		if err != nil {
 			log.Printf("notifyAdmins: GetByUserID %s: %v", uid, err)
 			continue
 		}
+		if p.Status == profile.StatusInactive {
+			continue
+		}
 		if p.Email != "" {
-			adminEmails = append(adminEmails, p.Email)
+			emails = append(emails, p.Email)
 		}
 	}
 
-	if len(adminEmails) == 0 {
+	if len(emails) == 0 {
 		return
 	}
 
@@ -105,7 +108,7 @@ func (h *FamilyConnectionsHandler) notifyAdmins(ctx context.Context, parentProfi
 		"Please visit the admin panel to review and approve or reject the request:\n" +
 		"http://localhost:8080/admin/connections"
 
-	if err := h.emailSvc.SendAdminNotification(ctx, adminEmails, subject, body); err != nil {
+	if err := h.emailSvc.SendAdminNotification(ctx, emails, subject, body); err != nil {
 		log.Printf("notifyAdmins: SendAdminNotification: %v", err)
 	}
 }

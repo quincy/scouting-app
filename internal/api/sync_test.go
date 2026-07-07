@@ -91,6 +91,9 @@ func (m *mockRBACRepo) GetRolePermissions(ctx context.Context, roleID string) ([
 func (m *mockRBACRepo) SetRolePermissions(ctx context.Context, roleID string, permIDs []string) error {
 	return nil
 }
+func (m *mockRBACRepo) GetUsersByPermission(ctx context.Context, permission string) ([]string, error) {
+	return nil, nil
+}
 
 var mockRBAC = &mockRBACRepo{}
 

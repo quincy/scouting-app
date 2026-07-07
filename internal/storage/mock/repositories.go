@@ -287,6 +287,45 @@ func (r *RBACRepository) GetUsersByRoleName(ctx context.Context, name string) ([
 	return userIDs, nil
 }
 
+func (r *RBACRepository) GetUsersByPermission(ctx context.Context, permission string) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var permID string
+	for _, p := range r.permissions {
+		if p.Name == permission {
+			permID = p.ID
+			break
+		}
+	}
+	if permID == "" {
+		return nil, nil
+	}
+
+	roleIDs := make(map[string]bool)
+	for rid, pids := range r.rolePermissions {
+		for _, pid := range pids {
+			if pid == permID {
+				roleIDs[rid] = true
+				break
+			}
+		}
+	}
+
+	seen := make(map[string]bool)
+	var userIDs []string
+	for uid, rids := range r.userRoles {
+		for _, rid := range rids {
+			if roleIDs[rid] && !seen[uid] {
+				seen[uid] = true
+				userIDs = append(userIDs, uid)
+				break
+			}
+		}
+	}
+	return userIDs, nil
+}
+
 type EventRepository struct {
 	mu        sync.RWMutex
 	events    map[string]*event.Event

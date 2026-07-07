@@ -75,6 +75,9 @@ func (r *memRBACRepo) RemoveRoleFromUser(ctx context.Context, userID, roleID str
 func (r *memRBACRepo) GetUsersByRoleName(ctx context.Context, name string) ([]string, error) {
 	return nil, nil
 }
+func (r *memRBACRepo) GetUsersByPermission(ctx context.Context, permission string) ([]string, error) {
+	return nil, nil
+}
 
 type memProfileRepo struct {
 	profiles map[string]*profile.Profile
