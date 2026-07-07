@@ -40,17 +40,22 @@ cover-ci:
 	fi; \
 	fail=0; \
 	for f in $$changed; do \
+		case "$$f" in internal/storage/mock/*) continue ;; esac; \
+		if ! grep -q '^func ' "$$f" 2>/dev/null; then \
+			echo "  SKIP  $$f  (no executable functions)"; \
+			continue; \
+		fi; \
 		dir=$$(dirname $$f); \
 		pkg=./$$dir; \
 		coverfile=/tmp/cover-$$(echo $$dir | tr '/' '-').out; \
 		go test -coverprofile=$$coverfile "$$pkg" 2>/dev/null >/dev/null || true; \
 		if [ -f "$$coverfile" ]; then \
-			pct=$$(go tool cover -func=$$coverfile | awk -v f="$$f:" 'index($$0, f) > 0 {print $$NF}'); \
-			if [ "$$pct" = "0.0%" ]; then \
+			covered=$$(go tool cover -func=$$coverfile | grep "^scout-app/$$f:" | awk '{print $$NF}' | grep -v "^0\.0%" | head -1); \
+			if [ -z "$$covered" ]; then \
 				echo "  FAIL  $$f  (0.0% coverage)"; \
 				fail=1; \
-			elif [ -n "$$pct" ]; then \
-				echo "  OK    $$f  ($$pct)"; \
+			else \
+				echo "  OK    $$f"; \
 			fi; \
 			rm -f $$coverfile; \
 		fi; \
