@@ -25,7 +25,7 @@ func setupSettingsTest(t *testing.T) (*SettingsHandler, *auth.AuthService, *post
 
 	appCfg := appconfig.NewInMemoryRepository()
 	emailSvc := mock.NewEmailService()
-	handler := NewSettingsHandler(appCfg, emailSvc, authService, store.Profile)
+	handler := NewSettingsHandler(appCfg, emailSvc, authService, store.Profile, store.RBAC)
 
 	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
 
@@ -69,7 +69,7 @@ func TestSettingsPage_ShowsStoredValues(t *testing.T) {
 	appCfg.Set(ctx, appconfig.KeySMTPFrom, "from@example.com")
 
 	emailSvc := mock.NewEmailService()
-	handler2 := NewSettingsHandler(appCfg, emailSvc, authService, store.Profile)
+	handler2 := NewSettingsHandler(appCfg, emailSvc, authService, store.Profile, store.RBAC)
 
 	req := loggedInRequest(t, authService, "GET", "/admin/settings")
 	w := httptest.NewRecorder()
@@ -229,7 +229,7 @@ func TestTestEmail_SendsToAdmin(t *testing.T) {
 	_, _ = seedAdminUser(t, store, &auth.MockHasher{}, ctx)
 
 	appCfg := appconfig.NewInMemoryRepository()
-	handler := NewSettingsHandler(appCfg, emailSvc, authService, store.Profile)
+	handler := NewSettingsHandler(appCfg, emailSvc, authService, store.Profile, store.RBAC)
 
 	req := loggedInRequest(t, authService, "POST", "/admin/settings/test-email")
 	w := httptest.NewRecorder()

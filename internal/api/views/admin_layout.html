@@ -23,31 +23,41 @@
     </div>
     <div class="admin-body">
         <nav class="admin-sidebar">
+            {{if .CanAccessRoster}}
             <a href="/admin/roster"
                hx-get="/admin/roster"
                hx-target="#admin-content"
                hx-swap="innerHTML"
                hx-push-url="true">Roster</a>
+            {{end}}
+            {{if .CanAccessRBAC}}
             <a href="/admin/roles"
                hx-get="/admin/roles"
                hx-target="#admin-content"
                hx-swap="innerHTML"
                hx-push-url="true">Roles &amp; Permissions</a>
+            {{end}}
+            {{if .CanAccessConnections}}
             <a href="/admin/connections"
                hx-get="/admin/connections"
                hx-target="#admin-content"
                hx-swap="innerHTML"
                hx-push-url="true">Connections</a>
+            {{end}}
+            {{if .CanAccessSync}}
             <a href="/admin/sync"
                hx-get="/admin/sync"
                hx-target="#admin-content"
                hx-swap="innerHTML"
                hx-push-url="true">Sync</a>
+            {{end}}
+            {{if .CanAccessSettings}}
             <a href="/admin/settings"
                hx-get="/admin/settings"
                hx-target="#admin-content"
                hx-swap="innerHTML"
                hx-push-url="true">Settings</a>
+            {{end}}
         </nav>
         <div class="admin-content" id="admin-content">
             {{template "content_panel" .}}

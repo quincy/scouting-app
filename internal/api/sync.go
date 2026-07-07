@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"scout-app/internal/domain/appconfig"
+	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/profile"
+	"scout-app/internal/domain/rbac"
 	domainsync "scout-app/internal/domain/sync"
 	"scout-app/internal/scoutbook"
 )
@@ -41,6 +43,7 @@ type syncPageData struct {
 	AdultProfiles []domainsync.ProfileReport
 	YouthProfiles []domainsync.ProfileReport
 	Error         string
+	AdminPerms
 }
 
 type SyncHandler struct {
@@ -49,12 +52,14 @@ type SyncHandler struct {
 	tmpl          *template.Template
 	orgGUID       string
 	appConfigRepo appconfig.Repository
+	auth          *auth.AuthService
+	rbacRepo      rbac.Repository
 
 	mu    stdSync.RWMutex
 	token *storedToken
 }
 
-func NewSyncHandler(svc *domainsync.Service, client *scoutbook.Client, appConfigRepo appconfig.Repository) *SyncHandler {
+func NewSyncHandler(svc *domainsync.Service, client *scoutbook.Client, appConfigRepo appconfig.Repository, authSvc *auth.AuthService, rbacRepo rbac.Repository) *SyncHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
@@ -63,6 +68,8 @@ func NewSyncHandler(svc *domainsync.Service, client *scoutbook.Client, appConfig
 		client:        client,
 		tmpl:          tmpl,
 		appConfigRepo: appConfigRepo,
+		auth:          authSvc,
+		rbacRepo:      rbacRepo,
 	}
 }
 
@@ -99,6 +106,12 @@ func (h *SyncHandler) AdminPage(w http.ResponseWriter, r *http.Request) {
 
 	if errMsg := r.URL.Query().Get("error"); errMsg != "" {
 		data.Error = errMsg
+	}
+
+	if h.auth != nil {
+		if user, err := h.auth.GetAuthenticatedUser(r); err == nil && user != nil {
+			data.AdminPerms = computeAdminPerms(r.Context(), h.rbacRepo, user.ID)
+		}
 	}
 
 	if r.Header.Get("HX-Request") != "" {

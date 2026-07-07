@@ -84,7 +84,7 @@ func main() {
 	// Scoutbook sync
 	scoutbookClient := scoutbook.NewClient(cfg.ScoutbookAPIBaseURL, cfg.ScoutbookToken, "")
 	syncSvc := sync.NewService(profileRepo, rbacRepo, sync.NewScoutbookClientAdapter(scoutbookClient))
-	syncHandler := api.NewSyncHandler(syncSvc, scoutbookClient, appConfigRepo)
+	syncHandler := api.NewSyncHandler(syncSvc, scoutbookClient, appConfigRepo, authService, rbacRepo)
 
 	adminHandler := api.NewAdminHandler(profileRepo, parentYouthLinkRepo, rbacRepo, authService)
 
@@ -97,7 +97,7 @@ func main() {
 	}
 	appemail.CheckSMTPConfig(context.Background(), appConfigRepo)
 
-	settingsHandler := api.NewSettingsHandler(appConfigRepo, emailSvc, authService, profileRepo)
+	settingsHandler := api.NewSettingsHandler(appConfigRepo, emailSvc, authService, profileRepo, rbacRepo)
 
 	regHandler := api.NewRegistrationHandler(
 		profileRepo, otpRepo, userRepo, rbacRepo, emailSvc, hasher, sessionStore,
@@ -170,13 +170,13 @@ func main() {
 	app.Handle("/events/{id}/signup", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.SignUp)).Methods("POST")
 	app.Handle("/events/{id}/withdraw", api.RequirePermission(authService, rbacRepo, "event:withdraw", eventHandler.Withdraw)).Methods("POST")
 
-	app.Handle("/admin", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.AdminPage)).Methods("GET")
-	app.Handle("/admin/roster", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RosterPage)).Methods("GET")
-	app.Handle("/admin/roster/{id}/toggle-status", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ToggleProfileStatus)).Methods("POST")
-	app.Handle("/admin/connections", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ConnectionsPage)).Methods("GET")
-	app.Handle("/admin/connections/{id}/approve", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.ApproveConnection)).Methods("POST")
-	app.Handle("/admin/connections/{id}/reject", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RejectConnection)).Methods("POST")
-	app.Handle("/admin/connections/{id}/remove", api.RequirePermission(authService, rbacRepo, "event:create", adminHandler.RemoveConnection)).Methods("POST")
+	app.Handle("/admin", api.RequireAuth(authService, adminHandler.AdminPage)).Methods("GET")
+	app.Handle("/admin/roster", api.RequirePermission(authService, rbacRepo, "admin:roster", adminHandler.RosterPage)).Methods("GET")
+	app.Handle("/admin/roster/{id}/toggle-status", api.RequirePermission(authService, rbacRepo, "admin:roster", adminHandler.ToggleProfileStatus)).Methods("POST")
+	app.Handle("/admin/connections", api.RequirePermission(authService, rbacRepo, "admin:connections", adminHandler.ConnectionsPage)).Methods("GET")
+	app.Handle("/admin/connections/{id}/approve", api.RequirePermission(authService, rbacRepo, "admin:connections", adminHandler.ApproveConnection)).Methods("POST")
+	app.Handle("/admin/connections/{id}/reject", api.RequirePermission(authService, rbacRepo, "admin:connections", adminHandler.RejectConnection)).Methods("POST")
+	app.Handle("/admin/connections/{id}/remove", api.RequirePermission(authService, rbacRepo, "admin:connections", adminHandler.RemoveConnection)).Methods("POST")
 	app.Handle("/admin/roles", api.RequirePermission(authService, rbacRepo, "admin:rbac", adminHandler.RolesPage)).Methods("GET")
 	app.Handle("/admin/roles/{id}/edit", api.RequirePermission(authService, rbacRepo, "admin:rbac", adminHandler.RolesEditModal)).Methods("GET")
 	app.Handle("/admin/roles/{id}/users", api.RequirePermission(authService, rbacRepo, "admin:rbac", adminHandler.RolesUsersModal)).Methods("GET")
@@ -185,10 +185,10 @@ func main() {
 	app.Handle("/admin/roles/{id}/remove-admin", api.RequirePermission(authService, rbacRepo, "admin:rbac", adminHandler.RemoveAdmin)).Methods("POST")
 	app.Handle("/admin/markdown-preview", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.MarkdownPreview)).Methods("POST")
 
-	app.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.AdminPage)).Methods("GET")
-	app.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.StoreToken)).Methods("POST")
-	app.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Sync)).Methods("POST")
-	app.Handle("/admin/sync/revert", api.RequirePermission(authService, rbacRepo, "event:create", syncHandler.Revert)).Methods("POST")
+	app.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "admin:sync", syncHandler.AdminPage)).Methods("GET")
+	app.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "admin:sync", syncHandler.StoreToken)).Methods("POST")
+	app.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "admin:sync", syncHandler.Sync)).Methods("POST")
+	app.Handle("/admin/sync/revert", api.RequirePermission(authService, rbacRepo, "admin:sync", syncHandler.Revert)).Methods("POST")
 
 	app.Handle("/admin/settings", api.RequirePermission(authService, rbacRepo, "admin:settings", settingsHandler.SettingsPage)).Methods("GET")
 	app.Handle("/admin/settings", api.RequirePermission(authService, rbacRepo, "admin:settings", settingsHandler.SettingsSave)).Methods("POST")

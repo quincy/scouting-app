@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log"
@@ -35,6 +36,7 @@ type adminPageData struct {
 	Registered string
 	Status     string
 	Total      int
+	AdminPerms
 }
 
 type AdminHandler struct {
@@ -84,6 +86,7 @@ type adminRolesPageData struct {
 	AdultRoles []rolePermissionRow
 	YouthRoles []rolePermissionRow
 	CloseModal bool
+	AdminPerms
 }
 
 func isYouthRole(name string) bool {
@@ -111,6 +114,9 @@ func isYouthRole(name string) bool {
 
 func (h *AdminHandler) RolesPage(w http.ResponseWriter, r *http.Request) {
 	data := h.buildRolesData(r)
+	if user, err := h.auth.GetAuthenticatedUser(r); err == nil && user != nil {
+		data.AdminPerms = computeAdminPerms(r.Context(), h.rbacRepo, user.ID)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Header.Get("HX-Request") != "" {
 		t := template.Must(h.tmpl.Clone())
@@ -370,13 +376,26 @@ func (h *AdminHandler) toggleAdmin(w http.ResponseWriter, r *http.Request, grant
 }
 
 func (h *AdminHandler) AdminPage(w http.ResponseWriter, r *http.Request) {
-	data := h.buildRosterData(r)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	renderAdminLayout(w, h.tmpl, "admin_roster", data)
+	user, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || user == nil {
+		http.Redirect(w, r, "/login?redirect=/admin", http.StatusFound)
+		return
+	}
+
+	perms := computeAdminPerms(r.Context(), h.rbacRepo, user.ID)
+	redirect := perms.FirstAvailable()
+	if redirect == "" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	http.Redirect(w, r, redirect, http.StatusFound)
 }
 
 func (h *AdminHandler) RosterPage(w http.ResponseWriter, r *http.Request) {
 	data := h.buildRosterData(r)
+	if user, err := h.auth.GetAuthenticatedUser(r); err == nil && user != nil {
+		data.AdminPerms = computeAdminPerms(r.Context(), h.rbacRepo, user.ID)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Header.Get("HX-Request") != "" {
 		t := template.Must(h.tmpl.Clone())
@@ -430,6 +449,54 @@ func (h *AdminHandler) ToggleProfileStatus(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+type AdminPerms struct {
+	CanAccessRoster      bool
+	CanAccessConnections bool
+	CanAccessSync        bool
+	CanAccessRBAC        bool
+	CanAccessSettings    bool
+}
+
+func (a AdminPerms) FirstAvailable() string {
+	switch {
+	case a.CanAccessRoster:
+		return "/admin/roster"
+	case a.CanAccessRBAC:
+		return "/admin/roles"
+	case a.CanAccessConnections:
+		return "/admin/connections"
+	case a.CanAccessSync:
+		return "/admin/sync"
+	case a.CanAccessSettings:
+		return "/admin/settings"
+	}
+	return ""
+}
+
+func computeAdminPerms(ctx context.Context, rbacRepo rbac.Repository, userID string) AdminPerms {
+	perms, err := rbacRepo.GetUserPermissions(ctx, userID)
+	if err != nil {
+		log.Printf("computeAdminPerms: %v", err)
+		return AdminPerms{}
+	}
+	var a AdminPerms
+	for _, p := range perms {
+		switch p.Name {
+		case "admin:roster":
+			a.CanAccessRoster = true
+		case "admin:connections":
+			a.CanAccessConnections = true
+		case "admin:sync":
+			a.CanAccessSync = true
+		case "admin:rbac":
+			a.CanAccessRBAC = true
+		case "admin:settings":
+			a.CanAccessSettings = true
+		}
+	}
+	return a
+}
+
 func renderAdminLayout(w http.ResponseWriter, tmpl *template.Template, contentTmpl string, data any) {
 	def := fmt.Sprintf(`{{define "content_panel"}}{{template "%s" .}}{{end}}`, contentTmpl)
 	t := template.Must(template.Must(tmpl.Clone()).Parse(def))
@@ -467,10 +534,14 @@ type adminConnectionsPageData struct {
 	Search       string
 	PendingTotal int
 	ActiveTotal  int
+	AdminPerms
 }
 
 func (h *AdminHandler) ConnectionsPage(w http.ResponseWriter, r *http.Request) {
 	data := h.buildConnectionsData(r)
+	if user, err := h.auth.GetAuthenticatedUser(r); err == nil && user != nil {
+		data.AdminPerms = computeAdminPerms(r.Context(), h.rbacRepo, user.ID)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Header.Get("HX-Request") != "" {
 		t := template.Must(h.tmpl.Clone())
@@ -800,9 +871,13 @@ func (h *AdminHandler) buildRolesData(r *http.Request) adminRolesPageData {
 	}
 
 	userIDToName := make(map[string]string)
+	activeUserID := make(map[string]bool)
 	for _, p := range allProfiles {
 		if p.UserID != nil {
 			userIDToName[*p.UserID] = p.DisplayName()
+			if p.Status == profile.StatusActive {
+				activeUserID[*p.UserID] = true
+			}
 		}
 	}
 
@@ -835,8 +910,11 @@ func (h *AdminHandler) buildRolesData(r *http.Request) adminRolesPageData {
 		userCount := 0
 		var userNames []string
 		if err == nil {
-			userCount = len(userIDs)
 			for _, uid := range userIDs {
+				if !activeUserID[uid] {
+					continue
+				}
+				userCount++
 				if name, ok := userIDToName[uid]; ok {
 					userNames = append(userNames, name)
 				}

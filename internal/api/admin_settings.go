@@ -9,6 +9,7 @@ import (
 	"scout-app/internal/domain/auth"
 	"scout-app/internal/domain/email"
 	"scout-app/internal/domain/profile"
+	"scout-app/internal/domain/rbac"
 )
 
 type adminSettingsPageData struct {
@@ -24,6 +25,7 @@ type adminSettingsPageData struct {
 	SMTPFrom     string
 	FlashSuccess string
 	Error        string
+	AdminPerms
 }
 
 type SettingsHandler struct {
@@ -31,10 +33,11 @@ type SettingsHandler struct {
 	emailSvc      email.Service
 	auth          *auth.AuthService
 	profileRepo   profile.Repository
+	rbacRepo      rbac.Repository
 	tmpl          *template.Template
 }
 
-func NewSettingsHandler(appConfigRepo appconfig.Repository, emailSvc email.Service, authSvc *auth.AuthService, profileRepo profile.Repository) *SettingsHandler {
+func NewSettingsHandler(appConfigRepo appconfig.Repository, emailSvc email.Service, authSvc *auth.AuthService, profileRepo profile.Repository, rbacRepo rbac.Repository) *SettingsHandler {
 	tmpl := template.Must(
 		template.New("").ParseFS(viewsFS, "views/*.html"),
 	)
@@ -43,6 +46,7 @@ func NewSettingsHandler(appConfigRepo appconfig.Repository, emailSvc email.Servi
 		emailSvc:      emailSvc,
 		auth:          authSvc,
 		profileRepo:   profileRepo,
+		rbacRepo:      rbacRepo,
 		tmpl:          tmpl,
 	}
 }
@@ -71,6 +75,10 @@ func (h *SettingsHandler) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		SMTPPort:   smtpPort,
 		SMTPUser:   smtpUser,
 		SMTPFrom:   smtpFrom,
+	}
+
+	if user, err := h.auth.GetAuthenticatedUser(r); err == nil && user != nil {
+		data.AdminPerms = computeAdminPerms(r.Context(), h.rbacRepo, user.ID)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -168,6 +176,10 @@ func (h *SettingsHandler) SettingsSave(w http.ResponseWriter, r *http.Request) {
 		SMTPUser:     smtpUser,
 		SMTPFrom:     smtpFrom,
 		FlashSuccess: "Settings saved successfully!",
+	}
+
+	if user, err := h.auth.GetAuthenticatedUser(r); err == nil && user != nil {
+		data.AdminPerms = computeAdminPerms(r.Context(), h.rbacRepo, user.ID)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
