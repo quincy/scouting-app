@@ -21,7 +21,7 @@
         <label for="description">Description</label>
         <div class="split-editor">
             <div class="editor-pane">
-                <textarea id="description" name="description" hx-trigger="keyup delay:500ms" hx-post="/admin/markdown-preview" hx-target="#preview-pane">{{.Event.Description}}</textarea>
+                <textarea id="description" name="description" hx-trigger="keyup delay:500ms" hx-post="/events/markdown-preview" hx-target="#preview-pane">{{.Event.Description}}</textarea>
             </div>
             <div class="preview-pane" id="preview-pane">{{.DescriptionHTML}}</div>
         </div>

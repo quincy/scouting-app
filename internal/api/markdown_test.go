@@ -73,7 +73,7 @@ func TestEventHandler_MarkdownPreview(t *testing.T) {
 	handler, _, _, _ := setupEventTest(t)
 
 	body := "description=**bold** and _italic_"
-	req := httptest.NewRequest("POST", "/admin/markdown-preview", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/events/markdown-preview", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	rr := httptest.NewRecorder()
@@ -101,7 +101,7 @@ func TestEventHandler_MarkdownPreview_XSS(t *testing.T) {
 	handler, _, _, _ := setupEventTest(t)
 
 	body := "description=<script>alert('xss')</script>"
-	req := httptest.NewRequest("POST", "/admin/markdown-preview", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/events/markdown-preview", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	rr := httptest.NewRecorder()

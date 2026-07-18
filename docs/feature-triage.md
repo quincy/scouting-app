@@ -54,3 +54,8 @@ if you should move on to the next unchecked triage item.
 - [ ] Upload photos to event
 - [ ] Upload attachments to event (permission forms, maps, whatever...)
 - [ ] Explorer Club unit type
+
+# Future ideas
+
+- [ ] Ability to download a medical "manifest" that a parent can fill out and physicaly turn in
+
