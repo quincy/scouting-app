@@ -15,6 +15,11 @@ import (
 	"scout-app/internal/domain/rbac"
 )
 
+type rosterLink struct {
+	ID   string
+	Name string
+}
+
 type rosterRow struct {
 	ID         string
 	Name       string
@@ -23,7 +28,7 @@ type rosterRow struct {
 	Status     string
 	Registered bool
 	IsSelf     bool
-	Links      []string
+	Links      []rosterLink
 	sortKey    string
 }
 
@@ -267,9 +272,11 @@ func (h *AdminHandler) RolesUsersModal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userIDToName := make(map[string]string)
+	userIDToProfileID := make(map[string]string)
 	for _, p := range allProfiles {
 		if p.UserID != nil {
 			userIDToName[*p.UserID] = p.DisplayName()
+			userIDToProfileID[*p.UserID] = p.ID
 		}
 	}
 
@@ -280,22 +287,32 @@ func (h *AdminHandler) RolesUsersModal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userNames []string
-	for _, uid := range userIDs {
-		if name, ok := userIDToName[uid]; ok {
-			userNames = append(userNames, name)
-		} else {
-			userNames = append(userNames, uid)
-		}
+	type userRow struct {
+		ProfileID string
+		Name      string
 	}
-	sort.Strings(userNames)
+
+	var userRows []userRow
+	for _, uid := range userIDs {
+		name, nameOk := userIDToName[uid]
+		if !nameOk {
+			name = uid
+		}
+		userRows = append(userRows, userRow{
+			ProfileID: userIDToProfileID[uid],
+			Name:      name,
+		})
+	}
+	sort.Slice(userRows, func(i, j int) bool {
+		return userRows[i].Name < userRows[j].Name
+	})
 
 	data := struct {
 		RoleName string
-		Users    []string
+		Users    []userRow
 	}{
 		RoleName: role.Name,
-		Users:    userNames,
+		Users:    userRows,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -506,25 +523,29 @@ func renderAdminLayout(w http.ResponseWriter, tmpl *template.Template, contentTm
 }
 
 type pendingLinkRow struct {
-	ID             string
-	ParentName     string
-	YouthName      string
-	YouthBSAID     string
-	RequestedAt    string
-	ParentInactive bool
-	YouthInactive  bool
+	ID              string
+	ParentProfileID string
+	ParentName      string
+	YouthProfileID  string
+	YouthName       string
+	YouthBSAID      string
+	RequestedAt     string
+	ParentInactive  bool
+	YouthInactive   bool
 }
 
 type activeConnectionRow struct {
-	ID             string
-	ParentName     string
-	YouthName      string
-	YouthBSAID     string
-	Status         string
-	ApprovedAt     string
-	ApprovedBy     string
-	ParentInactive bool
-	YouthInactive  bool
+	ID              string
+	ParentProfileID string
+	ParentName      string
+	YouthProfileID  string
+	YouthName       string
+	YouthBSAID      string
+	Status          string
+	ApprovedAt      string
+	ApprovedBy      string
+	ParentInactive  bool
+	YouthInactive   bool
 }
 
 type adminConnectionsPageData struct {
@@ -670,13 +691,15 @@ func (h *AdminHandler) buildConnectionsData(r *http.Request) adminConnectionsPag
 		switch link.Status {
 		case parentyouthlink.StatusPending:
 			pending = append(pending, pendingLinkRow{
-				ID:             link.ID,
-				ParentName:     resolveName(link.ParentProfileID),
-				YouthName:      resolveName(link.YouthProfileID),
-				YouthBSAID:     resolveBSAID(link.YouthProfileID),
-				RequestedAt:    link.RequestedAt.Format("Jan 2, 2006 3:04 PM"),
-				ParentInactive: isInactive(link.ParentProfileID),
-				YouthInactive:  isInactive(link.YouthProfileID),
+				ID:              link.ID,
+				ParentProfileID: link.ParentProfileID,
+				ParentName:      resolveName(link.ParentProfileID),
+				YouthProfileID:  link.YouthProfileID,
+				YouthName:       resolveName(link.YouthProfileID),
+				YouthBSAID:      resolveBSAID(link.YouthProfileID),
+				RequestedAt:     link.RequestedAt.Format("Jan 2, 2006 3:04 PM"),
+				ParentInactive:  isInactive(link.ParentProfileID),
+				YouthInactive:   isInactive(link.YouthProfileID),
 			})
 		case parentyouthlink.StatusApproved, parentyouthlink.StatusRevoked:
 			parentName := resolveName(link.ParentProfileID)
@@ -709,15 +732,17 @@ func (h *AdminHandler) buildConnectionsData(r *http.Request) adminConnectionsPag
 			}
 
 			active = append(active, activeConnectionRow{
-				ID:             link.ID,
-				ParentName:     parentName,
-				YouthName:      youthName,
-				YouthBSAID:     resolveBSAID(link.YouthProfileID),
-				Status:         displayStatus,
-				ApprovedAt:     approvedAt,
-				ApprovedBy:     approvedBy,
-				ParentInactive: isInactive(link.ParentProfileID),
-				YouthInactive:  isInactive(link.YouthProfileID),
+				ID:              link.ID,
+				ParentProfileID: link.ParentProfileID,
+				ParentName:      parentName,
+				YouthProfileID:  link.YouthProfileID,
+				YouthName:       youthName,
+				YouthBSAID:      resolveBSAID(link.YouthProfileID),
+				Status:          displayStatus,
+				ApprovedAt:      approvedAt,
+				ApprovedBy:      approvedBy,
+				ParentInactive:  isInactive(link.ParentProfileID),
+				YouthInactive:   isInactive(link.YouthProfileID),
 			})
 		}
 	}
@@ -822,14 +847,14 @@ func (h *AdminHandler) buildRosterData(r *http.Request) adminPageData {
 		if p.MemberType == profile.MemberTypeAdult {
 			for _, youthID := range parentToYouth[p.ID] {
 				if name, ok := profileNames[youthID]; ok {
-					row.Links = append(row.Links, name)
+					row.Links = append(row.Links, rosterLink{ID: youthID, Name: name})
 				}
 			}
 			adults = append(adults, row)
 		} else {
 			if parentID, ok := youthToParent[p.ID]; ok {
 				if name, ok := profileNames[parentID]; ok {
-					row.Links = append(row.Links, name)
+					row.Links = append(row.Links, rosterLink{ID: parentID, Name: name})
 				}
 			}
 			youth = append(youth, row)

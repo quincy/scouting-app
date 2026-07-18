@@ -35,6 +35,7 @@ type EventHandler struct {
 type eventsPageData struct {
 	Title              string
 	IsAdmin            bool
+	ProfileID          string
 	UpcomingEvents     []*event.ListItem
 	PastEvents         []*event.ListItem
 	UpcomingDisplayed  int
@@ -56,6 +57,7 @@ type profileSignUpVM struct {
 type eventFormData struct {
 	Title              string
 	IsAdmin            bool
+	ProfileID          string
 	Event              *event.Event
 	Errors             map[string]string
 	FlashSuccess       string
@@ -72,6 +74,7 @@ type eventFormData struct {
 type eventDetailData struct {
 	Title           string
 	IsAdmin         bool
+	ProfileID       string
 	Event           *event.Event
 	CostDisplay     string
 	DescriptionHTML template.HTML
@@ -86,6 +89,7 @@ type eventDetailData struct {
 }
 
 type attendeeViewModel struct {
+	ProfileID   string
 	ProfileName string
 }
 
@@ -131,6 +135,18 @@ func (h *EventHandler) loadUnitInfo(ctx context.Context) (unitType, unitNumber s
 	unitType = appconfig.GetWithHierarchy(ctx, h.appConfigRepo, "UNIT_TYPE", appconfig.KeyUnitType, "Troop")
 	unitNumber = appconfig.GetWithHierarchy(ctx, h.appConfigRepo, "UNIT_NUMBER", appconfig.KeyUnitNumber, "")
 	return
+}
+
+func (h *EventHandler) currentProfileID(r *http.Request) string {
+	user, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || user == nil {
+		return ""
+	}
+	p, err := h.profiles.GetByUserID(r.Context(), user.ID)
+	if err != nil || p == nil {
+		return ""
+	}
+	return p.ID
 }
 
 func (h *EventHandler) isAdmin(ctx context.Context, r *http.Request) bool {
@@ -189,6 +205,7 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	data := eventsPageData{
 		Title:              pageTitle,
 		IsAdmin:            h.isAdmin(ctx, r),
+		ProfileID:          h.currentProfileID(r),
 		UpcomingEvents:     upcomingEvents,
 		PastEvents:         pastEvents,
 		UpcomingDisplayed:  len(upcomingEvents),
@@ -307,6 +324,7 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	data := eventDetailData{
 		Title:           detailTitle,
 		IsAdmin:         h.isAdmin(ctx, r),
+		ProfileID:       h.currentProfileID(r),
 		Event:           event,
 		CostDisplay:     costDisplay,
 		DescriptionHTML: template.HTML(renderedDesc),
@@ -331,6 +349,7 @@ func (h *EventHandler) EventCreateForm(w http.ResponseWriter, r *http.Request) {
 	data := eventFormData{
 		Title:       "Create Event",
 		IsAdmin:     h.isAdmin(r.Context(), r),
+		ProfileID:   h.currentProfileID(r),
 		Event:       &event.Event{},
 		FormAction:  "/events/create",
 		SubmitLabel: "Create Event",
@@ -420,7 +439,7 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(errors) > 0 {
-		data := h.buildFormDataOnError(ctx, "Create Event", "/events/create", "Create Event", evt, startTimeStr, endTimeStr, costStr, errors)
+		data := h.buildFormDataOnError(ctx, r, "Create Event", "/events/create", "Create Event", evt, startTimeStr, endTimeStr, costStr, errors)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
@@ -434,7 +453,7 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.repo.Create(ctx, evt); err != nil {
 		log.Printf("EventCreate: %v", err)
-		data := h.buildFormDataOnError(ctx, "Create Event", "/events/create", "Create Event", evt, startTimeStr, endTimeStr, costStr, map[string]string{"title": "Failed to create event"})
+		data := h.buildFormDataOnError(ctx, r, "Create Event", "/events/create", "Create Event", evt, startTimeStr, endTimeStr, costStr, map[string]string{"title": "Failed to create event"})
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
 		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
@@ -446,7 +465,7 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/events/%s?created=1", evt.ID), http.StatusFound)
 }
 
-func (h *EventHandler) buildEditFormData(ctx context.Context, evt *event.Event, errors map[string]string) eventFormData {
+func (h *EventHandler) buildEditFormData(ctx context.Context, r *http.Request, evt *event.Event, errors map[string]string) eventFormData {
 	unitType, unitNumber := h.loadUnitInfo(ctx)
 	costDisplay := fmt.Sprintf("%.2f", float64(evt.CostCents)/100.0)
 	renderedDesc, err := renderMarkdown(evt.Description)
@@ -456,6 +475,7 @@ func (h *EventHandler) buildEditFormData(ctx context.Context, evt *event.Event, 
 	return eventFormData{
 		Title:              "Edit Event",
 		IsAdmin:            true,
+		ProfileID:          h.currentProfileID(r),
 		Event:              evt,
 		Errors:             errors,
 		FormAction:         fmt.Sprintf("/events/%s/edit", evt.ID),
@@ -469,11 +489,12 @@ func (h *EventHandler) buildEditFormData(ctx context.Context, evt *event.Event, 
 	}
 }
 
-func (h *EventHandler) buildFormDataOnError(ctx context.Context, title, formAction, submitLabel string, evt *event.Event, startTimeStr, endTimeStr, costStr string, errors map[string]string) eventFormData {
+func (h *EventHandler) buildFormDataOnError(ctx context.Context, r *http.Request, title, formAction, submitLabel string, evt *event.Event, startTimeStr, endTimeStr, costStr string, errors map[string]string) eventFormData {
 	unitType, unitNumber := h.loadUnitInfo(ctx)
 	return eventFormData{
 		Title:              title,
 		IsAdmin:            true,
+		ProfileID:          h.currentProfileID(r),
 		Event:              evt,
 		Errors:             errors,
 		FormAction:         formAction,
@@ -502,7 +523,7 @@ func (h *EventHandler) EventEditForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := h.buildEditFormData(ctx, evt, nil)
+	data := h.buildEditFormData(ctx, r, evt, nil)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
 		log.Printf("template execution: %v", err)
@@ -599,7 +620,7 @@ func (h *EventHandler) EventEdit(w http.ResponseWriter, r *http.Request) {
 			Type:        eventType,
 			CreatedAt:   existing.CreatedAt,
 		}
-		data := h.buildEditFormData(ctx, evt, errors)
+		data := h.buildEditFormData(ctx, r, evt, errors)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
@@ -622,7 +643,7 @@ func (h *EventHandler) EventEdit(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.repo.Update(ctx, evt); err != nil {
 		log.Printf("EventEdit Update: %v", err)
-		data := h.buildEditFormData(ctx, evt, map[string]string{"title": "Failed to update event"})
+		data := h.buildEditFormData(ctx, r, evt, map[string]string{"title": "Failed to update event"})
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
 		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
@@ -961,7 +982,7 @@ func splitAttendeeVMs(attendees []*profile.Profile) ([]attendeeViewModel, []atte
 	var youthVMs []attendeeViewModel
 	var adultVMs []attendeeViewModel
 	for _, p := range attendees {
-		vm := attendeeViewModel{ProfileName: p.DisplayName()}
+		vm := attendeeViewModel{ProfileID: p.ID, ProfileName: p.DisplayName()}
 		if p.MemberType == profile.MemberTypeYouth {
 			youthVMs = append(youthVMs, vm)
 		} else {

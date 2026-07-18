@@ -988,3 +988,151 @@ tr:hover .perm-cell .edit-icon { display: inline-block; }
 }
 .users-empty { color: #999; font-size: 0.9rem; }
 .svg-icon { vertical-align: middle; }
+
+/* === Profile Dropdown === */
+.profile-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.profile-icon-btn {
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #555;
+  padding: 0;
+}
+
+.profile-icon-btn:hover {
+  background: #f5f5f5;
+  border-color: #999;
+}
+
+.dropdown-menu {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 42px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  min-width: 160px;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.dropdown-menu.show {
+  display: block;
+}
+
+.dropdown-item {
+  display: block;
+  padding: 10px 16px;
+  font-size: 0.875rem;
+  color: #333;
+  text-decoration: none;
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+}
+
+.dropdown-item:hover {
+  background: #f5f5f5;
+}
+
+.dropdown-logout {
+  color: #c62828;
+}
+
+.dropdown-logout:hover {
+  background: #ffebee;
+}
+
+/* === Profile Page === */
+.profile-section {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.profile-section h2 {
+  font-size: 1.1rem;
+  color: #16213e;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+}
+
+.profile-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+}
+
+.profile-fields dt {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-top: 2px;
+}
+
+.profile-fields dd {
+  font-size: 0.95rem;
+  color: #333;
+}
+
+.hidden-field {
+  color: #bbb;
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+.status-unregistered {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+/* === Profile Event Items === */
+.profile-event-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.profile-event-item:last-child {
+  border-bottom: none;
+}
+
+.profile-event-date {
+  font-size: 0.85rem;
+  color: #888;
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.profile-event-title {
+  color: #1565c0;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.profile-event-title:hover {
+  text-decoration: underline;
+}

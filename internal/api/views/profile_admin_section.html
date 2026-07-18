@@ -1,0 +1,13 @@
+{{define "profile_admin_section.html"}}
+<div id="admin-actions">
+    {{if .IsAdminCurrently}}
+        <form hx-post="/profiles/{{.ProfileID}}/remove-admin" hx-target="#admin-actions" hx-swap="outerHTML">
+            <button type="submit" class="btn-withdraw">Revoke Admin</button>
+        </form>
+    {{else}}
+        <form hx-post="/profiles/{{.ProfileID}}/grant-admin" hx-target="#admin-actions" hx-swap="outerHTML">
+            <button type="submit" class="btn-signup">Grant Admin</button>
+        </form>
+    {{end}}
+</div>
+{{end}}

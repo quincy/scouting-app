@@ -171,6 +171,13 @@ func main() {
 	app.Handle("/events/{id}/withdraw", api.RequirePermission(authService, rbacRepo, "event:withdraw", eventHandler.Withdraw)).Methods("POST")
 	app.Handle("/events/markdown-preview", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.MarkdownPreview)).Methods("POST")
 
+	profileHandler := api.NewProfileHandler(profileRepo, eventRepo, authService, rbacRepo, parentYouthLinkRepo)
+	app.Handle("/profiles/{id}", api.RequireAuth(authService, profileHandler.ProfilePage)).Methods("GET")
+	app.Handle("/profiles/{id}/events/upcoming", api.RequireAuth(authService, profileHandler.ProfileUpcomingEvents)).Methods("GET")
+	app.Handle("/profiles/{id}/events/past", api.RequireAuth(authService, profileHandler.ProfilePastEvents)).Methods("GET")
+	app.Handle("/profiles/{id}/grant-admin", api.RequirePermission(authService, rbacRepo, "admin:rbac", profileHandler.GrantAdmin)).Methods("POST")
+	app.Handle("/profiles/{id}/remove-admin", api.RequirePermission(authService, rbacRepo, "admin:rbac", profileHandler.RemoveAdmin)).Methods("POST")
+
 	app.Handle("/admin", api.RequireAuth(authService, adminHandler.AdminPage)).Methods("GET")
 	app.Handle("/admin/roster", api.RequirePermission(authService, rbacRepo, "admin:roster", adminHandler.RosterPage)).Methods("GET")
 	app.Handle("/admin/roster/{id}/toggle-status", api.RequirePermission(authService, rbacRepo, "admin:roster", adminHandler.ToggleProfileStatus)).Methods("POST")

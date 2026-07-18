@@ -1,0 +1,91 @@
+{{define "profile.html"}}
+{{template "base_head" .}}
+<div class="back-link">
+    <a href="/events">&larr; Back to events</a>
+</div>
+
+<div class="profile-header">
+    <h1>{{.Profile.DisplayName}}</h1>
+    <span class="status-badge status-{{.Profile.Status}}">{{.Profile.Status}}</span>
+    {{if not .IsRegistered}}
+        <span class="status-badge status-unregistered">Not registered</span>
+    {{end}}
+</div>
+
+<div class="profile-section">
+    <h2>Profile Information</h2>
+    <dl class="profile-fields">
+        <dt>Member Type</dt>
+        <dd>{{.Profile.MemberType}}</dd>
+
+        <dt>Email</dt>
+        <dd>
+            {{- if .ShowEmail -}}
+                {{.Profile.Email}}
+            {{- else -}}
+                <span class="hidden-field">Hidden</span>
+            {{- end -}}
+        </dd>
+
+        <dt>BSA ID</dt>
+        <dd>
+            {{- if .ShowBSAID -}}
+                {{.Profile.BSAID}}
+            {{- else -}}
+                <span class="hidden-field">Hidden</span>
+            {{- end -}}
+        </dd>
+
+        <dt>Phone</dt>
+        <dd>
+            {{- if .ShowPhone -}}
+                {{.Profile.Phone}}
+            {{- else -}}
+                <span class="hidden-field">Hidden</span>
+            {{- end -}}
+        </dd>
+
+        <dt>Birthdate</dt>
+        <dd>
+            {{- if .ShowBirthdate -}}
+                {{.Profile.Birthdate.Format "January 2, 2006"}}
+            {{- else -}}
+                <span class="hidden-field">Hidden</span>
+            {{- end -}}
+        </dd>
+
+        <dt>Gender</dt>
+        <dd>{{.Profile.Gender}}</dd>
+
+        <dt>Positions</dt>
+        <dd>{{.Profile.Positions}}</dd>
+    </dl>
+</div>
+
+{{if .ViewerIsAdmin}}
+    <div class="profile-section" id="admin-section">
+        <h2>Admin</h2>
+        {{if .CanGrantAdmin}}
+            <div id="admin-actions">
+                {{template "profile_admin_section.html" .}}
+            </div>
+        {{end}}
+    </div>
+{{end}}
+
+<div class="profile-section">
+    <h2>Upcoming Events</h2>
+    <div id="profile-upcoming-list" hx-get="/profiles/{{.Profile.ID}}/events/upcoming" hx-trigger="load" hx-swap="innerHTML">
+        <p>Loading...</p>
+    </div>
+</div>
+
+<div class="profile-section">
+    <h2>Past Events</h2>
+    <div id="profile-past-list" hx-get="/profiles/{{.Profile.ID}}/events/past" hx-trigger="load" hx-swap="innerHTML">
+        <p>Loading...</p>
+    </div>
+</div>
+
+{{template "base_tail" .}}
+{{end}}

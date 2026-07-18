@@ -148,7 +148,7 @@
     {{if .Users}}
     <ul class="users-list">
         {{range .Users}}
-        <li>{{.}}</li>
+        <li><a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.Name}}</a></li>
         {{end}}
     </ul>
     {{else}}
