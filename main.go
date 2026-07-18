@@ -169,6 +169,7 @@ func main() {
 	app.Handle("/events/{id}", api.RequirePermission(authService, rbacRepo, "event:view", eventHandler.EventDetail)).Methods("GET")
 	app.Handle("/events/{id}/signup", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.SignUp)).Methods("POST")
 	app.Handle("/events/{id}/withdraw", api.RequirePermission(authService, rbacRepo, "event:withdraw", eventHandler.Withdraw)).Methods("POST")
+	app.Handle("/events/markdown-preview", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.MarkdownPreview)).Methods("POST")
 
 	app.Handle("/admin", api.RequireAuth(authService, adminHandler.AdminPage)).Methods("GET")
 	app.Handle("/admin/roster", api.RequirePermission(authService, rbacRepo, "admin:roster", adminHandler.RosterPage)).Methods("GET")
@@ -183,7 +184,6 @@ func main() {
 	app.Handle("/admin/roles/{id}/permissions", api.RequirePermission(authService, rbacRepo, "admin:rbac", adminHandler.RolesSavePermissions)).Methods("POST")
 	app.Handle("/admin/roles/{id}/grant-admin", api.RequirePermission(authService, rbacRepo, "admin:rbac", adminHandler.GrantAdmin)).Methods("POST")
 	app.Handle("/admin/roles/{id}/remove-admin", api.RequirePermission(authService, rbacRepo, "admin:rbac", adminHandler.RemoveAdmin)).Methods("POST")
-	app.Handle("/admin/markdown-preview", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.MarkdownPreview)).Methods("POST")
 
 	app.Handle("/admin/sync", api.RequirePermission(authService, rbacRepo, "admin:sync", syncHandler.AdminPage)).Methods("GET")
 	app.Handle("/admin/sync/token", api.RequirePermission(authService, rbacRepo, "admin:sync", syncHandler.StoreToken)).Methods("POST")

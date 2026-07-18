@@ -771,7 +771,7 @@ func TestEventHandler_EventCreateForm_Renders(t *testing.T) {
 	if !strings.Contains(body, "split-editor") {
 		t.Errorf("expected form to have split editor, got:\n%s", body)
 	}
-	if !strings.Contains(body, "hx-post=\"/admin/markdown-preview\"") {
+	if !strings.Contains(body, "hx-post=\"/events/markdown-preview\"") {
 		t.Errorf("expected textarea to have htmx markdown preview trigger, got:\n%s", body)
 	}
 }
