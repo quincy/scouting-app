@@ -4,7 +4,7 @@
     <h3 class="attendee-group-label">Youth</h3>
     <ul class="attendee-list" id="attendee-list-youth">
         {{range .YouthAttendees}}
-        <li>{{.ProfileName}}</li>
+        <li><a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.ProfileName}}</a></li>
         {{end}}
     </ul>
 </div>
@@ -12,7 +12,7 @@
     <h3 class="attendee-group-label">Adults</h3>
     <ul class="attendee-list" id="attendee-list-adults">
         {{range .AdultAttendees}}
-        <li>{{.ProfileName}}</li>
+        <li><a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.ProfileName}}</a></li>
         {{end}}
     </ul>
 </div>

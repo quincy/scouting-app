@@ -11,6 +11,8 @@ type Repository interface {
 	GetByID(ctx context.Context, id string) (*Event, error)
 	ListUpcoming(ctx context.Context, limit int, offset int) ([]*ListItem, error)
 	ListPast(ctx context.Context, limit int, offset int) ([]*ListItem, error)
+	ListUpcomingByProfileID(ctx context.Context, profileID string, limit int, offset int) ([]*ListItem, error)
+	ListPastByProfileID(ctx context.Context, profileID string, limit int, offset int) ([]*ListItem, error)
 	SignUp(ctx context.Context, eventID string, profileID string) error
 	Withdraw(ctx context.Context, eventID string, profileID string) error
 	Update(ctx context.Context, e *Event) error

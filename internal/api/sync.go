@@ -36,6 +36,8 @@ type storedToken struct {
 
 type syncPageData struct {
 	Title         string
+	IsAdmin       bool
+	ProfileID     string
 	HasToken      bool
 	PersonGUID    string
 	OrgGUID       string
@@ -246,6 +248,7 @@ func (h *SyncHandler) Revert(w http.ResponseWriter, r *http.Request) {
 
 	memberID := r.FormValue("member_id")
 	name := r.FormValue("name")
+	profileID := r.FormValue("profile_id")
 
 	var birthdate time.Time
 	if bd := r.FormValue("old_birthdate"); bd != "" {
@@ -290,8 +293,9 @@ func (h *SyncHandler) Revert(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	t := template.Must(h.tmpl.Clone())
 	_ = t.ExecuteTemplate(w, "sync_reverted_card", map[string]string{
-		"MemberID": memberID,
-		"Name":     name,
+		"MemberID":  memberID,
+		"Name":      name,
+		"ProfileID": profileID,
 	})
 }
 

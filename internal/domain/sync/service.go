@@ -79,6 +79,7 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 			}
 
 			result.Profiles = append(result.Profiles, ProfileReport{
+				ProfileID:    p.ID,
 				MemberID:     m.MemberID,
 				Name:         p.DisplayName(),
 				Status:       "created",
@@ -173,6 +174,7 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 
 			newSnapshot := snapshotFromProfile(existing)
 			result.Profiles = append(result.Profiles, ProfileReport{
+				ProfileID:    existing.ID,
 				MemberID:     m.MemberID,
 				Name:         existing.DisplayName(),
 				Status:       status,
@@ -203,8 +205,9 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 			}
 			newSnapshot := snapshotFromProfile(p)
 			result.Profiles = append(result.Profiles, ProfileReport{
-				MemberID: p.BSAID,
-				Name:     p.DisplayName(),
+				ProfileID: p.ID,
+				MemberID:  p.BSAID,
+				Name:      p.DisplayName(),
 				Status:   "deactivated",
 				Old:      &oldSnapshot,
 				New:      newSnapshot,

@@ -43,6 +43,7 @@ type ProfileSnapshot struct {
 }
 
 type ProfileReport struct {
+	ProfileID    string
 	MemberID     string
 	Name         string
 	Status       string // "created" | "updated" | "deactivated"

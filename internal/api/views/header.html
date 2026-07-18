@@ -2,11 +2,35 @@
 <div class="header">
     <h1>{{.Title}}</h1>
     <nav class="header-nav">
-        <a href="/family-connections" class="nav-link">Family</a>
-        {{if .IsAdmin}}<a href="/admin" class="nav-link">Admin</a>{{end}}
-        <form method="POST" action="/logout">
-            <button type="submit" class="btn-logout">Log out</button>
-        </form>
+        {{if .ProfileID}}
+        <div class="profile-dropdown">
+            <button class="profile-icon-btn" onclick="toggleDropdown()" aria-label="Profile menu">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+            </button>
+            <div class="dropdown-menu" id="profile-dropdown-menu">
+                <a href="/profiles/{{.ProfileID}}" class="dropdown-item">Profile</a>
+                <a href="/family-connections" class="dropdown-item">Family</a>
+                {{if .IsAdmin}}<a href="/admin" class="dropdown-item">Admin</a>{{end}}
+                <form method="POST" action="/logout">
+                    <button type="submit" class="dropdown-item dropdown-logout">Log out</button>
+                </form>
+            </div>
+        </div>
+        {{end}}
     </nav>
 </div>
+<script>
+function toggleDropdown() {
+    document.getElementById('profile-dropdown-menu').classList.toggle('show');
+}
+document.addEventListener('click', function(e) {
+    var dropdown = document.getElementById('profile-dropdown-menu');
+    if (dropdown && !e.target.closest('.profile-dropdown')) {
+        dropdown.classList.remove('show');
+    }
+});
+</script>
 {{end}}

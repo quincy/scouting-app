@@ -1,0 +1,19 @@
+{{define "profile_event_list.html"}}
+{{range .Events}}
+    <div class="profile-event-item">
+        <span class="profile-event-date">{{.StartTime.Format "Jan 2"}}</span>
+        <a href="/events/{{.ID}}" class="profile-event-title">{{.Title}}</a>
+    </div>
+{{end}}
+
+{{if .HasMore}}
+    <button class="show-more" id="show-more-profile-{{.Section}}" hx-swap-oob="true"
+            hx-get="/profiles/{{.ProfileID}}/events/{{.Section}}?offset={{.NextOffset}}"
+            hx-target="#profile-{{.Section}}-list"
+            hx-swap="beforeend">
+        Show more {{.Section}}
+    </button>
+{{else}}
+    <div id="show-more-profile-{{.Section}}" hx-swap-oob="true" style="display:none"></div>
+{{end}}
+{{end}}

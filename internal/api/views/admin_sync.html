@@ -86,7 +86,7 @@
         {{range .AdultProfiles}}
         <div class="profile-card" id="profile-{{.MemberID}}">
             <div class="profile-header">
-                <span class="profile-name">{{.Name}}</span>
+                <span class="profile-name"><a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.Name}}</a></span>
                 <span class="profile-id">BSA ID: {{.MemberID}}</span>
                 <span class="status-badge status-{{.Status}}">{{.Status}}</span>
             </div>
@@ -141,6 +141,7 @@
             <form class="revert-form" hx-post="/admin/sync/revert" hx-target="#profile-{{.MemberID}}" hx-swap="outerHTML" hx-disabled-elt="button">
                 <input type="hidden" name="member_id" value="{{.MemberID}}">
                 <input type="hidden" name="name" value="{{.Name}}">
+                <input type="hidden" name="profile_id" value="{{.ProfileID}}">
                 <input type="hidden" name="old_bsa_id" value="{{.Old.BSAID}}">
                 <input type="hidden" name="old_first_name" value="{{.Old.FirstName}}">
                 <input type="hidden" name="old_last_name" value="{{.Old.LastName}}">
@@ -165,7 +166,7 @@
         {{range .YouthProfiles}}
         <div class="profile-card" id="profile-{{.MemberID}}">
             <div class="profile-header">
-                <span class="profile-name">{{.Name}}</span>
+                <span class="profile-name"><a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.Name}}</a></span>
                 <span class="profile-id">BSA ID: {{.MemberID}}</span>
                 <span class="status-badge status-{{.Status}}">{{.Status}}</span>
             </div>
@@ -220,6 +221,7 @@
             <form class="revert-form" hx-post="/admin/sync/revert" hx-target="#profile-{{.MemberID}}" hx-swap="outerHTML" hx-disabled-elt="button">
                 <input type="hidden" name="member_id" value="{{.MemberID}}">
                 <input type="hidden" name="name" value="{{.Name}}">
+                <input type="hidden" name="profile_id" value="{{.ProfileID}}">
                 <input type="hidden" name="old_bsa_id" value="{{.Old.BSAID}}">
                 <input type="hidden" name="old_first_name" value="{{.Old.FirstName}}">
                 <input type="hidden" name="old_last_name" value="{{.Old.LastName}}">
@@ -256,7 +258,7 @@
 {{define "sync_reverted_card"}}
 <div class="profile-card reverted" id="profile-{{.MemberID}}">
     <div class="profile-header">
-        <span class="profile-name">{{.Name}}</span>
+        <span class="profile-name"><a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.Name}}</a></span>
         <span class="profile-id">BSA ID: {{.MemberID}}</span>
         <span class="status-badge status-reverted">reverted</span>
     </div>

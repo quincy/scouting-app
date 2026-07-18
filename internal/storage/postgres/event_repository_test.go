@@ -360,3 +360,89 @@ func TestPostgresEventRepository_Pagination(t *testing.T) {
 		t.Errorf("expected 0 results with offset beyond end, got %d", len(results))
 	}
 }
+
+func TestPostgresEventRepository_ListByProfileID(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	now := time.Now()
+
+	past := &event.Event{Title: "Past Event", Location: "L", StartTime: now.Add(-48 * time.Hour), EndTime: now.Add(-24 * time.Hour), Type: "campout"}
+	future := &event.Event{Title: "Future Event", Location: "L", StartTime: now.Add(24 * time.Hour), EndTime: now.Add(48 * time.Hour), Type: "campout"}
+	other := &event.Event{Title: "Other Event", Location: "L", StartTime: now.Add(72 * time.Hour), EndTime: now.Add(96 * time.Hour), Type: "campout"}
+
+	for _, e := range []*event.Event{past, future, other} {
+		if err := eventRepo.Create(ctx, e); err != nil {
+			t.Fatalf("Create %s: %v", e.Title, err)
+		}
+	}
+
+	p := &profile.Profile{
+		FirstName: "Test", LastName: "User", Email: "test@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+
+	p2 := &profile.Profile{
+		FirstName: "Other", LastName: "User", Email: "other@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p2); err != nil {
+		t.Fatalf("Create profile2: %v", err)
+	}
+
+	if err := eventRepo.SignUp(ctx, future.ID, p.ID); err != nil {
+		t.Fatalf("SignUp future: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, past.ID, p.ID); err != nil {
+		t.Fatalf("SignUp past: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, other.ID, p2.ID); err != nil {
+		t.Fatalf("SignUp other: %v", err)
+	}
+
+	upcoming, err := eventRepo.ListUpcomingByProfileID(ctx, p.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListUpcomingByProfileID: %v", err)
+	}
+	if len(upcoming) != 1 {
+		t.Errorf("expected 1 upcoming for profile, got %d", len(upcoming))
+	}
+	if len(upcoming) > 0 && upcoming[0].Title != "Future Event" {
+		t.Errorf("expected 'Future Event', got %q", upcoming[0].Title)
+	}
+
+	pastEvents, err := eventRepo.ListPastByProfileID(ctx, p.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListPastByProfileID: %v", err)
+	}
+	if len(pastEvents) != 1 {
+		t.Errorf("expected 1 past for profile, got %d", len(pastEvents))
+	}
+	if len(pastEvents) > 0 && pastEvents[0].Title != "Past Event" {
+		t.Errorf("expected 'Past Event', got %q", pastEvents[0].Title)
+	}
+
+	otherUpcoming, err := eventRepo.ListUpcomingByProfileID(ctx, p2.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("ListUpcomingByProfileID p2: %v", err)
+	}
+	if len(otherUpcoming) != 1 {
+		t.Errorf("expected 1 upcoming for p2, got %d", len(otherUpcoming))
+	}
+
+	noEvents, err := eventRepo.ListUpcomingByProfileID(ctx, p.ID, 10, 10)
+	if err != nil {
+		t.Fatalf("ListUpcomingByProfileID offset: %v", err)
+	}
+	if len(noEvents) != 0 {
+		t.Errorf("expected 0 with offset, got %d", len(noEvents))
+	}
+}

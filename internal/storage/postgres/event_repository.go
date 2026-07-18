@@ -131,6 +131,60 @@ func (r *EventRepository) ListPast(ctx context.Context, limit int, offset int) (
 	return items, rows.Err()
 }
 
+func (r *EventRepository) ListUpcomingByProfileID(ctx context.Context, profileID string, limit int, offset int) ([]*event.ListItem, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT e.id, e.title, e.location, e.start_time, e.end_time, e.type, COUNT(ea2.profile_id) AS attendee_count
+		 FROM events e
+		 JOIN event_attendees ea ON ea.event_id = e.id AND ea.profile_id = $1 AND ea.status = 'signed_up'
+		 LEFT JOIN event_attendees ea2 ON ea2.event_id = e.id AND ea2.status = 'signed_up'
+		 WHERE e.end_time > NOW()
+		 GROUP BY e.id
+		 ORDER BY e.start_time ASC
+		 LIMIT $2 OFFSET $3`, profileID, limit, offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*event.ListItem
+	for rows.Next() {
+		li := &event.ListItem{}
+		if err := rows.Scan(&li.ID, &li.Title, &li.Location, &li.StartTime, &li.EndTime, &li.Type, &li.AttendeeCount); err != nil {
+			return nil, err
+		}
+		items = append(items, li)
+	}
+	return items, rows.Err()
+}
+
+func (r *EventRepository) ListPastByProfileID(ctx context.Context, profileID string, limit int, offset int) ([]*event.ListItem, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT e.id, e.title, e.location, e.start_time, e.end_time, e.type, COUNT(ea2.profile_id) AS attendee_count
+		 FROM events e
+		 JOIN event_attendees ea ON ea.event_id = e.id AND ea.profile_id = $1 AND ea.status = 'signed_up'
+		 LEFT JOIN event_attendees ea2 ON ea2.event_id = e.id AND ea2.status = 'signed_up'
+		 WHERE e.end_time <= NOW()
+		 GROUP BY e.id
+		 ORDER BY e.start_time DESC
+		 LIMIT $2 OFFSET $3`, profileID, limit, offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*event.ListItem
+	for rows.Next() {
+		li := &event.ListItem{}
+		if err := rows.Scan(&li.ID, &li.Title, &li.Location, &li.StartTime, &li.EndTime, &li.Type, &li.AttendeeCount); err != nil {
+			return nil, err
+		}
+		items = append(items, li)
+	}
+	return items, rows.Err()
+}
+
 func (r *EventRepository) SignUp(ctx context.Context, eventID string, profileID string) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO event_attendees (event_id, profile_id, status, created_at, updated_at)

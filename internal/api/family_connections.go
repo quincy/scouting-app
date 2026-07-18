@@ -25,15 +25,17 @@ type FamilyConnectionsHandler struct {
 }
 
 type connectionVM struct {
-	OtherName     string
-	OtherInactive bool
-	Status        string
-	RequestedAt   string
+	OtherProfileID string
+	OtherName      string
+	OtherInactive  bool
+	Status         string
+	RequestedAt    string
 }
 
 type familyConnectionsPageData struct {
 	Title       string
 	IsAdmin     bool
+	ProfileID   string
 	Connections []connectionVM
 	IsAdult     bool
 	Error       string
@@ -116,10 +118,23 @@ func (h *FamilyConnectionsHandler) notifyAdmins(ctx context.Context, parentProfi
 func (h *FamilyConnectionsHandler) renderPage(w http.ResponseWriter, r *http.Request, data familyConnectionsPageData) {
 	data.Title = "Family Connections"
 	data.IsAdmin = h.isAdmin(r.Context(), r)
+	data.ProfileID = h.currentProfileID(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl.ExecuteTemplate(w, "family_connections.html", data); err != nil {
 		log.Printf("family_connections template execution: %v", err)
 	}
+}
+
+func (h *FamilyConnectionsHandler) currentProfileID(r *http.Request) string {
+	user, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || user == nil {
+		return ""
+	}
+	p, err := h.profileRepo.GetByUserID(r.Context(), user.ID)
+	if err != nil || p == nil {
+		return ""
+	}
+	return p.ID
 }
 
 func (h *FamilyConnectionsHandler) buildConnections(ctx context.Context, profileID string, isAdult bool) []connectionVM {
@@ -150,10 +165,11 @@ func (h *FamilyConnectionsHandler) buildConnections(ctx context.Context, profile
 			continue
 		}
 		vms = append(vms, connectionVM{
-			OtherName:     otherProfile.DisplayName(),
-			OtherInactive: otherProfile.Status == profile.StatusInactive,
-			Status:        string(c.Status),
-			RequestedAt:   c.RequestedAt.Format("Jan 2, 2006"),
+			OtherProfileID: otherProfile.ID,
+			OtherName:      otherProfile.DisplayName(),
+			OtherInactive:  otherProfile.Status == profile.StatusInactive,
+			Status:         string(c.Status),
+			RequestedAt:    c.RequestedAt.Format("Jan 2, 2006"),
 		})
 	}
 	return vms

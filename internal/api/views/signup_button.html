@@ -5,7 +5,7 @@
     {{else}}
         {{range .Profiles}}
         <div class="profile-signup-row" id="profile-{{.ProfileID}}">
-            <span>{{.ProfileName}}</span>
+            <a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.ProfileName}}</a>
             {{if .IsAttending}}
             <button class="btn-withdraw" hx-post="/events/{{$.EventID}}/withdraw?profile_id={{.ProfileID}}" hx-target="#signup-section" hx-swap="outerHTML">
                 Withdraw
