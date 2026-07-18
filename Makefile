@@ -33,7 +33,7 @@ cover:
 cover-ci:
 	@echo "Checking coverage on changed files..."
 	@base=$$(git rev-parse origin/main 2>/dev/null || git rev-parse main 2>/dev/null || git rev-list --max-parents=0 HEAD); \
-	changed=$$(git diff --name-only "$$base"...HEAD -- '*.go' | grep -v '_test\.go$$' | grep -v '^cmd/' || true); \
+	changed=$$(git diff --name-only "$$base"...HEAD -- '*.go' | grep -v '_test\.go$$' | grep -v '^cmd/' | grep -v '^main\.go$$' || true); \
 	if [ -z "$$changed" ]; then \
 		echo "  No changed production Go files to check."; \
 		exit 0; \

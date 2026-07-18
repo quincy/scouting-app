@@ -208,9 +208,9 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 				ProfileID: p.ID,
 				MemberID:  p.BSAID,
 				Name:      p.DisplayName(),
-				Status:   "deactivated",
-				Old:      &oldSnapshot,
-				New:      newSnapshot,
+				Status:    "deactivated",
+				Old:       &oldSnapshot,
+				New:       newSnapshot,
 			})
 		}
 	}

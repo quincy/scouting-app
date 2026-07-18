@@ -23,30 +23,30 @@ type ProfileHandler struct {
 }
 
 type profilePageData struct {
-	Title       string
-	IsAdmin     bool
-	ProfileID   string
-	Profile     *profile.Profile
-	IsSelf      bool
-	IsConnected bool
-	ViewerIsAdmin bool
-	ShowEmail   bool
-	ShowBSAID   bool
-	ShowPhone   bool
-	ShowBirthdate bool
-	IsRegistered bool
-	CanGrantAdmin bool
+	Title            string
+	IsAdmin          bool
+	ProfileID        string
+	Profile          *profile.Profile
+	IsSelf           bool
+	IsConnected      bool
+	ViewerIsAdmin    bool
+	ShowEmail        bool
+	ShowBSAID        bool
+	ShowPhone        bool
+	ShowBirthdate    bool
+	IsRegistered     bool
+	CanGrantAdmin    bool
 	IsAdminCurrently bool
 }
 
 type profileEventListData struct {
-	ProfileID string
-	Events    []*event.ListItem
-	Section   string
-	Displayed int
-	Total     int
+	ProfileID  string
+	Events     []*event.ListItem
+	Section    string
+	Displayed  int
+	Total      int
 	NextOffset int
-	HasMore   bool
+	HasMore    bool
 }
 
 func NewProfileHandler(
@@ -63,7 +63,7 @@ func NewProfileHandler(
 		profileRepo:     profileRepo,
 		eventRepo:       eventRepo,
 		auth:            auth,
-		rbac:           rbac,
+		rbac:            rbac,
 		parentYouthLink: parentYouthLink,
 		tmpl:            tmpl,
 	}
@@ -161,20 +161,20 @@ func (h *ProfileHandler) ProfilePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := profilePageData{
-		Title:             p.DisplayName(),
-		IsAdmin:           hasEventPerm,
-		ProfileID:         viewerProfile.ID,
-		Profile:           p,
-		IsSelf:            isSelf,
-		IsConnected:       isConnected,
-		ViewerIsAdmin:     viewerIsAdmin,
-		ShowEmail:         showEmail,
-		ShowBSAID:         showBSAID,
-		ShowPhone:         showPhone,
-		ShowBirthdate:     showBirthdate,
-		IsRegistered:      isRegistered,
-		CanGrantAdmin:     canGrantAdmin,
-		IsAdminCurrently:  isAdminCurrently,
+		Title:            p.DisplayName(),
+		IsAdmin:          hasEventPerm,
+		ProfileID:        viewerProfile.ID,
+		Profile:          p,
+		IsSelf:           isSelf,
+		IsConnected:      isConnected,
+		ViewerIsAdmin:    viewerIsAdmin,
+		ShowEmail:        showEmail,
+		ShowBSAID:        showBSAID,
+		ShowPhone:        showPhone,
+		ShowBirthdate:    showBirthdate,
+		IsRegistered:     isRegistered,
+		CanGrantAdmin:    canGrantAdmin,
+		IsAdminCurrently: isAdminCurrently,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -321,5 +321,3 @@ func (h *ProfileHandler) toggleAdmin(w http.ResponseWriter, r *http.Request, gra
 		log.Printf("profile_admin_section.html template: %v", err)
 	}
 }
-
-
