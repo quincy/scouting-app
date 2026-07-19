@@ -2,8 +2,24 @@ package appconfig
 
 import (
 	"context"
+	"errors"
+	"os"
 	"testing"
 )
+
+type errorRepository struct{}
+
+func (e *errorRepository) Get(ctx context.Context, key string) (string, error) {
+	return "", errors.New("db error")
+}
+func (e *errorRepository) Set(ctx context.Context, key, value string) error   { return nil }
+func (e *errorRepository) All(ctx context.Context) (map[string]string, error) { return nil, nil }
+
+func setenv(t *testing.T, key, val string) {
+	t.Helper()
+	os.Setenv(key, val)
+	t.Cleanup(func() { os.Unsetenv(key) })
+}
 
 func TestInMemoryRepository(t *testing.T) {
 	repo := NewInMemoryRepository()
@@ -60,6 +76,59 @@ func TestInMemoryRepository(t *testing.T) {
 			t.Errorf("unexpected values: %v", all)
 		}
 	})
+}
+
+func TestGetWithHierarchy_EnvVarTakesPriority(t *testing.T) {
+	ctx := t.Context()
+	repo := NewInMemoryRepository()
+	_ = repo.Set(ctx, "TEST_KEY", "db-value")
+
+	setenv(t, "TEST_ENV", "env-value")
+
+	got := GetWithHierarchy(ctx, repo, "TEST_ENV", "TEST_KEY", "default-val")
+	if got != "env-value" {
+		t.Errorf("expected env-value, got %q", got)
+	}
+}
+
+func TestGetWithHierarchy_DBValueUsedWhenNoEnvVar(t *testing.T) {
+	ctx := t.Context()
+	repo := NewInMemoryRepository()
+	_ = repo.Set(ctx, "TEST_KEY", "db-value")
+
+	got := GetWithHierarchy(ctx, repo, "TEST_ENV_UNSET", "TEST_KEY", "default-val")
+	if got != "db-value" {
+		t.Errorf("expected db-value, got %q", got)
+	}
+}
+
+func TestGetWithHierarchy_DefaultWhenNeitherSet(t *testing.T) {
+	ctx := t.Context()
+	repo := NewInMemoryRepository()
+
+	got := GetWithHierarchy(ctx, repo, "TEST_ENV_UNSET", "TEST_KEY_UNSET", "default-val")
+	if got != "default-val" {
+		t.Errorf("expected default-val, got %q", got)
+	}
+}
+
+func TestGetWithHierarchy_DBErrorFallsBackToDefault(t *testing.T) {
+	repo := &errorRepository{}
+	got := GetWithHierarchy(t.Context(), repo, "TEST_ENV_UNSET", "TEST_KEY", "default-val")
+	if got != "default-val" {
+		t.Errorf("expected default-val, got %q", got)
+	}
+}
+
+func TestGetWithHierarchy_EmptyDBValueFallsBackToDefault(t *testing.T) {
+	ctx := t.Context()
+	repo := NewInMemoryRepository()
+	_ = repo.Set(ctx, "TEST_KEY", "")
+
+	got := GetWithHierarchy(ctx, repo, "TEST_ENV_UNSET", "TEST_KEY", "default-val")
+	if got != "default-val" {
+		t.Errorf("expected default-val, got %q", got)
+	}
 }
 
 func TestDefaultKeyNames(t *testing.T) {
