@@ -1254,3 +1254,74 @@ func TestEventHandler_EventEdit_ValidationError(t *testing.T) {
 		t.Errorf("expected 'Cost is required' error, got:\n%s", body)
 	}
 }
+
+func TestEventHandler_SignUp_ParentCanSignUpYouth(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	youthProfile := &profile.Profile{
+		FirstName:  "Young",
+		LastName:   "Scout",
+		Email:      "young.scout@scout.local",
+		MemberType: profile.MemberTypeYouth,
+		Status:     profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, youthProfile); err != nil {
+		t.Fatalf("Create youth profile: %v", err)
+	}
+
+	link := &parentyouthlink.ParentYouthConnection{
+		ParentProfileID: adminProfile.ID,
+		YouthProfileID:  youthProfile.ID,
+		Status:          parentyouthlink.StatusApproved,
+		RequestedAt:     time.Now(),
+		CreatedAt:       time.Now(),
+	}
+	if err := store.ParentYouthLink.Create(ctx, link); err != nil {
+		t.Fatalf("Create link: %v", err)
+	}
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID+"&profile_id="+youthProfile.ID)
+	rr := httptest.NewRecorder()
+
+	handler.SignUp(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("SignUp returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+}
+
+func TestEventHandler_SignUp_ForbiddenForUnrelatedProfile(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	otherProfile := &profile.Profile{
+		FirstName:  "Other",
+		LastName:   "Person",
+		Email:      "other@scout.local",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, otherProfile); err != nil {
+		t.Fatalf("Create other profile: %v", err)
+	}
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID+"&profile_id="+otherProfile.ID)
+	rr := httptest.NewRecorder()
+
+	handler.SignUp(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("SignUp returned status %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
