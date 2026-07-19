@@ -172,8 +172,8 @@ func (s *AuthService) SeedAdminUser(ctx context.Context) error {
 		return err
 	}
 	adminRole, err := s.rbac.GetRoleByName(ctx, "admin")
-	if err != nil {
-		return err
+	if err != nil || adminRole == nil {
+		return errors.New("admin role not found")
 	}
 	return s.rbac.AssignRoleToUser(ctx, u.ID, adminRole.ID)
 }
