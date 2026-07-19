@@ -138,6 +138,11 @@ func (s *AuthService) checkProfileActive(ctx context.Context, userID string) err
 	if err != nil {
 		return errors.New("invalid credentials")
 	}
+
+	if prof.Status == profile.StatusDisabled {
+		return errors.New("account is disabled")
+	}
+
 	if prof == nil || prof.Status != profile.StatusInactive {
 		return nil
 	}

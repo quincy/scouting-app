@@ -1224,3 +1224,34 @@ func TestRegistrationHandler_Complete_NoSession(t *testing.T) {
 		t.Errorf("expected redirect to /register, got %q", location)
 	}
 }
+
+func TestRegistrationHandler_Register_DisabledProfile(t *testing.T) {
+	handler, _, _, profileRepo, _, _, _ := setupRegistrationTest(t)
+
+	ctx := t.Context()
+	disabledProfile := &profile.Profile{
+		FirstName:  "Disabled",
+		LastName:   "Member",
+		Email:      "disabled.member@scout.local",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusDisabled,
+	}
+	if err := profileRepo.Create(ctx, disabledProfile); err != nil {
+		t.Fatalf("Create disabled profile: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/register", strings.NewReader("email=disabled.member@scout.local"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.Register(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Register returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "disabled") {
+		t.Errorf("expected message mentioning disabled, got:\n%s", body)
+	}
+}

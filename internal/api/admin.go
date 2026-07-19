@@ -448,6 +448,8 @@ func (h *AdminHandler) ToggleProfileStatus(w http.ResponseWriter, r *http.Reques
 
 	if p.Status == profile.StatusActive {
 		p.Status = profile.StatusInactive
+	} else if p.Status == profile.StatusInactive {
+		p.Status = profile.StatusDisabled
 	} else {
 		p.Status = profile.StatusActive
 	}

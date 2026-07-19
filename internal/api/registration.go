@@ -102,6 +102,11 @@ func (h *RegistrationHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if prof.Status == profile.StatusDisabled {
+		h.renderRegister(w, template.HTML("This account has been disabled. Please contact your Troop Webmaster for assistance."))
+		return
+	}
+
 	if prof.Status == profile.StatusInactive {
 		h.renderRegister(w, template.HTML("Your profile is currently inactive. Please contact your Troop Webmaster for assistance."))
 		return

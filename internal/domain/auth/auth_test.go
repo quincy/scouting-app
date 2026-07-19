@@ -466,3 +466,49 @@ func TestAuthService_Login_InactiveProfile_AdminBypass(t *testing.T) {
 		t.Fatal("expected user, got nil")
 	}
 }
+
+func TestAuthService_Login_DisabledProfile_AdminBypass(t *testing.T) {
+	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
+	hasher := &MockHasher{}
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{roles: []*rbac.Role{{ID: "admin-role", Name: "admin"}}}, hasher, store)
+
+	u := &user.User{
+		ID:           "user-1",
+		Email:        "disabled@scout.local",
+		PasswordHash: "password",
+		CreatedAt:    time.Now(),
+	}
+	userRepo.Create(context.Background(), u)
+	userID := u.ID
+	profileRepo.Create(context.Background(), &profile.Profile{
+		ID:     "profile-1",
+		Email:  "disabled@scout.local",
+		Status: profile.StatusDisabled,
+		UserID: &userID,
+	})
+
+	req := httptest.NewRequest("POST", "/login", nil)
+	rr := httptest.NewRecorder()
+
+	got, err := svc.Login(rr, req, "disabled@scout.local", "password")
+	if err == nil {
+		t.Fatal("expected error for disabled profile, got nil")
+	}
+	if !strings.Contains(err.Error(), "disabled") {
+		t.Errorf("expected error mentioning disabled, got: %v", err)
+	}
+	if got != nil {
+		t.Fatal("expected nil user for disabled profile, got non-nil")
+	}
+
+	// Verify admin bypass does NOT work for disabled — no session was saved
+	usr, err := svc.GetAuthenticatedUser(req)
+	if err != nil {
+		t.Fatalf("GetAuthenticatedUser returned error: %v", err)
+	}
+	if usr != nil {
+		t.Error("expected user not to be authenticated via session, but session exists")
+	}
+}
