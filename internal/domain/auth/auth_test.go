@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -77,6 +78,56 @@ func (r *memRBACRepo) GetUsersByRoleName(ctx context.Context, name string) ([]st
 }
 func (r *memRBACRepo) GetUsersByPermission(ctx context.Context, permission string) ([]string, error) {
 	return nil, nil
+}
+
+type memRBACRepoNoAdmin struct{}
+
+func (r *memRBACRepoNoAdmin) CreateRole(ctx context.Context, role *rbac.Role) error { return nil }
+func (r *memRBACRepoNoAdmin) CreatePermission(ctx context.Context, perm *rbac.Permission) error {
+	return nil
+}
+func (r *memRBACRepoNoAdmin) AssignRoleToUser(ctx context.Context, userID, roleID string) error {
+	return nil
+}
+func (r *memRBACRepoNoAdmin) LinkPermissionToRole(ctx context.Context, roleID, permID string) error {
+	return nil
+}
+func (r *memRBACRepoNoAdmin) GetUserRoles(ctx context.Context, userID string) ([]*rbac.Role, error) {
+	return nil, nil
+}
+func (r *memRBACRepoNoAdmin) GetUserPermissions(ctx context.Context, userID string) ([]*rbac.Permission, error) {
+	return nil, nil
+}
+func (r *memRBACRepoNoAdmin) GetRoleByName(ctx context.Context, name string) (*rbac.Role, error) {
+	return nil, nil
+}
+func (r *memRBACRepoNoAdmin) ListAllRoles(ctx context.Context) ([]*rbac.Role, error) { return nil, nil }
+func (r *memRBACRepoNoAdmin) ListAllPermissions(ctx context.Context) ([]*rbac.Permission, error) {
+	return nil, nil
+}
+func (r *memRBACRepoNoAdmin) GetRolePermissions(ctx context.Context, roleID string) ([]*rbac.Permission, error) {
+	return nil, nil
+}
+func (r *memRBACRepoNoAdmin) SetRolePermissions(ctx context.Context, roleID string, permIDs []string) error {
+	return nil
+}
+func (r *memRBACRepoNoAdmin) RemoveRoleFromUser(ctx context.Context, userID, roleID string) error {
+	return nil
+}
+func (r *memRBACRepoNoAdmin) GetUsersByRoleName(ctx context.Context, name string) ([]string, error) {
+	return nil, nil
+}
+func (r *memRBACRepoNoAdmin) GetUsersByPermission(ctx context.Context, permission string) ([]string, error) {
+	return nil, nil
+}
+
+type errorHasher struct{}
+
+func (h *errorHasher) Hash(password string) (string, error) {
+	return "", errors.New("hash failed")
+}
+func (h *errorHasher) Verify(password, hash string) error {
+	return errors.New("verify failed")
 }
 
 type memProfileRepo struct {
@@ -185,6 +236,59 @@ func TestMockHasher_Verify_Wrong(t *testing.T) {
 	hash, _ := hasher.Hash("correct")
 	if err := hasher.Verify("wrong", hash); err == nil {
 		t.Error("Verify should fail for wrong password")
+	}
+}
+
+func TestAuthService_SeedAdminUser_RoleNotFound(t *testing.T) {
+	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
+	hasher := &MockHasher{}
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepoNoAdmin{}, hasher, store)
+
+	ctx := t.Context()
+	if err := svc.SeedAdminUser(ctx); err == nil {
+		t.Fatal("expected error when admin role not found, got nil")
+	}
+}
+
+func TestAuthService_SeedAdminUser_HashError(t *testing.T) {
+	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
+	hasher := &errorHasher{}
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{}, hasher, store)
+
+	ctx := t.Context()
+	if err := svc.SeedAdminUser(ctx); err == nil {
+		t.Fatal("expected error when hasher fails, got nil")
+	}
+}
+
+func TestAuthService_SeedAdminUser_HappyPath(t *testing.T) {
+	userRepo := &memUserRepo{users: make(map[string]*user.User)}
+	profileRepo := &memProfileRepo{profiles: make(map[string]*profile.Profile)}
+	hasher := &MockHasher{}
+	store := NewCookieStore("test-secret-key")
+	svc := NewAuthService(userRepo, profileRepo, &memRBACRepo{}, hasher, store)
+
+	ctx := t.Context()
+	if err := svc.SeedAdminUser(ctx); err != nil {
+		t.Fatalf("SeedAdminUser failed: %v", err)
+	}
+
+	u, err := userRepo.GetByEmail(ctx, "admin@scout.local")
+	if err != nil {
+		t.Fatalf("GetByEmail failed: %v", err)
+	}
+	if u == nil {
+		t.Fatal("expected user admin@scout.local to exist")
+	}
+	if u.Email != "admin@scout.local" {
+		t.Errorf("expected email admin@scout.local, got %q", u.Email)
+	}
+	if u.PasswordHash != "password" {
+		t.Errorf("expected PasswordHash to be hashed, got %q", u.PasswordHash)
 	}
 }
 
