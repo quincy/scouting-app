@@ -1,7 +1,9 @@
 package email
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"net"
 	"net/textproto"
 	"strings"
@@ -156,6 +158,47 @@ func startFakeSMTPServer(t *testing.T, received chan<- string) *fakeSMTPServer {
 	}()
 
 	return srv
+}
+
+func TestCheckSMTPConfig_Warning(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(log.Writer()) })
+
+	repo := appconfig.NewInMemoryRepository()
+	CheckSMTPConfig(t.Context(), repo)
+
+	if !strings.Contains(buf.String(), "WARNING") {
+		t.Error("expected warning when host=localhost and from is empty")
+	}
+}
+
+func TestCheckSMTPConfig_NoWarningWhenHostSet(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(log.Writer()) })
+
+	repo := appconfig.NewInMemoryRepository()
+	repo.Set(t.Context(), appconfig.KeySMTPHost, "smtp.example.com")
+	CheckSMTPConfig(t.Context(), repo)
+
+	if buf.Len() > 0 {
+		t.Errorf("expected no warning, got: %s", buf.String())
+	}
+}
+
+func TestCheckSMTPConfig_NoWarningWhenFromSet(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(log.Writer()) })
+
+	repo := appconfig.NewInMemoryRepository()
+	repo.Set(t.Context(), appconfig.KeySMTPFrom, "from@example.com")
+	CheckSMTPConfig(t.Context(), repo)
+
+	if buf.Len() > 0 {
+		t.Errorf("expected no warning, got: %s", buf.String())
+	}
 }
 
 func portFromAddr(addr string) string {

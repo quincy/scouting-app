@@ -90,3 +90,17 @@ func TestBuildMessage(t *testing.T) {
 		t.Error("body not found after headers")
 	}
 }
+
+func TestExtractSubject_NoSubject(t *testing.T) {
+	got := extractSubject("Body without subject line")
+	if got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestStripSubject_NoNewline(t *testing.T) {
+	got := stripSubject("single line without newline")
+	if got != "single line without newline" {
+		t.Errorf("expected original string, got %q", got)
+	}
+}
