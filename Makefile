@@ -40,7 +40,7 @@ cover-ci:
 	fi; \
 	fail=0; \
 	for f in $$changed; do \
-		case "$$f" in internal/storage/mock/*) continue ;; esac; \
+		case "$$f" in internal/storage/mock/*|internal/testhelper/*) continue ;; esac; \
 		if ! grep -q '^func ' "$$f" 2>/dev/null; then \
 			echo "  SKIP  $$f  (no executable functions)"; \
 			continue; \

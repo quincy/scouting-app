@@ -193,6 +193,7 @@ func TestPostgresEventRepository_Update(t *testing.T) {
 	repo := NewEventRepository(testDB)
 	ctx := context.Background()
 
+	createdAt := time.Now().Add(-time.Second).Truncate(time.Microsecond)
 	evt := &event.Event{
 		Title:       "Original",
 		Description: "Original description",
@@ -201,13 +202,11 @@ func TestPostgresEventRepository_Update(t *testing.T) {
 		EndTime:     time.Now().Add(48 * time.Hour),
 		CostCents:   1000,
 		Type:        "campout",
-		CreatedAt:   time.Now(),
+		CreatedAt:   createdAt,
 	}
 	if err := repo.Create(ctx, evt); err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
-
-	createdAt := evt.CreatedAt
 
 	updated := &event.Event{
 		ID:          evt.ID,
