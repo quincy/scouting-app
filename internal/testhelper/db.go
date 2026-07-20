@@ -19,20 +19,27 @@ import (
 var (
 	startOnce sync.Once
 	globalDB  *sql.DB
+	globalDSN string
 )
 
 func StartDB() *sql.DB {
 	startOnce.Do(func() {
-		db, err := startContainer()
+		db, dsn, err := startContainer()
 		if err != nil {
 			log.Fatalf("testhelper: start database container: %v", err)
 		}
 		globalDB = db
+		globalDSN = dsn
 	})
 	return globalDB
 }
 
-func startContainer() (*sql.DB, error) {
+func DSN() string {
+	StartDB()
+	return globalDSN
+}
+
+func startContainer() (*sql.DB, string, error) {
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
@@ -49,17 +56,17 @@ func startContainer() (*sql.DB, error) {
 		Started:          true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("start cockroachdb container: %w", err)
+		return nil, "", fmt.Errorf("start cockroachdb container: %w", err)
 	}
 
 	host, err := container.Host(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("get container host: %w", err)
+		return nil, "", fmt.Errorf("get container host: %w", err)
 	}
 
 	port, err := container.MappedPort(ctx, "26257")
 	if err != nil {
-		return nil, fmt.Errorf("get mapped port: %w", err)
+		return nil, "", fmt.Errorf("get mapped port: %w", err)
 	}
 
 	dsn := fmt.Sprintf("postgres://root@%s:%s/defaultdb?sslmode=disable", host, port.Port())
@@ -76,26 +83,26 @@ func startContainer() (*sql.DB, error) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("connect to cockroachdb: %w", err)
+		return nil, "", fmt.Errorf("connect to cockroachdb: %w", err)
 	}
 
 	if err := goose.SetDialect("postgres"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("set goose dialect: %w", err)
+		return nil, "", fmt.Errorf("set goose dialect: %w", err)
 	}
 
 	migrationsDir := findMigrationsDir()
 	if migrationsDir == "" {
 		db.Close()
-		return nil, fmt.Errorf("cannot find migrations directory")
+		return nil, "", fmt.Errorf("cannot find migrations directory")
 	}
 
 	if err := goose.Up(db, migrationsDir); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("run migrations: %w", err)
+		return nil, "", fmt.Errorf("run migrations: %w", err)
 	}
 
-	return db, nil
+	return db, dsn, nil
 }
 
 func findMigrationsDir() string {
