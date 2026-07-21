@@ -21,3 +21,5 @@ seed-inactive
 
 .DS_Store
 
+coverage.out
+
