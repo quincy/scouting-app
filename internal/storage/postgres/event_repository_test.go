@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -360,6 +361,341 @@ func TestPostgresEventRepository_Pagination(t *testing.T) {
 	}
 }
 
+func TestPostgresEventRepository_AddDriverAndGetDrivers(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p := &profile.Profile{
+		FirstName:  "Driver",
+		LastName:   "One",
+		Email:      "driver1@test.com",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+
+	if err := eventRepo.SignUp(ctx, evt.ID, p.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	if err := eventRepo.AddDriver(ctx, evt.ID, p.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	drivers, err := eventRepo.GetDrivers(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetDrivers: %v", err)
+	}
+	if len(drivers) != 1 {
+		t.Fatalf("expected 1 driver, got %d", len(drivers))
+	}
+	if drivers[0].ProfileID != p.ID {
+		t.Errorf("expected profile ID %s, got %s", p.ID, drivers[0].ProfileID)
+	}
+	if drivers[0].SeatbeltCount != 5 {
+		t.Errorf("expected seatbelt count 5, got %d", drivers[0].SeatbeltCount)
+	}
+}
+
+func TestPostgresEventRepository_RemoveDriver(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p := &profile.Profile{
+		FirstName: "Driver", LastName: "One", Email: "driver1@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, p.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := eventRepo.AddDriver(ctx, evt.ID, p.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	if err := eventRepo.RemoveDriver(ctx, evt.ID, p.ID); err != nil {
+		t.Fatalf("RemoveDriver: %v", err)
+	}
+
+	drivers, err := eventRepo.GetDrivers(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetDrivers: %v", err)
+	}
+	if len(drivers) != 0 {
+		t.Errorf("expected 0 drivers after remove, got %d", len(drivers))
+	}
+}
+
+func TestPostgresEventRepository_UpdateDriverSeatbeltCount(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p := &profile.Profile{
+		FirstName: "Driver", LastName: "One", Email: "driver1@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, p.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := eventRepo.AddDriver(ctx, evt.ID, p.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	if err := eventRepo.UpdateDriverSeatbeltCount(ctx, evt.ID, p.ID, 7); err != nil {
+		t.Fatalf("UpdateDriverSeatbeltCount: %v", err)
+	}
+
+	drivers, err := eventRepo.GetDrivers(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetDrivers: %v", err)
+	}
+	if len(drivers) != 1 {
+		t.Fatalf("expected 1 driver, got %d", len(drivers))
+	}
+	if drivers[0].SeatbeltCount != 7 {
+		t.Errorf("expected seatbelt count 7, got %d", drivers[0].SeatbeltCount)
+	}
+}
+
+func TestPostgresEventRepository_GetSeatbeltSummary(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	driver := &profile.Profile{
+		FirstName: "Driver", LastName: "One", Email: "driver1@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, driver); err != nil {
+		t.Fatalf("Create driver profile: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, driver.ID); err != nil {
+		t.Fatalf("SignUp driver: %v", err)
+	}
+	if err := eventRepo.AddDriver(ctx, evt.ID, driver.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	summary, err := eventRepo.GetSeatbeltSummary(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetSeatbeltSummary: %v", err)
+	}
+	if summary.TotalSeatbelts != 5 {
+		t.Errorf("expected TotalSeatbelts 5, got %d", summary.TotalSeatbelts)
+	}
+	if summary.RequiredSeatbelts != 1 {
+		t.Errorf("expected RequiredSeatbelts 1, got %d", summary.RequiredSeatbelts)
+	}
+	if summary.Available != 5 {
+		t.Errorf("expected Available 5, got %d", summary.Available)
+	}
+	if !summary.Sufficient {
+		t.Errorf("expected Sufficient to be true (5 available >= 1 required)")
+	}
+}
+
+func TestPostgresEventRepository_GetSeatbeltSummary_Insufficient(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	driver := &profile.Profile{
+		FirstName: "Driver", LastName: "One", Email: "driver1@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, driver); err != nil {
+		t.Fatalf("Create driver: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, driver.ID); err != nil {
+		t.Fatalf("SignUp driver: %v", err)
+	}
+	if err := eventRepo.AddDriver(ctx, evt.ID, driver.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	for i := 0; i < 6; i++ {
+		passenger := &profile.Profile{
+			FirstName: "Passenger", LastName: fmt.Sprintf("Num%d", i), Email: fmt.Sprintf("passenger%d@test.com", i),
+			MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+		}
+		if err := profileRepo.Create(ctx, passenger); err != nil {
+			t.Fatalf("Create passenger %d: %v", i, err)
+		}
+		if err := eventRepo.SignUp(ctx, evt.ID, passenger.ID); err != nil {
+			t.Fatalf("SignUp passenger %d: %v", i, err)
+		}
+	}
+
+	summary, err := eventRepo.GetSeatbeltSummary(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetSeatbeltSummary: %v", err)
+	}
+	if summary.TotalSeatbelts != 5 {
+		t.Errorf("expected TotalSeatbelts 5, got %d", summary.TotalSeatbelts)
+	}
+	if summary.RequiredSeatbelts != 7 {
+		t.Errorf("expected RequiredSeatbelts 7, got %d", summary.RequiredSeatbelts)
+	}
+	if summary.Available != 5 {
+		t.Errorf("expected Available 5, got %d", summary.Available)
+	}
+	if summary.Sufficient {
+		t.Errorf("expected Sufficient to be false (5 available < 7 required)")
+	}
+}
+
+func TestPostgresEventRepository_AddDriver_MultipleDrivers(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p1 := &profile.Profile{
+		FirstName: "Driver", LastName: "One", Email: "driver1@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	p2 := &profile.Profile{
+		FirstName: "Driver", LastName: "Two", Email: "driver2@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p1); err != nil {
+		t.Fatalf("Create p1: %v", err)
+	}
+	if err := profileRepo.Create(ctx, p2); err != nil {
+		t.Fatalf("Create p2: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, p1.ID); err != nil {
+		t.Fatalf("SignUp p1: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, p2.ID); err != nil {
+		t.Fatalf("SignUp p2: %v", err)
+	}
+	if err := eventRepo.AddDriver(ctx, evt.ID, p1.ID, 5); err != nil {
+		t.Fatalf("AddDriver p1: %v", err)
+	}
+	if err := eventRepo.AddDriver(ctx, evt.ID, p2.ID, 3); err != nil {
+		t.Fatalf("AddDriver p2: %v", err)
+	}
+
+	drivers, err := eventRepo.GetDrivers(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetDrivers: %v", err)
+	}
+	if len(drivers) != 2 {
+		t.Fatalf("expected 2 drivers, got %d", len(drivers))
+	}
+	if drivers[0].SeatbeltCount+drivers[1].SeatbeltCount != 8 {
+		t.Errorf("expected total seatbelt count 8, got %d+%d", drivers[0].SeatbeltCount, drivers[1].SeatbeltCount)
+	}
+
+	summary, err := eventRepo.GetSeatbeltSummary(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetSeatbeltSummary: %v", err)
+	}
+	if summary.TotalSeatbelts != 8 {
+		t.Errorf("expected TotalSeatbelts 8, got %d", summary.TotalSeatbelts)
+	}
+}
+
 func TestPostgresEventRepository_ListByProfileID(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no database connection")
@@ -443,5 +779,35 @@ func TestPostgresEventRepository_ListByProfileID(t *testing.T) {
 	}
 	if len(noEvents) != 0 {
 		t.Errorf("expected 0 with offset, got %d", len(noEvents))
+	}
+}
+
+func TestPostgresEventRepository_GetDrivers_CancelledContext(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := repo.GetDrivers(ctx, "nonexistent")
+	if err == nil {
+		t.Error("expected error with cancelled context")
+	}
+}
+
+func TestPostgresEventRepository_GetSeatbeltSummary_CancelledContext(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := repo.GetSeatbeltSummary(ctx, "nonexistent")
+	if err == nil {
+		t.Error("expected error with cancelled context")
 	}
 }

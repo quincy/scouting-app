@@ -229,4 +229,78 @@ func (r *EventRepository) GetAttendees(ctx context.Context, eventID string) ([]*
 	return result, rows.Err()
 }
 
+func (r *EventRepository) AddDriver(ctx context.Context, eventID string, profileID string, seatbeltCount int) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO event_attendee_responsibilities (event_id, profile_id, responsibility, seatbelt_count, created_at, updated_at)
+		 VALUES ($1, $2, 'driver', $3, NOW(), NOW())
+		 ON CONFLICT (event_id, profile_id, responsibility) DO UPDATE SET seatbelt_count = $3, updated_at = NOW()`,
+		eventID, profileID, seatbeltCount,
+	)
+	return err
+}
+
+func (r *EventRepository) RemoveDriver(ctx context.Context, eventID string, profileID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM event_attendee_responsibilities
+		 WHERE event_id = $1 AND profile_id = $2 AND responsibility = 'driver'`,
+		eventID, profileID,
+	)
+	return err
+}
+
+func (r *EventRepository) UpdateDriverSeatbeltCount(ctx context.Context, eventID string, profileID string, seatbeltCount int) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE event_attendee_responsibilities
+		 SET seatbelt_count = $3, updated_at = NOW()
+		 WHERE event_id = $1 AND profile_id = $2 AND responsibility = 'driver'`,
+		eventID, profileID, seatbeltCount,
+	)
+	return err
+}
+
+func (r *EventRepository) GetDrivers(ctx context.Context, eventID string) ([]event.DriverResponsibility, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT ear.event_id, ear.profile_id,
+		        CASE WHEN p.nickname != '' THEN p.nickname || ' (' || p.first_name || ') ' || p.last_name
+		             ELSE p.first_name || ' ' || p.last_name
+		        END AS profile_name,
+		        ear.seatbelt_count, ear.created_at, ear.updated_at
+		 FROM event_attendee_responsibilities ear
+		 JOIN profiles p ON p.id = ear.profile_id
+		 WHERE ear.event_id = $1 AND ear.responsibility = 'driver'`,
+		eventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var drivers []event.DriverResponsibility
+	for rows.Next() {
+		var d event.DriverResponsibility
+		if err := rows.Scan(&d.EventID, &d.ProfileID, &d.ProfileName, &d.SeatbeltCount, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, err
+		}
+		drivers = append(drivers, d)
+	}
+	return drivers, rows.Err()
+}
+
+func (r *EventRepository) GetSeatbeltSummary(ctx context.Context, eventID string) (*event.SeatbeltSummary, error) {
+	var summary event.SeatbeltSummary
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(ear.seatbelt_count), 0) AS total_seatbelts,
+		        (SELECT COUNT(*) FROM event_attendees WHERE event_id = $1 AND status = 'signed_up') AS required_seatbelts
+		 FROM event_attendee_responsibilities ear
+		 WHERE ear.event_id = $1 AND ear.responsibility = 'driver'`,
+		eventID,
+	).Scan(&summary.TotalSeatbelts, &summary.RequiredSeatbelts)
+	if err != nil {
+		return nil, err
+	}
+	summary.Available = summary.TotalSeatbelts
+	summary.Sufficient = summary.Available >= summary.RequiredSeatbelts
+	return &summary, nil
+}
+
 var _ event.Repository = (*EventRepository)(nil)
