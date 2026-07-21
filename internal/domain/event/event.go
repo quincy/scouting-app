@@ -25,3 +25,19 @@ type Event struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
+
+type DriverResponsibility struct {
+	EventID       string
+	ProfileID     string
+	ProfileName   string
+	SeatbeltCount int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type SeatbeltSummary struct {
+	TotalSeatbelts    int
+	RequiredSeatbelts int
+	Available         int
+	Sufficient        bool
+}

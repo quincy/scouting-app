@@ -18,4 +18,9 @@ type Repository interface {
 	Update(ctx context.Context, e *Event) error
 	Delete(ctx context.Context, id string) error
 	GetAttendees(ctx context.Context, eventID string) ([]*profile.Profile, error)
+	AddDriver(ctx context.Context, eventID string, profileID string, seatbeltCount int) error
+	RemoveDriver(ctx context.Context, eventID string, profileID string) error
+	UpdateDriverSeatbeltCount(ctx context.Context, eventID string, profileID string, seatbeltCount int) error
+	GetDrivers(ctx context.Context, eventID string) ([]DriverResponsibility, error)
+	GetSeatbeltSummary(ctx context.Context, eventID string) (*SeatbeltSummary, error)
 }

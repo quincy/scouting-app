@@ -3,8 +3,27 @@
 ### Test-Driven Development (TDD) — REQUIRED
 
 Before writing any production code you MUST load the `tdd` skill and follow its
-red-green-refactor workflow. The CI pipeline includes `make cover-ci` which
-fails if any changed non-test file has 0% statement coverage.
+red-green-refactor workflow.
+
+### Pre-Commit Quality Gate — REQUIRED
+
+Before declaring a task complete or requesting human review, you MUST run:
+
+```bash
+make ci
+```
+
+This runs: `clean` → `check` (fmt, vet, staticcheck) → `test` (all tests) →
+`cover-ci` (coverage check) → `build`.
+
+**Coverage requirements:**
+- Every changed non-test Go file must have >90% statement coverage on the new
+  code introduced. (The CI gate `make cover-ci` checks for 0% files; the 90%
+  threshold must be enforced by the developer.)
+- `internal/storage/mock/` and `internal/testhelper/` are exempt from coverage
+  requirements.
+
+If `make ci` fails, fix the issue before proceeding.
 
 # Documentation
 
