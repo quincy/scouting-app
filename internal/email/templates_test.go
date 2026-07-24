@@ -86,7 +86,7 @@ func TestBuildMessage(t *testing.T) {
 	if !strings.Contains(msg, "Content-Type: text/plain; charset=UTF-8") {
 		t.Error("missing Content-Type header")
 	}
-	if !strings.Contains(msg, "\n\nHello, this is the body.") {
+	if !strings.Contains(msg, "\r\n\r\nHello, this is the body.") {
 		t.Error("body not found after headers")
 	}
 }
