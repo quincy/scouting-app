@@ -342,6 +342,27 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	if err := h.tmpl.ExecuteTemplate(w, "event_detail.html", data); err != nil {
 		log.Printf("template execution: %v", err)
 	}
+
+	drivers, dErr := h.repo.GetDrivers(ctx, eventID)
+	summary, sErr := h.repo.GetSeatbeltSummary(ctx, eventID)
+	if dErr != nil || sErr != nil {
+		return
+	}
+
+	userProfile, pErr := h.profiles.GetByUserID(ctx, currentUser.ID)
+	if pErr != nil {
+		return
+	}
+
+	isDriver, sc := computeDriverInfo(userProfile.ID, drivers)
+	isSignedUp := isAttending(userProfile.ID, attendees)
+	if err := h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
+		EventID: eventID, IsPast: isPast, ProfileID: userProfile.ID,
+		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: isSignedUp, IsDriver: isDriver, SeatbeltCount: sc,
+		Drivers: drivers, Summary: *summary,
+	}); err != nil {
+		log.Printf("template execution (drivers_section): %v", err)
+	}
 }
 
 func (h *EventHandler) EventCreateForm(w http.ResponseWriter, r *http.Request) {
@@ -795,6 +816,30 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		log.Printf("template execution (attendee_list): %v", err)
 	}
+
+	// Show driver sign-up option for adult self-signups
+	if profileToSignUp.MemberType == profile.MemberTypeAdult {
+		drivers, err := h.repo.GetDrivers(ctx, eventID)
+		if err != nil {
+			log.Printf("GetDrivers: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
+		if err != nil {
+			log.Printf("GetSeatbeltSummary: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		isDriver, seatbeltCount := computeDriverInfo(profileToSignUp.ID, drivers)
+		if err := h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
+			EventID: eventID, IsPast: false, ProfileID: profileToSignUp.ID,
+			IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+			Drivers: drivers, Summary: *summary,
+		}); err != nil {
+			log.Printf("template execution (drivers_section): %v", err)
+		}
+	}
 }
 
 func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
@@ -851,6 +896,9 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	// Cascade: also remove driver responsibility if present
+	_ = h.repo.RemoveDriver(ctx, eventID, profileID)
 
 	attendees, err := h.repo.GetAttendees(ctx, eventID)
 	if err != nil {
@@ -959,6 +1007,253 @@ func (h *EventHandler) EventDelete(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("HX-Redirect", "/events?deleted=1")
 	w.WriteHeader(http.StatusOK)
+}
+
+type driversSectionData struct {
+	EventID       string
+	IsPast        bool
+	ProfileID     string
+	IsAdmin       bool
+	IsSignedUp    bool
+	IsDriver      bool
+	SeatbeltCount int
+	Drivers       []event.DriverResponsibility
+	Summary       event.SeatbeltSummary
+}
+
+func computeDriverInfo(profileID string, drivers []event.DriverResponsibility) (bool, int) {
+	for _, d := range drivers {
+		if d.ProfileID == profileID {
+			return true, d.SeatbeltCount
+		}
+	}
+	return false, 0
+}
+
+func isAttending(profileID string, attendees []*profile.Profile) bool {
+	for _, a := range attendees {
+		if a.ID == profileID {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *EventHandler) AddDriver(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	seatbeltCountStr := r.FormValue("seatbelt_count")
+	if seatbeltCountStr == "" {
+		http.Error(w, "Missing seatbelt_count", http.StatusBadRequest)
+		return
+	}
+
+	seatbeltCount, err := strconv.Atoi(seatbeltCountStr)
+	if err != nil || seatbeltCount < 1 {
+		http.Error(w, "Invalid seatbelt_count", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if evt.EndTime.Before(time.Now()) {
+		http.Error(w, "Cannot modify drivers for a past event", http.StatusBadRequest)
+		return
+	}
+
+	userProfile, err := h.profiles.GetByUserID(ctx, currentUser.ID)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.repo.AddDriver(ctx, eventID, userProfile.ID, seatbeltCount); err != nil {
+		log.Printf("AddDriver: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	drivers, err := h.repo.GetDrivers(ctx, eventID)
+	if err != nil {
+		log.Printf("GetDrivers: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
+	if err != nil {
+		log.Printf("GetSeatbeltSummary: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	isDriver, seatbeltCount := computeDriverInfo(userProfile.ID, drivers)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
+		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
+		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+		Drivers: drivers, Summary: *summary,
+	})
+}
+
+func (h *EventHandler) RemoveDriver(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if evt.EndTime.Before(time.Now()) {
+		http.Error(w, "Cannot modify drivers for a past event", http.StatusBadRequest)
+		return
+	}
+
+	userProfile, err := h.profiles.GetByUserID(ctx, currentUser.ID)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.repo.RemoveDriver(ctx, eventID, userProfile.ID); err != nil {
+		log.Printf("RemoveDriver: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	drivers, err := h.repo.GetDrivers(ctx, eventID)
+	if err != nil {
+		log.Printf("GetDrivers: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
+	if err != nil {
+		log.Printf("GetSeatbeltSummary: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	isDriver, seatbeltCount := computeDriverInfo(userProfile.ID, drivers)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
+		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
+		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+		Drivers: drivers, Summary: *summary,
+	})
+}
+
+func (h *EventHandler) UpdateDriverSeatbelt(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	seatbeltCountStr := r.FormValue("seatbelt_count")
+	if seatbeltCountStr == "" {
+		http.Error(w, "Missing seatbelt_count", http.StatusBadRequest)
+		return
+	}
+
+	seatbeltCount, err := strconv.Atoi(seatbeltCountStr)
+	if err != nil || seatbeltCount < 1 {
+		http.Error(w, "Invalid seatbelt_count", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if evt.EndTime.Before(time.Now()) {
+		http.Error(w, "Cannot modify drivers for a past event", http.StatusBadRequest)
+		return
+	}
+
+	userProfile, err := h.profiles.GetByUserID(ctx, currentUser.ID)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.repo.UpdateDriverSeatbeltCount(ctx, eventID, userProfile.ID, seatbeltCount); err != nil {
+		log.Printf("UpdateDriverSeatbeltCount: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	drivers, err := h.repo.GetDrivers(ctx, eventID)
+	if err != nil {
+		log.Printf("GetDrivers: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
+	if err != nil {
+		log.Printf("GetSeatbeltSummary: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	isDriver, seatbeltCount := computeDriverInfo(userProfile.ID, drivers)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
+		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
+		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+		Drivers: drivers, Summary: *summary,
+	})
 }
 
 var muxVars = func(r *http.Request) map[string]string {

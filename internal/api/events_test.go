@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,7 @@ import (
 	"scout-app/internal/domain/event"
 	"scout-app/internal/domain/parentyouthlink"
 	"scout-app/internal/domain/profile"
+	"scout-app/internal/domain/user"
 	"scout-app/internal/storage/postgres"
 	"scout-app/internal/testhelper"
 )
@@ -1323,5 +1326,618 @@ func TestEventHandler_SignUp_ForbiddenForUnrelatedProfile(t *testing.T) {
 
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("SignUp returned status %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
+
+func loggedInBodyRequest(t *testing.T, authService *auth.AuthService, method, path, body string) *http.Request {
+	t.Helper()
+
+	authHandler := NewAuthHandler(authService)
+	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRR := httptest.NewRecorder()
+	authHandler.Login(loginRR, loginReq)
+
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range loginRR.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	return req
+}
+
+func TestEventHandler_AddDriver_HappyPath(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=5")
+	rr := httptest.NewRecorder()
+
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("AddDriver returned %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	drivers, err := store.Event.GetDrivers(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetDrivers: %v", err)
+	}
+	if len(drivers) != 1 {
+		t.Fatalf("expected 1 driver, got %d", len(drivers))
+	}
+	if drivers[0].SeatbeltCount != 5 {
+		t.Errorf("expected seatbelt count 5, got %d", drivers[0].SeatbeltCount)
+	}
+}
+
+func TestEventHandler_RemoveDriver_HappyPath(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "DELETE", "/events/"+evt.ID+"/drivers?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.RemoveDriver(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("RemoveDriver returned %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	drivers, err := store.Event.GetDrivers(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetDrivers: %v", err)
+	}
+	if len(drivers) != 0 {
+		t.Errorf("expected 0 drivers, got %d", len(drivers))
+	}
+}
+
+func TestEventHandler_UpdateDriverSeatbelt_HappyPath(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "PATCH", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=3")
+	rr := httptest.NewRecorder()
+
+	handler.UpdateDriverSeatbelt(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("UpdateDriverSeatbelt returned %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	drivers, err := store.Event.GetDrivers(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetDrivers: %v", err)
+	}
+	if len(drivers) != 1 {
+		t.Fatalf("expected 1 driver, got %d", len(drivers))
+	}
+	if drivers[0].SeatbeltCount != 3 {
+		t.Errorf("expected seatbelt count 3, got %d", drivers[0].SeatbeltCount)
+	}
+}
+
+func TestEventHandler_AddDriver_PastEvent(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := pastEvent("Past Campout", 1)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=5")
+	rr := httptest.NewRecorder()
+
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("AddDriver returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_RemoveDriver_PastEvent(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := pastEvent("Past Campout", 1)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "DELETE", "/events/"+evt.ID+"/drivers?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.RemoveDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("RemoveDriver returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_UpdateDriverSeatbelt_MissingSeatbeltCount(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "PATCH", "/events/"+evt.ID+"/drivers?id="+evt.ID, "")
+	rr := httptest.NewRecorder()
+
+	handler.UpdateDriverSeatbelt(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("UpdateDriverSeatbelt returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_UpdateDriverSeatbelt_InvalidSeatbeltCount(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "PATCH", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=abc")
+	rr := httptest.NewRecorder()
+
+	handler.UpdateDriverSeatbelt(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("UpdateDriverSeatbelt returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_UpdateDriverSeatbelt_PastEvent(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := pastEvent("Past Campout", 1)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "PATCH", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=3")
+	rr := httptest.NewRecorder()
+
+	handler.UpdateDriverSeatbelt(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("UpdateDriverSeatbelt returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_AddDriver_MissingSeatbeltCount(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "")
+	rr := httptest.NewRecorder()
+
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("AddDriver returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_AddDriver_InvalidSeatbeltCount(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=abc")
+	rr := httptest.NewRecorder()
+
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("AddDriver returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_AddDriver_Unauthenticated(t *testing.T) {
+	handler, _, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, strings.NewReader("seatbelt_count=5"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusFound && rr.Code != http.StatusUnauthorized {
+		t.Errorf("AddDriver returned %d, want 302 or 401", rr.Code)
+	}
+}
+
+func TestEventHandler_AddDriver_EventNotFound(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/nonexistent/drivers?id=nonexistent", "seatbelt_count=5")
+	rr := httptest.NewRecorder()
+
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("AddDriver returned %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestEventHandler_AddDriver_ParseFormError(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "%zz")
+	rr := httptest.NewRecorder()
+
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("AddDriver returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_AddDriver_GetByUserIDError(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	// Login as admin, repoint profile to a different user so GetByUserID fails
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=5")
+	hasher := &auth.BCryptHasher{}
+	h, err := hasher.Hash("other")
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	otherUser := &user.User{Email: "other@test.com", PasswordHash: h}
+	if err := store.User.Create(ctx, otherUser); err != nil {
+		t.Fatalf("Create other user: %v", err)
+	}
+	adminProfile.UserID = &otherUser.ID
+	if err := store.Profile.Update(ctx, adminProfile); err != nil {
+		t.Fatalf("Update profile: %v", err)
+	}
+	rr := httptest.NewRecorder()
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("AddDriver returned %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestEventHandler_RemoveDriver_Unauthenticated(t *testing.T) {
+	handler, _, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/events/"+evt.ID+"/drivers?id="+evt.ID, nil)
+	rr := httptest.NewRecorder()
+
+	handler.RemoveDriver(rr, req)
+
+	if rr.Code != http.StatusFound && rr.Code != http.StatusUnauthorized {
+		t.Errorf("RemoveDriver returned %d, want 302 or 401", rr.Code)
+	}
+}
+
+func TestEventHandler_RemoveDriver_EventNotFound(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+
+	req := loggedInRequest(t, authService, "DELETE", "/events/nonexistent/drivers?id=nonexistent")
+	rr := httptest.NewRecorder()
+
+	handler.RemoveDriver(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("RemoveDriver returned %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestEventHandler_RemoveDriver_GetByUserIDError(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "DELETE", "/events/"+evt.ID+"/drivers?id="+evt.ID)
+	hasher := &auth.BCryptHasher{}
+	h, err := hasher.Hash("remove")
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	otherUser := &user.User{Email: "other-remove@test.com", PasswordHash: h}
+	if err := store.User.Create(ctx, otherUser); err != nil {
+		t.Fatalf("Create other user: %v", err)
+	}
+	adminProfile.UserID = &otherUser.ID
+	if err := store.Profile.Update(ctx, adminProfile); err != nil {
+		t.Fatalf("Update profile: %v", err)
+	}
+	rr := httptest.NewRecorder()
+
+	handler.RemoveDriver(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("RemoveDriver returned %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestEventHandler_UpdateDriverSeatbelt_Unauthenticated(t *testing.T) {
+	handler, _, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := httptest.NewRequest("PATCH", "/events/"+evt.ID+"/drivers?id="+evt.ID, strings.NewReader("seatbelt_count=3"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.UpdateDriverSeatbelt(rr, req)
+
+	if rr.Code != http.StatusFound && rr.Code != http.StatusUnauthorized {
+		t.Errorf("UpdateDriverSeatbelt returned %d, want 302 or 401", rr.Code)
+	}
+}
+
+func TestEventHandler_UpdateDriverSeatbelt_EventNotFound(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+
+	req := loggedInBodyRequest(t, authService, "PATCH", "/events/nonexistent/drivers?id=nonexistent", "seatbelt_count=3")
+	rr := httptest.NewRecorder()
+
+	handler.UpdateDriverSeatbelt(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("UpdateDriverSeatbelt returned %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestEventHandler_UpdateDriverSeatbelt_ParseFormError(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "PATCH", "/events/"+evt.ID+"/drivers?id="+evt.ID, "%zz")
+	rr := httptest.NewRecorder()
+
+	handler.UpdateDriverSeatbelt(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("UpdateDriverSeatbelt returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_UpdateDriverSeatbelt_GetByUserIDError(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "PATCH", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=3")
+	hasher := &auth.BCryptHasher{}
+	h, err := hasher.Hash("update")
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	otherUser := &user.User{Email: "other-update@test.com", PasswordHash: h}
+	if err := store.User.Create(ctx, otherUser); err != nil {
+		t.Fatalf("Create other user: %v", err)
+	}
+	adminProfile.UserID = &otherUser.ID
+	if err := store.Profile.Update(ctx, adminProfile); err != nil {
+		t.Fatalf("Update profile: %v", err)
+	}
+	rr := httptest.NewRecorder()
+
+	handler.UpdateDriverSeatbelt(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("UpdateDriverSeatbelt returned %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestEventHandler_AddDriver_EmptyEventID(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events//drivers", "seatbelt_count=5")
+	rr := httptest.NewRecorder()
+
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("AddDriver returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_RemoveDriver_EmptyEventID(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+
+	req := loggedInRequest(t, authService, "DELETE", "/events//drivers")
+	rr := httptest.NewRecorder()
+
+	handler.RemoveDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("RemoveDriver returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_UpdateDriverSeatbelt_EmptyEventID(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+
+	req := loggedInBodyRequest(t, authService, "PATCH", "/events//drivers", "seatbelt_count=3")
+	rr := httptest.NewRecorder()
+
+	handler.UpdateDriverSeatbelt(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("UpdateDriverSeatbelt returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+type failingEventRepo struct {
+	event.Repository
+	failOnRemoveDriver bool
+}
+
+func (r *failingEventRepo) RemoveDriver(ctx context.Context, eventID string, profileID string) error {
+	if r.failOnRemoveDriver {
+		return errors.New("injected error")
+	}
+	return r.Repository.RemoveDriver(ctx, eventID, profileID)
+}
+
+func TestEventHandler_RemoveDriver_RepoError(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	handler.repo = &failingEventRepo{Repository: store.Event, failOnRemoveDriver: true}
+
+	req := loggedInRequest(t, authService, "DELETE", "/events/"+evt.ID+"/drivers?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.RemoveDriver(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("RemoveDriver returned %d, want %d", rr.Code, http.StatusInternalServerError)
 	}
 }
