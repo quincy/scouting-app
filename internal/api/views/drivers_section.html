@@ -1,0 +1,32 @@
+{{define "drivers_section.html"}}
+<div id="drivers-section">
+    <h3>Drivers</h3>
+    {{if .Summary.Sufficient}}
+        <span style="color: green; font-weight: bold;">&#10003; {{.Summary.Available}} / {{.Summary.RequiredSeatbelts}} seatbelts</span>
+    {{else}}
+        <span style="color: red; font-weight: bold;">&#10007; {{.Summary.Available}} / {{.Summary.RequiredSeatbelts}} seatbelts</span>
+    {{end}}
+    {{if and (not .IsPast) .IsSignedUp}}
+        {{if .IsDriver}}
+            <label>Seatbelt count:
+                <input type="number" name="seatbelt_count" min="1" value="{{.SeatbeltCount}}" style="width:4em">
+            </label>
+            <button class="btn-signup" hx-patch="/events/{{.EventID}}/drivers" hx-target="#drivers-section" hx-swap="outerHTML"
+                    hx-include="[name='seatbelt_count']">
+                Update seatbelts
+            </button>
+            <button class="btn-withdraw" hx-delete="/events/{{.EventID}}/drivers" hx-target="#drivers-section" hx-swap="outerHTML">
+                Remove me as driver
+            </button>
+        {{else}}
+            <label>Seatbelt count:
+                <input type="number" name="seatbelt_count" min="1" value="5" style="width:4em">
+            </label>
+            <button class="btn-signup" hx-post="/events/{{.EventID}}/drivers" hx-target="#drivers-section" hx-swap="outerHTML"
+                    hx-include="[name='seatbelt_count']">
+                Sign up as driver
+            </button>
+        {{end}}
+    {{end}}
+</div>
+{{end}}

@@ -33,7 +33,10 @@ cover:
 cover-ci:
 	@echo "Checking coverage on changed files..."
 	@base=$$(git rev-parse origin/main 2>/dev/null || git rev-parse main 2>/dev/null || git rev-list --max-parents=0 HEAD); \
-	changed=$$(git diff --name-only "$$base"...HEAD -- '*.go' | grep -v '_test\.go$$' | grep -v '^cmd/' | grep -v '^main\.go$$' || true); \
+	diffcommitted=$$(git diff --name-only "$$base"...HEAD -- '*.go' 2>/dev/null || true); \
+	diffunstaged=$$(git diff HEAD --name-only -- '*.go' 2>/dev/null || true); \
+	diffstaged=$$(git diff --cached --name-only -- '*.go' 2>/dev/null || true); \
+	changed=$$(printf '%s\n' "$$diffcommitted" "$$diffunstaged" "$$diffstaged" | grep -v '^$$' | sort -u | grep -v '_test\.go$$' | grep -v '^cmd/' | grep -v '^main\.go$$' || true); \
 	if [ -z "$$changed" ]; then \
 		echo "  No changed production Go files to check."; \
 		exit 0; \
@@ -50,22 +53,38 @@ cover-ci:
 		coverfile=/tmp/cover-$$(echo $$dir | tr '/' '-').out; \
 		go test -coverprofile=$$coverfile "$$pkg" 2>/dev/null >/dev/null || true; \
 		if [ -f "$$coverfile" ]; then \
-			covered=$$(go tool cover -func=$$coverfile | grep "^scout-app/$$f:" | awk '{print $$NF}' | grep -v "^0\.0%" | head -1); \
-			if [ -z "$$covered" ]; then \
-				echo "  FAIL  $$f  (0.0% coverage)"; \
-				fail=1; \
+			newfuncs=$$( (git diff "$$base"...HEAD -- "$$f" 2>/dev/null; git diff HEAD -- "$$f" 2>/dev/null; git diff --cached -- "$$f" 2>/dev/null) | grep '+func ' | sed 's/.*+func //' | sed 's/^([^)]*) //' | sed 's/(.*//' | sort -u); \
+			if [ -z "$$newfuncs" ]; then \
+				echo "  OK    $$f  (no new functions)"; \
 			else \
-				echo "  OK    $$f"; \
+				echo "  $$f:"; \
+				anyfail=0; \
+				for funcname in $$newfuncs; do \
+					cov=$$(go tool cover -func=$$coverfile | awk -v fp="^scout-app/$$f:" -v fn="$$funcname" '$$0 ~ fp && $$2 == fn {print $$NF}' | sed 's/%//'); \
+					if [ -z "$$cov" ]; then \
+						echo "    ???   $$funcname  (not found in coverage)"; \
+						continue; \
+					fi; \
+					if [ "$$(echo "$$cov < 80" | bc 2>/dev/null)" -eq 1 ]; then \
+						echo "    FAIL  $$funcname  ($$cov% < 80%)"; \
+						fail=1; anyfail=1; \
+					else \
+						echo "    OK    $$funcname  ($$cov%)"; \
+					fi; \
+				done; \
+				if [ "$$anyfail" -eq 0 ]; then \
+					echo "    OK    (all new functions >= 80%)"; \
+				fi; \
 			fi; \
 			rm -f $$coverfile; \
 		fi; \
 	done; \
 	if [ "$$fail" -eq 1 ]; then \
 		echo ""; \
-		echo "Some changed files have 0% coverage. Write tests before committing."; \
+		echo "Some new functions have less than 80% coverage. Write tests before committing."; \
 		exit 1; \
 	fi; \
-	echo "  All changed files have coverage."
+	echo "  All new functions have adequate coverage."
 
 clean:
 	go clean
