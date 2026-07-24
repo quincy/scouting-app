@@ -52,7 +52,14 @@ func (s *Sender) SendAdminNotification(ctx context.Context, to []string, subject
 }
 
 func (s *Sender) send(ctx context.Context, subject, body string, to []string) error {
+	if len(to) == 0 {
+		return fmt.Errorf("email: no recipients")
+	}
 	host, port, user, pass, from := s.loadSMTPConfig(ctx)
+
+	if from == "" {
+		return fmt.Errorf("email: SMTP_FROM is not configured (set it in Settings → SMTP)")
+	}
 
 	msg := buildMessage(from, strings.Join(to, ", "), subject, body)
 	addr := fmt.Sprintf("%s:%s", host, port)
@@ -71,15 +78,15 @@ func buildMessage(from, to, subject, body string) string {
 	var b strings.Builder
 	b.WriteString("From: ")
 	b.WriteString(from)
-	b.WriteString("\n")
+	b.WriteString("\r\n")
 	b.WriteString("To: ")
 	b.WriteString(to)
-	b.WriteString("\n")
+	b.WriteString("\r\n")
 	b.WriteString("Subject: ")
 	b.WriteString(subject)
-	b.WriteString("\n")
+	b.WriteString("\r\n")
 	b.WriteString("Content-Type: text/plain; charset=UTF-8")
-	b.WriteString("\n\n")
+	b.WriteString("\r\n\r\n")
 	b.WriteString(body)
 	return b.String()
 }
