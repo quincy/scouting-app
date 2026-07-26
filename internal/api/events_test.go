@@ -403,6 +403,115 @@ func TestEventHandler_EventDetail_ShowsProfileNameInAttendeeList(t *testing.T) {
 	}
 }
 
+func TestEventHandler_EventDetail_ShowsDriverBadgeInAttendeeList(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	// Create a second adult profile that is NOT a driver
+	otherAdult := &profile.Profile{
+		FirstName: "Other", LastName: "Adult", Email: "other@scout.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, otherAdult); err != nil {
+		t.Fatalf("Create otherAdult: %v", err)
+	}
+
+	// Sign up both adults
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp admin: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, otherAdult.ID); err != nil {
+		t.Fatalf("SignUp other: %v", err)
+	}
+
+	// Add admin as a driver
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDetail(rr, req)
+
+	body := rr.Body.String()
+
+	if !strings.Contains(body, "Admin User") {
+		t.Errorf("expected 'Admin User' in attendee list, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Other Adult") {
+		t.Errorf("expected 'Other Adult' in attendee list, got:\n%s", body)
+	}
+	if !strings.Contains(body, "badge-driver") {
+		t.Errorf("expected driver badge in attendee list for driver, got:\n%s", body)
+	}
+	if !strings.Contains(body, "5 seatbelts") {
+		t.Errorf("expected seatbelt count in driver badge, got:\n%s", body)
+	}
+}
+
+func TestEventHandler_EventDetail_DriverTableShowsDriverNames(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDetail(rr, req)
+
+	body := rr.Body.String()
+
+	if !strings.Contains(body, "driver-table") {
+		t.Errorf("expected driver table in drivers section, got:\n%s", body)
+	}
+}
+
+func TestEventHandler_SignUp_ShowsDriverModalForAdult(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID+"&profile_id="+adminProfile.ID)
+	rr := httptest.NewRecorder()
+
+	handler.SignUp(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("SignUp returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+
+	if !strings.Contains(body, "driver-modal-overlay") {
+		t.Errorf("expected driver modal overlay in signup response for adult, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Sign up as driver") {
+		t.Errorf("expected 'Sign up as driver' in signup response for adult, got:\n%s", body)
+	}
+}
+
 func TestEventHandler_EventDetail_NonExistentEventReturns404(t *testing.T) {
 	handler, authService, _, _ := setupEventTest(t)
 
@@ -497,6 +606,39 @@ func TestEventHandler_Withdraw_UpdatesButtonAndAttendeeList(t *testing.T) {
 	}
 	if len(attendees) != 0 {
 		t.Errorf("expected 0 attendees, got %d", len(attendees))
+	}
+}
+
+func TestEventHandler_Withdraw_UpdatesDriversSection(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/withdraw?id="+evt.ID+"&profile_id="+adminProfile.ID)
+	rr := httptest.NewRecorder()
+
+	handler.Withdraw(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Withdraw returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+
+	if !strings.Contains(body, "No drivers signed up yet") {
+		t.Errorf("expected drivers section to show empty state after withdraw, got:\n%s", body)
 	}
 }
 

@@ -708,6 +708,7 @@ button.full-width:hover { background: #0d47a1; }
 }
 
 .badge-primary { background: #e3f2fd; color: #1565c0; }
+.badge-driver { background: #fff3e0; color: #e65100; margin-left: 8px; }
 .badge-success { background: #2e7d32; color: #fff; }
 .badge-approved { background: #e8f5e9; color: #2e7d32; }
 .badge-pending { background: #fff3e0; color: #e65100; }
@@ -834,6 +835,86 @@ button.full-width:hover { background: #0d47a1; }
   70% { opacity: 1; }
   100% { opacity: 0; }
 }
+
+/* === Drivers Section === */
+.seatbelt-badge {
+    font-weight: bold;
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+}
+.seatbelt-sufficient { background: #e8f5e9; color: #2e7d32; }
+.seatbelt-insufficient { background: #ffebee; color: #c62828; }
+
+.driver-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+.driver-table th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: #f5f5f5;
+    border-bottom: 2px solid #e0e0e0;
+}
+.driver-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 0.9rem;
+}
+.driver-table tr:last-child td { border-bottom: none; }
+.driver-name { font-weight: 500; }
+.driver-seatbelts { color: #555; }
+.driver-actions { white-space: nowrap; }
+.driver-empty {
+    text-align: center;
+    color: #999;
+    font-style: italic;
+    padding: 20px;
+}
+.driver-update-form {
+    display: inline;
+    margin-right: 4px;
+}
+.seatbelt-input {
+    width: 4em;
+    padding: 4px 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+.btn-small {
+    padding: 4px 10px;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+}
+.btn-danger-outline {
+    background: #fff;
+    color: #c62828;
+    border: 1px solid #c62828;
+}
+.btn-danger-outline:hover { background: #ffebee; }
+.driver-signup-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+.driver-signup-form label { margin-bottom: 0; white-space: nowrap; }
+.driver-signup-form .btn-signup { margin-bottom: 0; }
 
 /* === HTMX Indicators === */
 .htmx-indicator { opacity: 0; transition: opacity 200ms; }
