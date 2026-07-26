@@ -1,31 +1,77 @@
+{{define "driver_modal.html"}}
+<div class="modal-overlay" id="driver-modal-overlay">
+  <div class="modal-dialog" onclick="event.stopPropagation()">
+    <h3>Sign up as driver?</h3>
+    <p>Would you like to sign up as a driver for this event?</p>
+    <form hx-post="/events/{{.EventID}}/drivers" hx-target="#drivers-section" hx-swap="outerHTML">
+      <label>Seatbelt count:
+        <input type="number" name="seatbelt_count" min="1" value="5" style="width:4em">
+      </label>
+      <div class="modal-actions">
+        <button type="submit" class="btn-primary" onclick="setTimeout(function(){var m=document.getElementById('driver-modal-overlay');if(m)m.remove()},50)">Yes, sign me up!</button>
+        <button type="button" class="btn-cancel" onclick="this.closest('.modal-overlay').remove()">No thanks</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}
+
 {{define "drivers_section.html"}}
-<div id="drivers-section">
+<div id="drivers-section" hx-swap-oob="true">
     <h3>Drivers</h3>
+
     {{if .Summary.Sufficient}}
-        <span style="color: green; font-weight: bold;">&#10003; {{.Summary.Available}} / {{.Summary.RequiredSeatbelts}} seatbelts</span>
+        <span class="seatbelt-badge seatbelt-sufficient">&#10003; {{.Summary.Available}} / {{.Summary.RequiredSeatbelts}} seatbelts</span>
     {{else}}
-        <span style="color: red; font-weight: bold;">&#10007; {{.Summary.Available}} / {{.Summary.RequiredSeatbelts}} seatbelts</span>
+        <span class="seatbelt-badge seatbelt-insufficient">&#10007; {{.Summary.Available}} / {{.Summary.RequiredSeatbelts}} seatbelts</span>
     {{end}}
+
+    <table class="driver-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Seatbelt Count</th>
+                {{if and (not .IsPast) (or .IsAdmin .IsSignedUp)}}
+                <th>Actions</th>
+                {{end}}
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Drivers}}
+            <tr>
+                <td class="driver-name">{{.ProfileName}}</td>
+                <td class="driver-seatbelts">{{.SeatbeltCount}}</td>
+                {{if and (not $.IsPast) (or $.IsAdmin (eq $.ProfileID .ProfileID))}}
+                <td class="driver-actions">
+                    {{if eq $.ProfileID .ProfileID}}
+                    <form class="driver-update-form" hx-patch="/events/{{$.EventID}}/drivers" hx-target="#drivers-section" hx-swap="outerHTML">
+                        <input type="number" name="seatbelt_count" min="1" value="{{.SeatbeltCount}}" class="seatbelt-input">
+                        <button type="submit" class="btn-small btn-primary">Update</button>
+                    </form>
+                    <button class="btn-small btn-danger-outline" hx-delete="/events/{{$.EventID}}/drivers" hx-target="#drivers-section" hx-swap="outerHTML">Remove</button>
+                    {{end}}
+                </td>
+                {{end}}
+            </tr>
+            {{else}}
+            <tr>
+                <td colspan="3" class="driver-empty">No drivers signed up yet.</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+
     {{if and (not .IsPast) .IsSignedUp}}
-        {{if .IsDriver}}
+        {{if not .IsDriver}}
+        <div class="driver-signup-form">
             <label>Seatbelt count:
-                <input type="number" name="seatbelt_count" min="1" value="{{.SeatbeltCount}}" style="width:4em">
-            </label>
-            <button class="btn-signup" hx-patch="/events/{{.EventID}}/drivers" hx-target="#drivers-section" hx-swap="outerHTML"
-                    hx-include="[name='seatbelt_count']">
-                Update seatbelts
-            </button>
-            <button class="btn-withdraw" hx-delete="/events/{{.EventID}}/drivers" hx-target="#drivers-section" hx-swap="outerHTML">
-                Remove me as driver
-            </button>
-        {{else}}
-            <label>Seatbelt count:
-                <input type="number" name="seatbelt_count" min="1" value="5" style="width:4em">
+                <input type="number" name="seatbelt_count" min="1" value="5" class="seatbelt-input">
             </label>
             <button class="btn-signup" hx-post="/events/{{.EventID}}/drivers" hx-target="#drivers-section" hx-swap="outerHTML"
                     hx-include="[name='seatbelt_count']">
                 Sign up as driver
             </button>
+        </div>
         {{end}}
     {{end}}
 </div>

@@ -89,8 +89,10 @@ type eventDetailData struct {
 }
 
 type attendeeViewModel struct {
-	ProfileID   string
-	ProfileName string
+	ProfileID     string
+	ProfileName   string
+	IsDriver      bool
+	SeatbeltCount int
 }
 
 type signupSectionData struct {
@@ -303,8 +305,16 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 
 	isPast := event.EndTime.Before(time.Now())
 	costDisplay := formatCost(event.CostCents)
+
+	drivers, dErr := h.repo.GetDrivers(ctx, eventID)
+	if dErr != nil {
+		log.Printf("GetDrivers: %v", dErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
-	youthVMs, adultVMs := splitAttendeeVMs(attendees)
+	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
 
 	renderedDesc, err := renderMarkdown(event.Description)
 	if err != nil {
@@ -321,6 +331,18 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 
 	unitType, unitNumber := h.loadUnitInfo(ctx)
 	detailTitle := fmt.Sprintf("%s %s Events", unitType, unitNumber)
+
+	summary, sErr := h.repo.GetSeatbeltSummary(ctx, eventID)
+	if sErr != nil {
+		log.Printf("GetSeatbeltSummary: %v", sErr)
+		return
+	}
+
+	userProfile, pErr := h.profiles.GetByUserID(ctx, currentUser.ID)
+	if pErr != nil {
+		return
+	}
+
 	data := eventDetailData{
 		Title:           detailTitle,
 		IsAdmin:         h.isAdmin(ctx, r),
@@ -341,17 +363,6 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl.ExecuteTemplate(w, "event_detail.html", data); err != nil {
 		log.Printf("template execution: %v", err)
-	}
-
-	drivers, dErr := h.repo.GetDrivers(ctx, eventID)
-	summary, sErr := h.repo.GetSeatbeltSummary(ctx, eventID)
-	if dErr != nil || sErr != nil {
-		return
-	}
-
-	userProfile, pErr := h.profiles.GetByUserID(ctx, currentUser.ID)
-	if pErr != nil {
-		return
 	}
 
 	isDriver, sc := computeDriverInfo(userProfile.ID, drivers)
@@ -794,7 +805,21 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	youthVMs, adultVMs := splitAttendeeVMs(attendees)
+	drivers, err := h.repo.GetDrivers(ctx, eventID)
+	if err != nil {
+		log.Printf("GetDrivers: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
+	if err != nil {
+		log.Printf("GetSeatbeltSummary: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
 	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -819,18 +844,6 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 
 	// Show driver sign-up option for adult self-signups
 	if profileToSignUp.MemberType == profile.MemberTypeAdult {
-		drivers, err := h.repo.GetDrivers(ctx, eventID)
-		if err != nil {
-			log.Printf("GetDrivers: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
-		if err != nil {
-			log.Printf("GetSeatbeltSummary: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
 		isDriver, seatbeltCount := computeDriverInfo(profileToSignUp.ID, drivers)
 		if err := h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
 			EventID: eventID, IsPast: false, ProfileID: profileToSignUp.ID,
@@ -838,6 +851,15 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 			Drivers: drivers, Summary: *summary,
 		}); err != nil {
 			log.Printf("template execution (drivers_section): %v", err)
+		}
+		if !isDriver {
+			if err := h.tmpl.ExecuteTemplate(w, "driver_modal.html", driversSectionData{
+				EventID: eventID, IsPast: false, ProfileID: profileToSignUp.ID,
+				IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+				Drivers: drivers, Summary: *summary,
+			}); err != nil {
+				log.Printf("template execution (driver_modal): %v", err)
+			}
 		}
 	}
 }
@@ -907,7 +929,14 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	youthVMs, adultVMs := splitAttendeeVMs(attendees)
+	drivers, err := h.repo.GetDrivers(ctx, eventID)
+	if err != nil {
+		log.Printf("GetDrivers: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
 	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -928,6 +957,28 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		AttendeeCount:  len(attendees),
 	}); err != nil {
 		log.Printf("template execution (attendee_list): %v", err)
+	}
+
+	summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
+	if err != nil {
+		log.Printf("GetSeatbeltSummary: %v", err)
+		return
+	}
+
+	userProfile, err := h.profiles.GetByUserID(ctx, currentUser.ID)
+	if err != nil {
+		log.Printf("GetByUserID: %v", err)
+		return
+	}
+
+	isDriver, seatbeltCount := computeDriverInfo(userProfile.ID, drivers)
+	isSignedUp := isAttending(userProfile.ID, attendees)
+	if err := h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
+		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
+		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: isSignedUp, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+		Drivers: drivers, Summary: *summary,
+	}); err != nil {
+		log.Printf("template execution (drivers_section): %v", err)
 	}
 }
 
@@ -1115,6 +1166,7 @@ func (h *EventHandler) AddDriver(w http.ResponseWriter, r *http.Request) {
 		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
 		Drivers: drivers, Summary: *summary,
 	})
+	w.Write([]byte(`<div id="driver-modal-overlay" hx-swap-oob="delete"></div>`))
 }
 
 func (h *EventHandler) RemoveDriver(w http.ResponseWriter, r *http.Request) {
@@ -1273,7 +1325,19 @@ func formatCost(cents int) string {
 	return fmt.Sprintf("%d.%02d", dollars, remainder)
 }
 
-func splitAttendeeVMs(attendees []*profile.Profile) ([]attendeeViewModel, []attendeeViewModel) {
+func enrichVMsWithDrivers(vms []attendeeViewModel, drivers []event.DriverResponsibility) {
+	for i := range vms {
+		for _, d := range drivers {
+			if vms[i].ProfileID == d.ProfileID {
+				vms[i].IsDriver = true
+				vms[i].SeatbeltCount = d.SeatbeltCount
+				break
+			}
+		}
+	}
+}
+
+func splitAttendeeVMs(attendees []*profile.Profile, drivers []event.DriverResponsibility) ([]attendeeViewModel, []attendeeViewModel) {
 	var youthVMs []attendeeViewModel
 	var adultVMs []attendeeViewModel
 	for _, p := range attendees {
@@ -1284,6 +1348,8 @@ func splitAttendeeVMs(attendees []*profile.Profile) ([]attendeeViewModel, []atte
 			adultVMs = append(adultVMs, vm)
 		}
 	}
+	enrichVMsWithDrivers(youthVMs, drivers)
+	enrichVMsWithDrivers(adultVMs, drivers)
 	sort.Slice(youthVMs, func(i, j int) bool {
 		return youthVMs[i].ProfileName < youthVMs[j].ProfileName
 	})
