@@ -86,6 +86,7 @@ type eventDetailData struct {
 	AttendeeCount   int
 	Profiles        []profileSignUpVM
 	IsPast          bool
+	Summary         event.SeatbeltSummary
 }
 
 type attendeeViewModel struct {
@@ -358,6 +359,7 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 		AttendeeCount:   len(attendees),
 		Profiles:        profileVMs,
 		IsPast:          isPast,
+		Summary:         *summary,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -852,6 +854,13 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		}); err != nil {
 			log.Printf("template execution (drivers_section): %v", err)
 		}
+		if err := h.tmpl.ExecuteTemplate(w, "seatbelt_badge.html", driversSectionData{
+			EventID: eventID, IsPast: false, ProfileID: profileToSignUp.ID,
+			IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+			Drivers: drivers, Summary: *summary,
+		}); err != nil {
+			log.Printf("template execution (seatbelt_badge): %v", err)
+		}
 		if !isDriver {
 			if err := h.tmpl.ExecuteTemplate(w, "driver_modal.html", driversSectionData{
 				EventID: eventID, IsPast: false, ProfileID: profileToSignUp.ID,
@@ -979,6 +988,13 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		Drivers: drivers, Summary: *summary,
 	}); err != nil {
 		log.Printf("template execution (drivers_section): %v", err)
+	}
+	if err := h.tmpl.ExecuteTemplate(w, "seatbelt_badge.html", driversSectionData{
+		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
+		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: isSignedUp, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+		Drivers: drivers, Summary: *summary,
+	}); err != nil {
+		log.Printf("template execution (seatbelt_badge): %v", err)
 	}
 }
 
@@ -1161,7 +1177,22 @@ func (h *EventHandler) AddDriver(w http.ResponseWriter, r *http.Request) {
 	isDriver, seatbeltCount := computeDriverInfo(userProfile.ID, drivers)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
+	attendees, aErr := h.repo.GetAttendees(ctx, eventID)
+	if aErr == nil {
+		youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
+		h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+			YouthAttendees: youthVMs, YouthCount: len(youthVMs),
+			AdultAttendees: adultVMs, AdultCount: len(adultVMs),
+			AttendeeCount: len(attendees),
+		})
+	}
+
 	h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
+		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
+		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+		Drivers: drivers, Summary: *summary,
+	})
+	h.tmpl.ExecuteTemplate(w, "seatbelt_badge.html", driversSectionData{
 		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
 		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
 		Drivers: drivers, Summary: *summary,
@@ -1223,7 +1254,22 @@ func (h *EventHandler) RemoveDriver(w http.ResponseWriter, r *http.Request) {
 	isDriver, seatbeltCount := computeDriverInfo(userProfile.ID, drivers)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
+	attendees, aErr := h.repo.GetAttendees(ctx, eventID)
+	if aErr == nil {
+		youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
+		h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+			YouthAttendees: youthVMs, YouthCount: len(youthVMs),
+			AdultAttendees: adultVMs, AdultCount: len(adultVMs),
+			AttendeeCount: len(attendees),
+		})
+	}
+
 	h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
+		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
+		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+		Drivers: drivers, Summary: *summary,
+	})
+	h.tmpl.ExecuteTemplate(w, "seatbelt_badge.html", driversSectionData{
 		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
 		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
 		Drivers: drivers, Summary: *summary,
@@ -1301,7 +1347,22 @@ func (h *EventHandler) UpdateDriverSeatbelt(w http.ResponseWriter, r *http.Reque
 	isDriver, seatbeltCount := computeDriverInfo(userProfile.ID, drivers)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
+	attendees, aErr := h.repo.GetAttendees(ctx, eventID)
+	if aErr == nil {
+		youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
+		h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+			YouthAttendees: youthVMs, YouthCount: len(youthVMs),
+			AdultAttendees: adultVMs, AdultCount: len(adultVMs),
+			AttendeeCount: len(attendees),
+		})
+	}
+
 	h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
+		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
+		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+		Drivers: drivers, Summary: *summary,
+	})
+	h.tmpl.ExecuteTemplate(w, "seatbelt_badge.html", driversSectionData{
 		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
 		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
 		Drivers: drivers, Summary: *summary,
