@@ -512,6 +512,38 @@ func TestEventHandler_SignUp_ShowsDriverModalForAdult(t *testing.T) {
 	}
 }
 
+func TestEventHandler_EventDetail_ShowsSeatbeltBadge(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDetail(rr, req)
+
+	body := rr.Body.String()
+
+	if !strings.Contains(body, "id=\"seatbelt-badge\"") {
+		t.Errorf("expected seatbelt-badge element in event detail, got:\n%s", body)
+	}
+	if !strings.Contains(body, "5 / 1 seatbelts") {
+		t.Errorf("expected '5 / 1 seatbelts' in seatbelt badge, got:\n%s", body)
+	}
+}
+
 func TestEventHandler_EventDetail_NonExistentEventReturns404(t *testing.T) {
 	handler, authService, _, _ := setupEventTest(t)
 
@@ -1518,6 +1550,33 @@ func TestEventHandler_AddDriver_HappyPath(t *testing.T) {
 	}
 	if drivers[0].SeatbeltCount != 5 {
 		t.Errorf("expected seatbelt count 5, got %d", drivers[0].SeatbeltCount)
+	}
+}
+
+func TestEventHandler_AddDriver_UpdatesAttendeeListBadge(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=5")
+	rr := httptest.NewRecorder()
+
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("AddDriver returned %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "badge-driver") {
+		t.Errorf("expected driver badge in attendee list after AddDriver, got:\n%s", body)
 	}
 }
 
