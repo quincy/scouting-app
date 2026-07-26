@@ -303,4 +303,103 @@ func (r *EventRepository) GetSeatbeltSummary(ctx context.Context, eventID string
 	return &summary, nil
 }
 
+func (r *EventRepository) AssignResponsibility(ctx context.Context, eventID string, profileID string, responsibility event.Responsibility) error {
+	if event.IsSingleton(responsibility) {
+		var currentHolderID string
+		err := r.db.QueryRowContext(ctx,
+			`SELECT ear.profile_id
+			 FROM event_attendee_responsibilities ear
+			 WHERE ear.event_id = $1 AND ear.responsibility = $2 AND ear.profile_id != $3`,
+			eventID, string(responsibility), profileID,
+		).Scan(&currentHolderID)
+		if err == nil {
+			var currentHolderName string
+			r.db.QueryRowContext(ctx,
+				`SELECT CASE WHEN p.nickname != '' THEN p.nickname || ' (' || p.first_name || ') ' || p.last_name
+				            ELSE p.first_name || ' ' || p.last_name
+				       END
+				 FROM profiles p WHERE p.id = $1`, currentHolderID,
+			).Scan(&currentHolderName)
+			return event.ErrSingletonConflict{
+				Responsibility:     responsibility,
+				CurrentHolderID:    currentHolderID,
+				CurrentHolderName:  currentHolderName,
+				RequestedProfileID: profileID,
+			}
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
+
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO event_attendee_responsibilities (event_id, profile_id, responsibility, created_at, updated_at)
+		 VALUES ($1, $2, $3, NOW(), NOW())
+		 ON CONFLICT (event_id, profile_id, responsibility) DO UPDATE SET updated_at = NOW()`,
+		eventID, profileID, string(responsibility),
+	)
+	return err
+}
+
+func (r *EventRepository) RemoveResponsibility(ctx context.Context, eventID string, profileID string, responsibility event.Responsibility) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM event_attendee_responsibilities
+		 WHERE event_id = $1 AND profile_id = $2 AND responsibility = $3`,
+		eventID, profileID, string(responsibility),
+	)
+	return err
+}
+
+func (r *EventRepository) GetResponsibilities(ctx context.Context, eventID string) ([]event.ResponsibilityAssignment, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT ear.event_id, ear.profile_id,
+		        CASE WHEN p.nickname != '' THEN p.nickname || ' (' || p.first_name || ') ' || p.last_name
+		             ELSE p.first_name || ' ' || p.last_name
+		        END AS profile_name,
+		        ear.responsibility, ear.created_at, ear.updated_at
+		 FROM event_attendee_responsibilities ear
+		 JOIN profiles p ON p.id = ear.profile_id
+		 WHERE ear.event_id = $1
+		 ORDER BY ear.responsibility`,
+		eventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []event.ResponsibilityAssignment
+	for rows.Next() {
+		var ra event.ResponsibilityAssignment
+		var resp string
+		if err := rows.Scan(&ra.EventID, &ra.ProfileID, &ra.ProfileName, &resp, &ra.CreatedAt, &ra.UpdatedAt); err != nil {
+			return nil, err
+		}
+		ra.Responsibility = event.Responsibility(resp)
+		result = append(result, ra)
+	}
+	return result, rows.Err()
+}
+
+func (r *EventRepository) GetResponsibilityHolder(ctx context.Context, eventID string, responsibility event.Responsibility) (*event.ResponsibilityHolder, error) {
+	var h event.ResponsibilityHolder
+	err := r.db.QueryRowContext(ctx,
+		`SELECT ear.profile_id,
+		        CASE WHEN p.nickname != '' THEN p.nickname || ' (' || p.first_name || ') ' || p.last_name
+		             ELSE p.first_name || ' ' || p.last_name
+		        END AS profile_name
+		 FROM event_attendee_responsibilities ear
+		 JOIN profiles p ON p.id = ear.profile_id
+		 WHERE ear.event_id = $1 AND ear.responsibility = $2`,
+		eventID, string(responsibility),
+	).Scan(&h.ProfileID, &h.ProfileName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &h, nil
+}
+
 var _ event.Repository = (*EventRepository)(nil)

@@ -2116,6 +2116,147 @@ func (r *failingEventRepo) RemoveDriver(ctx context.Context, eventID string, pro
 	return r.Repository.RemoveDriver(ctx, eventID, profileID)
 }
 
+func TestEventHandler_EventCreate_AutoAssignsCoordinator(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+
+	form := url.Values{
+		"title":       {"Coordinator Test"},
+		"description": {"Testing auto-assign coordinator"},
+		"location":    {"Test Location"},
+		"start_time":  {time.Now().Add(24 * time.Hour).Format("2006-01-02T15:04")},
+		"end_time":    {time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")},
+		"cost":        {"0.00"},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/create", form)
+	rr := httptest.NewRecorder()
+	handler.EventCreate(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("EventCreate returned %d, want %d", rr.Code, http.StatusFound)
+	}
+
+	location := rr.Header().Get("Location")
+	eventID := strings.TrimPrefix(strings.Split(location, "?")[0], "/events/")
+
+	holder, err := store.Event.GetResponsibilityHolder(t.Context(), eventID, event.ResponsibilityCoordinator)
+	if err != nil {
+		t.Fatalf("GetResponsibilityHolder: %v", err)
+	}
+	if holder == nil {
+		t.Fatal("expected coordinator to be auto-assigned, got nil holder")
+	}
+	if holder.ProfileID != adminProfile.ID {
+		t.Errorf("expected coordinator to be %s, got %s", adminProfile.ID, holder.ProfileID)
+	}
+}
+
+func TestEventHandler_SignUp_AutoAssignsSPL_WhenYouthHasPosition(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	youthProfile := &profile.Profile{
+		FirstName:  "Young",
+		LastName:   "SPL",
+		Email:      "young.spl@scout.local",
+		MemberType: profile.MemberTypeYouth,
+		Status:     profile.StatusActive,
+		Positions:  "Senior Patrol Leader",
+	}
+	if err := store.Profile.Create(ctx, youthProfile); err != nil {
+		t.Fatalf("Create youth profile: %v", err)
+	}
+
+	link := &parentyouthlink.ParentYouthConnection{
+		ParentProfileID: adminProfile.ID,
+		YouthProfileID:  youthProfile.ID,
+		Status:          parentyouthlink.StatusApproved,
+		RequestedAt:     time.Now(),
+		CreatedAt:       time.Now(),
+	}
+	if err := store.ParentYouthLink.Create(ctx, link); err != nil {
+		t.Fatalf("Create link: %v", err)
+	}
+
+	evt := &event.Event{
+		Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout",
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID+"&profile_id="+youthProfile.ID)
+	rr := httptest.NewRecorder()
+	handler.SignUp(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("SignUp returned %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	holder, err := store.Event.GetResponsibilityHolder(ctx, evt.ID, event.ResponsibilitySPL)
+	if err != nil {
+		t.Fatalf("GetResponsibilityHolder: %v", err)
+	}
+	if holder == nil {
+		t.Fatal("expected SPL to be auto-assigned, got nil holder")
+	}
+	if holder.ProfileID != youthProfile.ID {
+		t.Errorf("expected SPL to be %s, got %s", youthProfile.ID, holder.ProfileID)
+	}
+}
+
+func TestEventHandler_SignUp_DoesNotAutoAssignSPL_WhenYouthHasNoPosition(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	youthProfile := &profile.Profile{
+		FirstName:  "Young",
+		LastName:   "Scout",
+		Email:      "young.scout2@scout.local",
+		MemberType: profile.MemberTypeYouth,
+		Status:     profile.StatusActive,
+		Positions:  "",
+	}
+	if err := store.Profile.Create(ctx, youthProfile); err != nil {
+		t.Fatalf("Create youth profile: %v", err)
+	}
+
+	link := &parentyouthlink.ParentYouthConnection{
+		ParentProfileID: adminProfile.ID,
+		YouthProfileID:  youthProfile.ID,
+		Status:          parentyouthlink.StatusApproved,
+		RequestedAt:     time.Now(),
+		CreatedAt:       time.Now(),
+	}
+	if err := store.ParentYouthLink.Create(ctx, link); err != nil {
+		t.Fatalf("Create link: %v", err)
+	}
+
+	evt := &event.Event{
+		Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout",
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID+"&profile_id="+youthProfile.ID)
+	rr := httptest.NewRecorder()
+	handler.SignUp(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("SignUp returned %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	holder, err := store.Event.GetResponsibilityHolder(ctx, evt.ID, event.ResponsibilitySPL)
+	if err != nil {
+		t.Fatalf("GetResponsibilityHolder: %v", err)
+	}
+	if holder != nil {
+		t.Errorf("expected no SPL assignment for youth without SPL position, got holder %s", holder.ProfileID)
+	}
+}
+
 func TestEventHandler_RemoveDriver_RepoError(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()

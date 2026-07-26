@@ -327,17 +327,19 @@ func (r *RBACRepository) GetUsersByPermission(ctx context.Context, permission st
 }
 
 type EventRepository struct {
-	mu        sync.RWMutex
-	events    map[string]*event.Event
-	attendees map[string][]*profile.Profile
-	profiles  *ProfileRepository
+	mu               sync.RWMutex
+	events           map[string]*event.Event
+	attendees        map[string][]*profile.Profile
+	profiles         *ProfileRepository
+	responsibilities map[string][]event.ResponsibilityAssignment
 }
 
 func NewEventRepository(profiles *ProfileRepository) *EventRepository {
 	return &EventRepository{
-		events:    make(map[string]*event.Event),
-		attendees: make(map[string][]*profile.Profile),
-		profiles:  profiles,
+		events:           make(map[string]*event.Event),
+		attendees:        make(map[string][]*profile.Profile),
+		profiles:         profiles,
+		responsibilities: make(map[string][]event.ResponsibilityAssignment),
 	}
 }
 
@@ -933,3 +935,93 @@ func (r *AppConfigRepository) All(ctx context.Context) (map[string]string, error
 var _ appconfig.Repository = (*AppConfigRepository)(nil)
 
 var _ email.Service = (*EmailService)(nil)
+
+func (r *EventRepository) AssignResponsibility(ctx context.Context, eventID string, profileID string, responsibility event.Responsibility) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.events[eventID]; !ok {
+		return errors.New("event not found")
+	}
+
+	// Check if this is a singleton and already held by someone else
+	if event.IsSingleton(responsibility) {
+		for _, ra := range r.responsibilities[eventID] {
+			if ra.Responsibility == responsibility {
+				if ra.ProfileID == profileID {
+					return nil // same person, no-op
+				}
+				p, err := r.profiles.GetByID(ctx, ra.ProfileID)
+				name := ra.ProfileID
+				if err == nil {
+					name = p.DisplayName()
+				}
+				return event.ErrSingletonConflict{
+					Responsibility:     responsibility,
+					CurrentHolderID:    ra.ProfileID,
+					CurrentHolderName:  name,
+					RequestedProfileID: profileID,
+				}
+			}
+		}
+	}
+
+	// Check if already exists for same person
+	for i, ra := range r.responsibilities[eventID] {
+		if ra.ProfileID == profileID && ra.Responsibility == responsibility {
+			return nil
+		}
+		_ = i
+	}
+
+	p, err := r.profiles.GetByID(ctx, profileID)
+	name := profileID
+	if err == nil {
+		name = p.DisplayName()
+	}
+
+	r.responsibilities[eventID] = append(r.responsibilities[eventID], event.ResponsibilityAssignment{
+		EventID:        eventID,
+		ProfileID:      profileID,
+		ProfileName:    name,
+		Responsibility: responsibility,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	})
+	return nil
+}
+
+func (r *EventRepository) RemoveResponsibility(ctx context.Context, eventID string, profileID string, responsibility event.Responsibility) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	list := r.responsibilities[eventID]
+	for i, ra := range list {
+		if ra.ProfileID == profileID && ra.Responsibility == responsibility {
+			r.responsibilities[eventID] = append(list[:i], list[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (r *EventRepository) GetResponsibilities(ctx context.Context, eventID string) ([]event.ResponsibilityAssignment, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]event.ResponsibilityAssignment, len(r.responsibilities[eventID]))
+	copy(result, r.responsibilities[eventID])
+	return result, nil
+}
+
+func (r *EventRepository) GetResponsibilityHolder(ctx context.Context, eventID string, responsibility event.Responsibility) (*event.ResponsibilityHolder, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, ra := range r.responsibilities[eventID] {
+		if ra.Responsibility == responsibility {
+			return &event.ResponsibilityHolder{
+				ProfileID:   ra.ProfileID,
+				ProfileName: ra.ProfileName,
+			}, nil
+		}
+	}
+	return nil, nil
+}

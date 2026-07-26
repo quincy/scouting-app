@@ -23,4 +23,8 @@ type Repository interface {
 	UpdateDriverSeatbeltCount(ctx context.Context, eventID string, profileID string, seatbeltCount int) error
 	GetDrivers(ctx context.Context, eventID string) ([]DriverResponsibility, error)
 	GetSeatbeltSummary(ctx context.Context, eventID string) (*SeatbeltSummary, error)
+	AssignResponsibility(ctx context.Context, eventID string, profileID string, responsibility Responsibility) error
+	RemoveResponsibility(ctx context.Context, eventID string, profileID string, responsibility Responsibility) error
+	GetResponsibilities(ctx context.Context, eventID string) ([]ResponsibilityAssignment, error)
+	GetResponsibilityHolder(ctx context.Context, eventID string, responsibility Responsibility) (*ResponsibilityHolder, error)
 }

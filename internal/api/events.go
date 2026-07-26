@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"scout-app/internal/domain/appconfig"
@@ -284,7 +285,7 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	event, err := h.repo.GetByID(ctx, eventID)
+	evt, err := h.repo.GetByID(ctx, eventID)
 	if err != nil {
 		log.Printf("GetByID: %v", err)
 		http.Error(w, "Event not found", http.StatusNotFound)
@@ -304,8 +305,8 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isPast := event.EndTime.Before(time.Now())
-	costDisplay := formatCost(event.CostCents)
+	isPast := evt.EndTime.Before(time.Now())
+	costDisplay := formatCost(evt.CostCents)
 
 	drivers, dErr := h.repo.GetDrivers(ctx, eventID)
 	if dErr != nil {
@@ -317,9 +318,9 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
 	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
 
-	renderedDesc, err := renderMarkdown(event.Description)
+	renderedDesc, err := renderMarkdown(evt.Description)
 	if err != nil {
-		renderedDesc = template.HTMLEscapeString(event.Description)
+		renderedDesc = template.HTMLEscapeString(evt.Description)
 	}
 
 	flashSuccess := ""
@@ -348,7 +349,7 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 		Title:           detailTitle,
 		IsAdmin:         h.isAdmin(ctx, r),
 		ProfileID:       h.currentProfileID(r),
-		Event:           event,
+		Event:           evt,
 		CostDisplay:     costDisplay,
 		DescriptionHTML: template.HTML(renderedDesc),
 		FlashSuccess:    flashSuccess,
@@ -494,6 +495,15 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 			log.Printf("template execution: %v", err)
 		}
 		return
+	}
+
+	// Auto-assign Coordinator to event creator
+	if creatorProfileID := h.currentProfileID(r); creatorProfileID != "" {
+		if err := h.repo.SignUp(ctx, evt.ID, creatorProfileID); err != nil {
+			log.Printf("EventCreate SignUp creator: %v", err)
+		} else if err := h.repo.AssignResponsibility(ctx, evt.ID, creatorProfileID, event.ResponsibilityCoordinator); err != nil {
+			log.Printf("EventCreate AssignCoordinator: %v", err)
+		}
 	}
 
 	http.Redirect(w, r, fmt.Sprintf("/events/%s?created=1", evt.ID), http.StatusFound)
@@ -767,13 +777,13 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	event, err := h.repo.GetByID(ctx, eventID)
+	evt, err := h.repo.GetByID(ctx, eventID)
 	if err != nil {
 		log.Printf("GetByID: %v", err)
 		http.Error(w, "Event not found", http.StatusNotFound)
 		return
 	}
-	if event.EndTime.Before(time.Now()) {
+	if evt.EndTime.Before(time.Now()) {
 		http.Error(w, "Cannot sign up for a past event", http.StatusBadRequest)
 		return
 	}
@@ -798,6 +808,13 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		log.Printf("SignUp: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	// Auto-assign SPL for youth with Senior Patrol Leader position
+	if profileToSignUp.MemberType == profile.MemberTypeYouth && strings.Contains(strings.ToLower(profileToSignUp.Positions), strings.ToLower("Senior Patrol Leader")) {
+		if err := h.repo.AssignResponsibility(ctx, eventID, profileID, event.ResponsibilitySPL); err != nil {
+			log.Printf("auto-assign SPL: %v", err)
+		}
 	}
 
 	attendees, err := h.repo.GetAttendees(ctx, eventID)
@@ -894,13 +911,13 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	event, err := h.repo.GetByID(ctx, eventID)
+	evt, err := h.repo.GetByID(ctx, eventID)
 	if err != nil {
 		log.Printf("GetByID: %v", err)
 		http.Error(w, "Event not found", http.StatusNotFound)
 		return
 	}
-	if event.EndTime.Before(time.Now()) {
+	if evt.EndTime.Before(time.Now()) {
 		http.Error(w, "Cannot withdraw from a past event", http.StatusBadRequest)
 		return
 	}

@@ -1,6 +1,9 @@
 package event
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type ListItem struct {
 	ID            string
@@ -24,6 +27,51 @@ type Event struct {
 	Type        string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type Responsibility string
+
+const (
+	ResponsibilityDriver         Responsibility = "driver"
+	ResponsibilitySPL            Responsibility = "spl"
+	ResponsibilityCoordinator    Responsibility = "coordinator"
+	ResponsibilityMedicalOfficer Responsibility = "medical_officer"
+)
+
+var singletonResponsibilities = map[Responsibility]bool{
+	ResponsibilitySPL:            true,
+	ResponsibilityCoordinator:    true,
+	ResponsibilityMedicalOfficer: true,
+}
+
+func IsSingleton(r Responsibility) bool {
+	return singletonResponsibilities[r]
+}
+
+type ErrSingletonConflict struct {
+	Responsibility     Responsibility
+	CurrentHolderID    string
+	CurrentHolderName  string
+	RequestedProfileID string
+}
+
+func (e ErrSingletonConflict) Error() string {
+	return fmt.Sprintf("%q is a singleton responsibility; currently held by %s (%s)",
+		e.Responsibility, e.CurrentHolderName, e.CurrentHolderID)
+}
+
+type ResponsibilityAssignment struct {
+	EventID        string
+	ProfileID      string
+	ProfileName    string
+	Responsibility Responsibility
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type ResponsibilityHolder struct {
+	ProfileID   string
+	ProfileName string
 }
 
 type DriverResponsibility struct {
