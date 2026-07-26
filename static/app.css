@@ -194,6 +194,97 @@ section h2 {
 
 .attendee-list li:last-child { border-bottom: none; }
 
+.responsibility-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.responsibility-table th,
+.responsibility-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.responsibility-table th {
+  font-weight: 600;
+  color: #555;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.responsibility-table .attendee-name a {
+  color: #1565c0;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.responsibility-table .resp-cell {
+  text-align: center;
+}
+
+.resp-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: 600;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  min-width: 52px;
+  text-align: center;
+}
+
+.resp-badge.resp-on {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border-color: #a5d6a7;
+}
+
+.resp-badge.resp-off {
+  background: #f5f5f5;
+  color: #9e9e9e;
+  border-color: #e0e0e0;
+}
+
+.resp-badge:hover:not(:disabled):not(.resp-static) {
+  filter: brightness(0.95);
+}
+
+.resp-badge:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.resp-badge.resp-static {
+  cursor: default;
+}
+
+.toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-weight: 500;
+  z-index: 1000;
+  animation: toast-fade 3s forwards;
+}
+
+.toast-error {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+}
+
+@keyframes toast-fade {
+  0%, 90% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* === Buttons === */
 .btn-logout {
   background: none;

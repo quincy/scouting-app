@@ -447,10 +447,10 @@ func TestEventHandler_EventDetail_ShowsDriverBadgeInAttendeeList(t *testing.T) {
 	if !strings.Contains(body, "Other Adult") {
 		t.Errorf("expected 'Other Adult' in attendee list, got:\n%s", body)
 	}
-	if !strings.Contains(body, "badge-driver") {
-		t.Errorf("expected driver badge in attendee list for driver, got:\n%s", body)
+	if !strings.Contains(body, "resp-on") {
+		t.Errorf("expected driver badge (resp-on) in attendee list, got:\n%s", body)
 	}
-	if !strings.Contains(body, "5 seatbelts") {
+	if !strings.Contains(body, "5 seat") {
 		t.Errorf("expected seatbelt count in driver badge, got:\n%s", body)
 	}
 }
@@ -1575,8 +1575,8 @@ func TestEventHandler_AddDriver_UpdatesAttendeeListBadge(t *testing.T) {
 	}
 
 	body := rr.Body.String()
-	if !strings.Contains(body, "badge-driver") {
-		t.Errorf("expected driver badge in attendee list after AddDriver, got:\n%s", body)
+	if !strings.Contains(body, "resp-on") {
+		t.Errorf("expected driver badge (resp-on) in attendee list after AddDriver, got:\n%s", body)
 	}
 }
 
@@ -2107,6 +2107,8 @@ func TestEventHandler_UpdateDriverSeatbelt_EmptyEventID(t *testing.T) {
 type failingEventRepo struct {
 	event.Repository
 	failOnRemoveDriver bool
+	failOnGetByID      bool
+	failOnGetAttendees bool
 }
 
 func (r *failingEventRepo) RemoveDriver(ctx context.Context, eventID string, profileID string) error {
@@ -2114,6 +2116,20 @@ func (r *failingEventRepo) RemoveDriver(ctx context.Context, eventID string, pro
 		return errors.New("injected error")
 	}
 	return r.Repository.RemoveDriver(ctx, eventID, profileID)
+}
+
+func (r *failingEventRepo) GetByID(ctx context.Context, eventID string) (*event.Event, error) {
+	if r.failOnGetByID {
+		return nil, errors.New("injected error")
+	}
+	return r.Repository.GetByID(ctx, eventID)
+}
+
+func (r *failingEventRepo) GetAttendees(ctx context.Context, eventID string) ([]*profile.Profile, error) {
+	if r.failOnGetAttendees {
+		return nil, errors.New("injected error")
+	}
+	return r.Repository.GetAttendees(ctx, eventID)
 }
 
 func TestEventHandler_EventCreate_AutoAssignsCoordinator(t *testing.T) {
@@ -2281,5 +2297,387 @@ func TestEventHandler_RemoveDriver_RepoError(t *testing.T) {
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("RemoveDriver returned %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestEnrichVMsWithResponsibilities(t *testing.T) {
+	vms := []attendeeViewModel{
+		{ProfileID: "p1", ProfileName: "Alice"},
+		{ProfileID: "p2", ProfileName: "Bob"},
+	}
+	responsibilities := []event.ResponsibilityAssignment{
+		{ProfileID: "p1", Responsibility: event.ResponsibilitySPL},
+		{ProfileID: "p1", Responsibility: event.ResponsibilityCoordinator},
+		{ProfileID: "p2", Responsibility: event.ResponsibilityMedicalOfficer},
+	}
+	enrichVMsWithResponsibilities(vms, responsibilities)
+
+	if !vms[0].IsSPL {
+		t.Errorf("Alice should be SPL")
+	}
+	if !vms[0].IsCoordinator {
+		t.Errorf("Alice should be Coordinator")
+	}
+	if vms[0].IsMedicalOfficer {
+		t.Errorf("Alice should not be Medical Officer")
+	}
+	if vms[1].IsSPL {
+		t.Errorf("Bob should not be SPL")
+	}
+	if vms[1].IsCoordinator {
+		t.Errorf("Bob should not be Coordinator")
+	}
+	if !vms[1].IsMedicalOfficer {
+		t.Errorf("Bob should be Medical Officer")
+	}
+}
+
+func TestEnrichVMsWithResponsibilities_NoResponsibilities(t *testing.T) {
+	vms := []attendeeViewModel{
+		{ProfileID: "p1", ProfileName: "Alice"},
+	}
+	enrichVMsWithResponsibilities(vms, nil)
+
+	if vms[0].IsSPL {
+		t.Errorf("no responsibilities should not set IsSPL")
+	}
+}
+
+func TestEnrichVMsWithResponsibilities_EmptyVMs(t *testing.T) {
+	enrichVMsWithResponsibilities(nil, []event.ResponsibilityAssignment{
+		{ProfileID: "p1", Responsibility: event.ResponsibilitySPL},
+	})
+}
+
+func setupToggleMux() func() {
+	orig := muxVars
+	SetMuxVars(func(r *http.Request) map[string]string {
+		return map[string]string{
+			"id":             r.URL.Query().Get("id"),
+			"profile_id":     r.URL.Query().Get("profile_id"),
+			"responsibility": r.URL.Query().Get("responsibility"),
+		}
+	})
+	return func() { muxVars = orig }
+}
+
+func toggleURL(eventID, profileID, responsibility string) string {
+	return fmt.Sprintf("/events/%s/responsibility/%s/%s?id=%s&profile_id=%s&responsibility=%s",
+		eventID, profileID, responsibility, eventID, profileID, responsibility)
+}
+
+func TestToggleResponsibility_AssignSPL(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	youthProfile := &profile.Profile{
+		FirstName: "Young", LastName: "Scout", Email: "youth@scout.com",
+		MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, youthProfile); err != nil {
+		t.Fatalf("Create youth profile: %v", err)
+	}
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, youthProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", toggleURL(evt.ID, youthProfile.ID, "spl"))
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("ToggleResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "resp-on") {
+		t.Errorf("expected resp-on badge in response, got:\n%s", rr.Body.String())
+	}
+}
+
+func TestToggleResponsibility_RemoveSPL(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	youthProfile := &profile.Profile{
+		FirstName: "Young", LastName: "Scout", Email: "youth2@scout.com",
+		MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, youthProfile); err != nil {
+		t.Fatalf("Create youth profile: %v", err)
+	}
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, youthProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := store.Event.AssignResponsibility(ctx, evt.ID, youthProfile.ID, event.ResponsibilitySPL); err != nil {
+		t.Fatalf("Assign SPL: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", toggleURL(evt.ID, youthProfile.ID, "spl"))
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("ToggleResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "resp-off") {
+		t.Errorf("expected resp-off badge after removing SPL, got:\n%s", rr.Body.String())
+	}
+}
+
+func TestToggleResponsibility_PastEvent(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title: "Past Event", Location: "Lake",
+		StartTime: time.Now().Add(-48 * time.Hour),
+		EndTime:   time.Now().Add(-24 * time.Hour),
+		Type:      "campout",
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", toggleURL(evt.ID, adminProfile.ID, "spl"))
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("ToggleResponsibility returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestToggleResponsibility_Unauthenticated(t *testing.T) {
+	handler, _, _, _ := setupEventTest(t)
+	defer setupToggleMux()()
+
+	req := httptest.NewRequest("POST", "/events/123/responsibility/p1/spl?id=123&profile_id=p1&responsibility=spl", nil)
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("ToggleResponsibility returned %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestToggleResponsibility_NotSignedUp(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", toggleURL(evt.ID, adminProfile.ID, "spl"))
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("ToggleResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
+func TestToggleResponsibility_DriverReturnsBadRequest(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", toggleURL(evt.ID, adminProfile.ID, "driver"))
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("ToggleResponsibility returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestToggleResponsibility_Coordinator(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", toggleURL(evt.ID, adminProfile.ID, "coordinator"))
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("ToggleResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "resp-on") {
+		t.Errorf("expected resp-on badge for Coordinator, got:\n%s", rr.Body.String())
+	}
+}
+
+func TestToggleResponsibility_MedicalOfficer(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", toggleURL(evt.ID, adminProfile.ID, "medical_officer"))
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("ToggleResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "resp-on") {
+		t.Errorf("expected resp-on badge for Medical Officer, got:\n%s", rr.Body.String())
+	}
+}
+
+func TestToggleResponsibility_SingletonConflict(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	otherProfile := &profile.Profile{
+		FirstName:  "Other",
+		LastName:   "User",
+		Email:      "other@scout.com",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, otherProfile); err != nil {
+		t.Fatalf("Create other profile: %v", err)
+	}
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp admin: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, otherProfile.ID); err != nil {
+		t.Fatalf("SignUp other: %v", err)
+	}
+	if err := store.Event.AssignResponsibility(ctx, evt.ID, adminProfile.ID, event.ResponsibilitySPL); err != nil {
+		t.Fatalf("Assign SPL to admin: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", toggleURL(evt.ID, otherProfile.ID, "spl"))
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("ToggleResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "toast-error") {
+		t.Errorf("expected toast-error on singleton conflict, got:\n%s", rr.Body.String())
+	}
+}
+
+func TestToggleResponsibility_EventNotFound(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+	defer setupToggleMux()()
+
+	req := loggedInRequest(t, authService, "POST", "/events/nonexistent/responsibility/p1/spl?id=nonexistent&profile_id=p1&responsibility=spl")
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("ToggleResponsibility returned %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestToggleResponsibility_EmptyPathParams(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+	defer setupToggleMux()()
+
+	req := loggedInRequest(t, authService, "POST", "/events//responsibility//spl?id=&profile_id=&responsibility=spl")
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("ToggleResponsibility returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestToggleResponsibility_GetByIDError(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	handler.repo = &failingEventRepo{Repository: store.Event, failOnGetByID: true}
+
+	req := loggedInRequest(t, authService, "POST", toggleURL(evt.ID, adminProfile.ID, "spl"))
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("ToggleResponsibility returned %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestToggleResponsibility_GetAttendeesError(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	handler.repo = &failingEventRepo{Repository: store.Event, failOnGetAttendees: true}
+
+	req := loggedInRequest(t, authService, "POST", toggleURL(evt.ID, adminProfile.ID, "spl"))
+	rr := httptest.NewRecorder()
+	handler.ToggleResponsibility(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("ToggleResponsibility returned %d, want %d", rr.Code, http.StatusInternalServerError)
 	}
 }

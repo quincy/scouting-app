@@ -1,25 +1,97 @@
+{{define "youth_attendee_table"}}
+{{$eventID := .EventID}}
+{{$isPast := .IsPast}}
+{{$isAdmin := .IsAdmin}}
+<table class="responsibility-table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>SPL</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .YouthAttendees}}
+    <tr>
+      <td class="attendee-name"><a href="/profiles/{{.ProfileID}}">{{.ProfileName}}</a></td>
+      <td class="resp-cell">
+        <button class="resp-badge {{if .IsSPL}}resp-on{{else}}resp-off{{end}}"
+          hx-post="/events/{{$eventID}}/responsibility/{{.ProfileID}}/spl"
+          hx-target="closest .attendee-section"
+          hx-swap="outerHTML"
+          {{if or $isPast (not $isAdmin)}}disabled{{end}}>
+          {{if .IsSPL}}SPL{{else}}&ndash;{{end}}
+        </button>
+      </td>
+    </tr>
+    {{else}}
+    <tr>
+      <td colspan="2" class="resp-empty">No attendees</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{define "adult_attendee_table"}}
+{{$eventID := .EventID}}
+{{$isPast := .IsPast}}
+{{$isAdmin := .IsAdmin}}
+<table class="responsibility-table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Driver</th>
+      <th>Coordinator</th>
+      <th>Medical Officer</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .AdultAttendees}}
+    <tr>
+      <td class="attendee-name"><a href="/profiles/{{.ProfileID}}">{{.ProfileName}}</a></td>
+      <td class="resp-cell">
+        <span class="resp-badge resp-static {{if .IsDriver}}resp-on{{else}}resp-off{{end}}">
+          {{if .IsDriver}}{{.SeatbeltCount}} seat{{else}}&ndash;{{end}}
+        </span>
+      </td>
+      <td class="resp-cell">
+        <button class="resp-badge {{if .IsCoordinator}}resp-on{{else}}resp-off{{end}}"
+          hx-post="/events/{{$eventID}}/responsibility/{{.ProfileID}}/coordinator"
+          hx-target="closest .attendee-section"
+          hx-swap="outerHTML"
+          {{if or $isPast (not $isAdmin)}}disabled{{end}}>
+          {{if .IsCoordinator}}Coord{{else}}&ndash;{{end}}
+        </button>
+      </td>
+      <td class="resp-cell">
+        <button class="resp-badge {{if .IsMedicalOfficer}}resp-on{{else}}resp-off{{end}}"
+          hx-post="/events/{{$eventID}}/responsibility/{{.ProfileID}}/medical_officer"
+          hx-target="closest .attendee-section"
+          hx-swap="outerHTML"
+          {{if or $isPast (not $isAdmin)}}disabled{{end}}>
+          {{if .IsMedicalOfficer}}Medical Officer{{else}}&ndash;{{end}}
+        </button>
+      </td>
+    </tr>
+    {{else}}
+    <tr>
+      <td colspan="4" class="resp-empty">No attendees</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
 {{define "attendee_list.html"}}
 <span id="attendee-count" hx-swap-oob="true">({{.AttendeeCount}})</span>
-<div class="attendee-group" id="attendee-group-youth" hx-swap-oob="true">
-    <h3 class="attendee-group-label">Youth</h3>
-    <ul class="attendee-list" id="attendee-list-youth">
-        {{range .YouthAttendees}}
-        <li>
-            <a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.ProfileName}}</a>
-            {{if .IsDriver}}<span class="badge badge-driver">Driver - {{.SeatbeltCount}} seatbelts</span>{{end}}
-        </li>
-        {{end}}
-    </ul>
-</div>
-<div class="attendee-group" id="attendee-group-adults" hx-swap-oob="true">
-    <h3 class="attendee-group-label">Adults</h3>
-    <ul class="attendee-list" id="attendee-list-adults">
-        {{range .AdultAttendees}}
-        <li>
-            <a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.ProfileName}}</a>
-            {{if .IsDriver}}<span class="badge badge-driver">Driver - {{.SeatbeltCount}} seatbelts</span>{{end}}
-        </li>
-        {{end}}
-    </ul>
+<div class="attendee-section" id="attendee-section">
+  <div class="attendee-group">
+    <h3 class="attendee-group-label">Youth ({{.YouthCount}})</h3>
+    {{template "youth_attendee_table" .}}
+  </div>
+  <div class="attendee-group">
+    <h3 class="attendee-group-label">Adults ({{.AdultCount}})</h3>
+    {{template "adult_attendee_table" .}}
+  </div>
 </div>
 {{end}}

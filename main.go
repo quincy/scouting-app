@@ -146,6 +146,7 @@ func buildApp(cfg *config.Config, db *sql.DB) (*mux.Router, context.CancelFunc) 
 	app.Handle("/events/{id}/drivers", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.AddDriver)).Methods("POST")
 	app.Handle("/events/{id}/drivers", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.RemoveDriver)).Methods("DELETE")
 	app.Handle("/events/{id}/drivers", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.UpdateDriverSeatbelt)).Methods("PATCH")
+	app.Handle("/events/{id}/responsibility/{profile_id}/{responsibility}", api.RequirePermission(authService, rbacRepo, "event:signup", eventHandler.ToggleResponsibility)).Methods("POST")
 	app.Handle("/events/markdown-preview", api.RequirePermission(authService, rbacRepo, "event:create", eventHandler.MarkdownPreview)).Methods("POST")
 
 	app.Handle("/profiles/{id}", api.RequireAuth(authService, profileHandler.ProfilePage)).Methods("GET")

@@ -51,31 +51,7 @@
     {{end}}
 </div>
 
-<div class="attendee-section">
-    <h2>Attendees <span id="attendee-count">({{.AttendeeCount}})</span></h2>
-    <div class="attendee-group" id="attendee-group-youth">
-        <h3 class="attendee-group-label">Youth</h3>
-        <ul class="attendee-list" id="attendee-list-youth">
-            {{range .YouthAttendees}}
-            <li>
-            <a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.ProfileName}}</a>
-            {{if .IsDriver}}<span class="badge badge-driver">Driver - {{.SeatbeltCount}} seatbelts</span>{{end}}
-        </li>
-            {{end}}
-        </ul>
-    </div>
-    <div class="attendee-group" id="attendee-group-adults">
-        <h3 class="attendee-group-label">Adults</h3>
-        <ul class="attendee-list" id="attendee-list-adults">
-            {{range .AdultAttendees}}
-            <li>
-            <a href="/profiles/{{.ProfileID}}" style="color:#1565c0;text-decoration:none;">{{.ProfileName}}</a>
-            {{if .IsDriver}}<span class="badge badge-driver">Driver - {{.SeatbeltCount}} seatbelts</span>{{end}}
-        </li>
-            {{end}}
-        </ul>
-    </div>
-</div>
+{{template "attendee_list.html" .}}
 <div id="delete-modal"></div>
 {{template "base_tail" .}}
 {{end}}
