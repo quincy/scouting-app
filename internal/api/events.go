@@ -77,6 +77,7 @@ type eventDetailData struct {
 	IsAdmin         bool
 	ProfileID       string
 	Event           *event.Event
+	EventID         string
 	CostDisplay     string
 	DescriptionHTML template.HTML
 	FlashSuccess    string
@@ -91,10 +92,14 @@ type eventDetailData struct {
 }
 
 type attendeeViewModel struct {
-	ProfileID     string
-	ProfileName   string
-	IsDriver      bool
-	SeatbeltCount int
+	ProfileID        string
+	ProfileName      string
+	IsDriver         bool
+	SeatbeltCount    int
+	IsSPL            bool
+	IsCoordinator    bool
+	IsMedicalOfficer bool
+	IsSignedUp       bool
 }
 
 type signupSectionData struct {
@@ -104,6 +109,9 @@ type signupSectionData struct {
 }
 
 type attendeeListData struct {
+	EventID        string
+	IsPast         bool
+	IsAdmin        bool
 	YouthAttendees []attendeeViewModel
 	YouthCount     int
 	AdultAttendees []attendeeViewModel
@@ -316,7 +324,11 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
-	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
+	responsibilities, rErr := h.repo.GetResponsibilities(ctx, eventID)
+	if rErr != nil {
+		log.Printf("GetResponsibilities: %v", rErr)
+	}
+	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers, responsibilities)
 
 	renderedDesc, err := renderMarkdown(evt.Description)
 	if err != nil {
@@ -350,6 +362,7 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 		IsAdmin:         h.isAdmin(ctx, r),
 		ProfileID:       h.currentProfileID(r),
 		Event:           evt,
+		EventID:         eventID,
 		CostDisplay:     costDisplay,
 		DescriptionHTML: template.HTML(renderedDesc),
 		FlashSuccess:    flashSuccess,
@@ -838,7 +851,8 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
+	responsibilities, _ := h.repo.GetResponsibilities(ctx, eventID)
+	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers, responsibilities)
 	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -852,6 +866,9 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+		EventID:        eventID,
+		IsPast:         false,
+		IsAdmin:        h.isAdmin(ctx, r),
 		YouthAttendees: youthVMs,
 		YouthCount:     len(youthVMs),
 		AdultAttendees: adultVMs,
@@ -947,6 +964,10 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 
 	// Cascade: also remove driver responsibility if present
 	_ = h.repo.RemoveDriver(ctx, eventID, profileID)
+	_ = h.repo.RemoveResponsibility(ctx, eventID, profileID, event.ResponsibilitySPL)
+	_ = h.repo.RemoveResponsibility(ctx, eventID, profileID, event.ResponsibilityCoordinator)
+	_ = h.repo.RemoveResponsibility(ctx, eventID, profileID, event.ResponsibilityMedicalOfficer)
+	_ = h.repo.RemoveResponsibility(ctx, eventID, profileID, event.ResponsibilityDriver)
 
 	attendees, err := h.repo.GetAttendees(ctx, eventID)
 	if err != nil {
@@ -962,7 +983,8 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
+	withdrawResponsibilities, _ := h.repo.GetResponsibilities(ctx, eventID)
+	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers, withdrawResponsibilities)
 	profileVMs := h.buildProfileSignUps(ctx, currentUser.ID, attendees)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -976,6 +998,9 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+		EventID:        eventID,
+		IsPast:         false,
+		IsAdmin:        h.isAdmin(ctx, r),
 		YouthAttendees: youthVMs,
 		YouthCount:     len(youthVMs),
 		AdultAttendees: adultVMs,
@@ -1196,8 +1221,10 @@ func (h *EventHandler) AddDriver(w http.ResponseWriter, r *http.Request) {
 
 	attendees, aErr := h.repo.GetAttendees(ctx, eventID)
 	if aErr == nil {
-		youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
+		responsibilities, _ := h.repo.GetResponsibilities(ctx, eventID)
+		youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers, responsibilities)
 		h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+			EventID: eventID, IsPast: false, IsAdmin: h.isAdmin(ctx, r),
 			YouthAttendees: youthVMs, YouthCount: len(youthVMs),
 			AdultAttendees: adultVMs, AdultCount: len(adultVMs),
 			AttendeeCount: len(attendees),
@@ -1273,8 +1300,10 @@ func (h *EventHandler) RemoveDriver(w http.ResponseWriter, r *http.Request) {
 
 	attendees, aErr := h.repo.GetAttendees(ctx, eventID)
 	if aErr == nil {
-		youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
+		responsibilities, _ := h.repo.GetResponsibilities(ctx, eventID)
+		youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers, responsibilities)
 		h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+			EventID: eventID, IsPast: false, IsAdmin: h.isAdmin(ctx, r),
 			YouthAttendees: youthVMs, YouthCount: len(youthVMs),
 			AdultAttendees: adultVMs, AdultCount: len(adultVMs),
 			AttendeeCount: len(attendees),
@@ -1366,8 +1395,10 @@ func (h *EventHandler) UpdateDriverSeatbelt(w http.ResponseWriter, r *http.Reque
 
 	attendees, aErr := h.repo.GetAttendees(ctx, eventID)
 	if aErr == nil {
-		youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers)
+		responsibilities, _ := h.repo.GetResponsibilities(ctx, eventID)
+		youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers, responsibilities)
 		h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+			EventID: eventID, IsPast: false, IsAdmin: h.isAdmin(ctx, r),
 			YouthAttendees: youthVMs, YouthCount: len(youthVMs),
 			AdultAttendees: adultVMs, AdultCount: len(adultVMs),
 			AttendeeCount: len(attendees),
@@ -1383,6 +1414,106 @@ func (h *EventHandler) UpdateDriverSeatbelt(w http.ResponseWriter, r *http.Reque
 		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
 		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
 		Drivers: drivers, Summary: *summary,
+	})
+}
+
+func (h *EventHandler) ToggleResponsibility(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	profileID := vars["profile_id"]
+	respParam := vars["responsibility"]
+	if eventID == "" || profileID == "" || respParam == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	respType := event.Responsibility(respParam)
+	if respType == event.ResponsibilityDriver {
+		http.Error(w, "Driver responsibility is managed separately", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if evt.EndTime.Before(time.Now()) {
+		http.Error(w, "Cannot modify responsibilities for a past event", http.StatusBadRequest)
+		return
+	}
+
+	if !h.canManageProfile(ctx, currentUser.ID, profileID) && !h.isAdmin(ctx, r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	attendees, aErr := h.repo.GetAttendees(ctx, eventID)
+	if aErr != nil {
+		log.Printf("GetAttendees: %v", aErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if !isAttending(profileID, attendees) {
+		http.Error(w, "Profile is not signed up", http.StatusBadRequest)
+		return
+	}
+
+	currentResp, rErr := h.repo.GetResponsibilities(ctx, eventID)
+	if rErr != nil {
+		log.Printf("GetResponsibilities: %v", rErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	alreadyAssigned := false
+	for _, ra := range currentResp {
+		if ra.ProfileID == profileID && ra.Responsibility == respType {
+			alreadyAssigned = true
+			break
+		}
+	}
+
+	if alreadyAssigned {
+		if err := h.repo.RemoveResponsibility(ctx, eventID, profileID, respType); err != nil {
+			log.Printf("RemoveResponsibility: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		if err := h.repo.AssignResponsibility(ctx, eventID, profileID, respType); err != nil {
+			log.Printf("AssignResponsibility: %v", err)
+			if _, ok := err.(event.ErrSingletonConflict); ok {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Write([]byte(`<div class="toast toast-error">That role is already assigned.</div>`))
+				return
+			}
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	drivers, dErr := h.repo.GetDrivers(ctx, eventID)
+	if dErr != nil {
+		log.Printf("GetDrivers: %v", dErr)
+	}
+
+	updatedResp, _ := h.repo.GetResponsibilities(ctx, eventID)
+	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers, updatedResp)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+		EventID: eventID, IsPast: false, IsAdmin: h.isAdmin(ctx, r),
+		YouthAttendees: youthVMs, YouthCount: len(youthVMs),
+		AdultAttendees: adultVMs, AdultCount: len(adultVMs),
+		AttendeeCount: len(attendees),
 	})
 }
 
@@ -1403,6 +1534,23 @@ func formatCost(cents int) string {
 	return fmt.Sprintf("%d.%02d", dollars, remainder)
 }
 
+func enrichVMsWithResponsibilities(vms []attendeeViewModel, responsibilities []event.ResponsibilityAssignment) {
+	for i := range vms {
+		for _, r := range responsibilities {
+			if vms[i].ProfileID == r.ProfileID {
+				switch r.Responsibility {
+				case event.ResponsibilitySPL:
+					vms[i].IsSPL = true
+				case event.ResponsibilityCoordinator:
+					vms[i].IsCoordinator = true
+				case event.ResponsibilityMedicalOfficer:
+					vms[i].IsMedicalOfficer = true
+				}
+			}
+		}
+	}
+}
+
 func enrichVMsWithDrivers(vms []attendeeViewModel, drivers []event.DriverResponsibility) {
 	for i := range vms {
 		for _, d := range drivers {
@@ -1415,11 +1563,15 @@ func enrichVMsWithDrivers(vms []attendeeViewModel, drivers []event.DriverRespons
 	}
 }
 
-func splitAttendeeVMs(attendees []*profile.Profile, drivers []event.DriverResponsibility) ([]attendeeViewModel, []attendeeViewModel) {
+func splitAttendeeVMs(attendees []*profile.Profile, drivers []event.DriverResponsibility, responsibilities []event.ResponsibilityAssignment) ([]attendeeViewModel, []attendeeViewModel) {
 	var youthVMs []attendeeViewModel
 	var adultVMs []attendeeViewModel
 	for _, p := range attendees {
-		vm := attendeeViewModel{ProfileID: p.ID, ProfileName: p.DisplayName()}
+		vm := attendeeViewModel{
+			ProfileID:   p.ID,
+			ProfileName: p.DisplayName(),
+			IsSignedUp:  true,
+		}
 		if p.MemberType == profile.MemberTypeYouth {
 			youthVMs = append(youthVMs, vm)
 		} else {
@@ -1428,6 +1580,8 @@ func splitAttendeeVMs(attendees []*profile.Profile, drivers []event.DriverRespon
 	}
 	enrichVMsWithDrivers(youthVMs, drivers)
 	enrichVMsWithDrivers(adultVMs, drivers)
+	enrichVMsWithResponsibilities(youthVMs, responsibilities)
+	enrichVMsWithResponsibilities(adultVMs, responsibilities)
 	sort.Slice(youthVMs, func(i, j int) bool {
 		return youthVMs[i].ProfileName < youthVMs[j].ProfileName
 	})
