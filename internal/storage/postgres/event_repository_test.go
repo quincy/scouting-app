@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -794,6 +795,360 @@ func TestPostgresEventRepository_GetDrivers_CancelledContext(t *testing.T) {
 	_, err := repo.GetDrivers(ctx, "nonexistent")
 	if err == nil {
 		t.Error("expected error with cancelled context")
+	}
+}
+
+func TestPostgresEventRepository_AssignResponsibility_Driver(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p := &profile.Profile{
+		FirstName: "Adult", LastName: "One", Email: "adult1@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, p.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	if err := eventRepo.AssignResponsibility(ctx, evt.ID, p.ID, event.ResponsibilityDriver); err != nil {
+		t.Fatalf("AssignResponsibility: %v", err)
+	}
+
+	holders, err := eventRepo.GetResponsibilities(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetResponsibilities: %v", err)
+	}
+	if len(holders) != 1 {
+		t.Fatalf("expected 1 responsibility, got %d", len(holders))
+	}
+	if holders[0].Responsibility != event.ResponsibilityDriver {
+		t.Errorf("expected responsibility 'driver', got %q", holders[0].Responsibility)
+	}
+}
+
+func TestPostgresEventRepository_AssignResponsibility_Singleton(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p1 := &profile.Profile{
+		FirstName: "Youth", LastName: "SPL", Email: "spl@test.com",
+		MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p1); err != nil {
+		t.Fatalf("Create p1: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, p1.ID); err != nil {
+		t.Fatalf("SignUp p1: %v", err)
+	}
+
+	// Assign SPL to p1
+	if err := eventRepo.AssignResponsibility(ctx, evt.ID, p1.ID, event.ResponsibilitySPL); err != nil {
+		t.Fatalf("AssignResponsibility SPL: %v", err)
+	}
+
+	holder, err := eventRepo.GetResponsibilityHolder(ctx, evt.ID, event.ResponsibilitySPL)
+	if err != nil {
+		t.Fatalf("GetResponsibilityHolder: %v", err)
+	}
+	if holder == nil {
+		t.Fatal("expected holder, got nil")
+	}
+	if holder.ProfileID != p1.ID {
+		t.Errorf("expected holder %s, got %s", p1.ID, holder.ProfileID)
+	}
+}
+
+func TestPostgresEventRepository_AssignResponsibility_Singleton_SamePerson_NoOp(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p := &profile.Profile{
+		FirstName: "Youth", LastName: "SPL", Email: "spl2@test.com",
+		MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, p.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	if err := eventRepo.AssignResponsibility(ctx, evt.ID, p.ID, event.ResponsibilitySPL); err != nil {
+		t.Fatalf("first assign: %v", err)
+	}
+	if err := eventRepo.AssignResponsibility(ctx, evt.ID, p.ID, event.ResponsibilitySPL); err != nil {
+		t.Fatalf("second assign (no-op) should not error: %v", err)
+	}
+
+	// Should still have exactly one assignment
+	assignments, err := eventRepo.GetResponsibilities(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetResponsibilities: %v", err)
+	}
+	if len(assignments) != 1 {
+		t.Fatalf("expected 1 assignment, got %d", len(assignments))
+	}
+}
+
+func TestPostgresEventRepository_AssignResponsibility_Singleton_Conflict(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p1 := &profile.Profile{
+		FirstName: "First", LastName: "Holder", Email: "holder@test.com",
+		MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	p2 := &profile.Profile{
+		FirstName: "Second", LastName: "Challenger", Email: "challenger@test.com",
+		MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	for _, p := range []*profile.Profile{p1, p2} {
+		if err := profileRepo.Create(ctx, p); err != nil {
+			t.Fatalf("Create profile %s: %v", p.FirstName, err)
+		}
+		if err := eventRepo.SignUp(ctx, evt.ID, p.ID); err != nil {
+			t.Fatalf("SignUp %s: %v", p.FirstName, err)
+		}
+	}
+
+	if err := eventRepo.AssignResponsibility(ctx, evt.ID, p1.ID, event.ResponsibilityCoordinator); err != nil {
+		t.Fatalf("assign to p1: %v", err)
+	}
+
+	err := eventRepo.AssignResponsibility(ctx, evt.ID, p2.ID, event.ResponsibilityCoordinator)
+	if err == nil {
+		t.Fatal("expected ErrSingletonConflict, got nil")
+	}
+	var conflict event.ErrSingletonConflict
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected ErrSingletonConflict, got %T: %v", err, err)
+	}
+	if conflict.CurrentHolderID != p1.ID {
+		t.Errorf("expected CurrentHolderID %s, got %s", p1.ID, conflict.CurrentHolderID)
+	}
+}
+
+func TestPostgresEventRepository_GetResponsibilityHolder_ReturnsNil(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	holder, err := eventRepo.GetResponsibilityHolder(ctx, evt.ID, event.ResponsibilityMedicalOfficer)
+	if err != nil {
+		t.Fatalf("GetResponsibilityHolder: %v", err)
+	}
+	if holder != nil {
+		t.Errorf("expected nil holder, got %v", holder)
+	}
+}
+
+func TestPostgresEventRepository_RemoveResponsibility(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p := &profile.Profile{
+		FirstName: "Adult", LastName: "One", Email: "adult_rm@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, p.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	if err := eventRepo.AssignResponsibility(ctx, evt.ID, p.ID, event.ResponsibilityDriver); err != nil {
+		t.Fatalf("Assign: %v", err)
+	}
+	if err := eventRepo.RemoveResponsibility(ctx, evt.ID, p.ID, event.ResponsibilityDriver); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	assignments, err := eventRepo.GetResponsibilities(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetResponsibilities: %v", err)
+	}
+	if len(assignments) != 0 {
+		t.Errorf("expected 0 assignments after remove, got %d", len(assignments))
+	}
+}
+
+func TestPostgresEventRepository_AssignResponsibility_NotSignedUp(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p := &profile.Profile{
+		FirstName: "Not", LastName: "SignedUp", Email: "notsignedup@test.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+
+	// Should fail because the profile is not signed up (FK constraint)
+	err := eventRepo.AssignResponsibility(ctx, evt.ID, p.ID, event.ResponsibilityDriver)
+	if err == nil {
+		t.Error("expected error assigning responsibility to non-attendee, got nil")
+	}
+}
+
+func TestPostgresEventRepository_AssignResponsibility_MultipleResponsibilities(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	eventRepo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake George",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := eventRepo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	p := &profile.Profile{
+		FirstName: "Multi", LastName: "Role", Email: "multi@test.com",
+		MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := profileRepo.Create(ctx, p); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+	if err := eventRepo.SignUp(ctx, evt.ID, p.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	if err := eventRepo.AssignResponsibility(ctx, evt.ID, p.ID, event.ResponsibilitySPL); err != nil {
+		t.Fatalf("Assign SPL: %v", err)
+	}
+	if err := eventRepo.AssignResponsibility(ctx, evt.ID, p.ID, event.ResponsibilityMedicalOfficer); err != nil {
+		t.Fatalf("Assign MedOff: %v", err)
+	}
+
+	assignments, err := eventRepo.GetResponsibilities(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetResponsibilities: %v", err)
+	}
+	if len(assignments) != 2 {
+		t.Fatalf("expected 2 responsibilities, got %d", len(assignments))
 	}
 }
 
