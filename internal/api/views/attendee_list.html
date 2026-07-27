@@ -51,7 +51,7 @@
       <td class="attendee-name"><a href="/profiles/{{.ProfileID}}">{{.ProfileName}}</a></td>
       <td class="resp-cell">
         <span class="resp-badge resp-static {{if .IsDriver}}resp-on{{else}}resp-off{{end}}">
-          {{if .IsDriver}}{{.SeatbeltCount}} seat{{else}}&ndash;{{end}}
+          {{if .IsDriver}}{{.SeatbeltCount}} {{if eq .SeatbeltCount 1}}seat{{else}}seats{{end}}{{else}}&ndash;{{end}}
         </span>
       </td>
       <td class="resp-cell">
@@ -84,7 +84,7 @@
 
 {{define "attendee_list.html"}}
 <span id="attendee-count" hx-swap-oob="true">({{.AttendeeCount}})</span>
-<div class="attendee-section" id="attendee-section">
+<div class="attendee-section" id="attendee-section" hx-swap-oob="true">
   <div class="attendee-group">
     <h3 class="attendee-group-label">Youth ({{.YouthCount}})</h3>
     {{template "youth_attendee_table" .}}
