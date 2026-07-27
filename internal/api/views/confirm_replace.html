@@ -1,0 +1,16 @@
+{{define "confirm_replace.html"}}
+<div class="modal-overlay" id="modal-container" hx-swap-oob="true" onclick="this.innerHTML=''">
+  <div class="modal-dialog" onclick="event.stopPropagation()">
+    <h3>Change {{.ResponsibilityLabel}}?</h3>
+    <p>Change {{.ResponsibilityLabel}} from <strong>{{.CurrentHolderName}}</strong> to <strong>{{.RequestedProfileName}}</strong>?</p>
+    <div class="modal-actions">
+      <button class="btn-primary"
+        hx-post="/events/{{.EventID}}/replace-responsibility/{{.ProfileID}}/{{.Responsibility}}?current_holder_id={{.CurrentHolderID}}"
+        hx-target="closest .attendee-section"
+        hx-swap="outerHTML"
+        onclick="this.closest('.modal-overlay').remove()">Change</button>
+      <button class="btn-cancel" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+    </div>
+  </div>
+</div>
+{{end}}

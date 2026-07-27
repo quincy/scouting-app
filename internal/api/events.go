@@ -108,6 +108,29 @@ type signupSectionData struct {
 	Profiles []profileSignUpVM
 }
 
+type confirmReplaceData struct {
+	EventID              string
+	ProfileID            string
+	Responsibility       string
+	ResponsibilityLabel  string
+	CurrentHolderID      string
+	CurrentHolderName    string
+	RequestedProfileName string
+}
+
+func responsibilityLabel(r event.Responsibility) string {
+	switch r {
+	case event.ResponsibilitySPL:
+		return "SPL"
+	case event.ResponsibilityCoordinator:
+		return "Coordinator"
+	case event.ResponsibilityMedicalOfficer:
+		return "Medical Officer"
+	default:
+		return string(r)
+	}
+}
+
 type attendeeListData struct {
 	EventID        string
 	IsPast         bool
@@ -1466,12 +1489,19 @@ func (h *EventHandler) ToggleResponsibility(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	drivers, dErr := h.repo.GetDrivers(ctx, eventID)
+	if dErr != nil {
+		log.Printf("GetDrivers: %v", dErr)
+	}
+
 	currentResp, rErr := h.repo.GetResponsibilities(ctx, eventID)
 	if rErr != nil {
 		log.Printf("GetResponsibilities: %v", rErr)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers, currentResp)
 
 	alreadyAssigned := false
 	for _, ra := range currentResp {
@@ -1487,17 +1517,116 @@ func (h *EventHandler) ToggleResponsibility(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
+
+		updatedResp, _ := h.repo.GetResponsibilities(ctx, eventID)
+		youthVMs, adultVMs = splitAttendeeVMs(attendees, drivers, updatedResp)
 	} else {
 		if err := h.repo.AssignResponsibility(ctx, eventID, profileID, respType); err != nil {
 			log.Printf("AssignResponsibility: %v", err)
-			if _, ok := err.(event.ErrSingletonConflict); ok {
+			if sec, ok := err.(event.ErrSingletonConflict); ok {
+				requestedName := sec.RequestedProfileID
+				for _, a := range attendees {
+					if a.ID == sec.RequestedProfileID {
+						requestedName = a.DisplayName()
+						break
+					}
+				}
+
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				w.Write([]byte(`<div class="toast toast-error">That role is already assigned.</div>`))
+				h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+					EventID: eventID, IsPast: false, IsAdmin: h.isAdmin(ctx, r),
+					YouthAttendees: youthVMs, YouthCount: len(youthVMs),
+					AdultAttendees: adultVMs, AdultCount: len(adultVMs),
+					AttendeeCount: len(attendees),
+				})
+				h.tmpl.ExecuteTemplate(w, "confirm_replace.html", confirmReplaceData{
+					EventID:              eventID,
+					ProfileID:            sec.RequestedProfileID,
+					Responsibility:       string(sec.Responsibility),
+					ResponsibilityLabel:  responsibilityLabel(sec.Responsibility),
+					CurrentHolderID:      sec.CurrentHolderID,
+					CurrentHolderName:    sec.CurrentHolderName,
+					RequestedProfileName: requestedName,
+				})
 				return
 			}
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
+
+		updatedResp, _ := h.repo.GetResponsibilities(ctx, eventID)
+		youthVMs, adultVMs = splitAttendeeVMs(attendees, drivers, updatedResp)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
+		EventID: eventID, IsPast: false, IsAdmin: h.isAdmin(ctx, r),
+		YouthAttendees: youthVMs, YouthCount: len(youthVMs),
+		AdultAttendees: adultVMs, AdultCount: len(adultVMs),
+		AttendeeCount: len(attendees),
+	})
+}
+
+func (h *EventHandler) ReplaceResponsibility(w http.ResponseWriter, r *http.Request) {
+	vars := muxVars(r)
+	eventID := vars["id"]
+	profileID := vars["profile_id"]
+	respParam := vars["responsibility"]
+	currentHolderID := r.URL.Query().Get("current_holder_id")
+	if eventID == "" || profileID == "" || respParam == "" || currentHolderID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	respType := event.Responsibility(respParam)
+	if respType == event.ResponsibilityDriver {
+		http.Error(w, "Driver responsibility is managed separately", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if evt.EndTime.Before(time.Now()) {
+		http.Error(w, "Cannot modify responsibilities for a past event", http.StatusBadRequest)
+		return
+	}
+
+	if !h.canManageProfile(ctx, currentUser.ID, profileID) && !h.isAdmin(ctx, r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	attendees, aErr := h.repo.GetAttendees(ctx, eventID)
+	if aErr != nil {
+		log.Printf("GetAttendees: %v", aErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if !isAttending(profileID, attendees) {
+		http.Error(w, "Profile is not signed up", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.repo.RemoveResponsibility(ctx, eventID, currentHolderID, respType); err != nil {
+		log.Printf("RemoveResponsibility: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.repo.AssignResponsibility(ctx, eventID, profileID, respType); err != nil {
+		log.Printf("AssignResponsibility: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
 
 	drivers, dErr := h.repo.GetDrivers(ctx, eventID)

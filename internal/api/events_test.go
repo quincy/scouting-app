@@ -74,9 +74,15 @@ func setupEventTest(t *testing.T) (*EventHandler, *auth.AuthService, *postgres.S
 
 func loggedInRequest(t *testing.T, authService *auth.AuthService, method, path string) *http.Request {
 	t.Helper()
+	return loggedInAs(t, authService, method, path, "admin@scout.local")
+}
+
+func loggedInAs(t *testing.T, authService *auth.AuthService, method, path, email string) *http.Request {
+	t.Helper()
 
 	authHandler := NewAuthHandler(authService)
-	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader("email=admin@scout.local&password=password"))
+	body := url.Values{"email": {email}, "password": {"password"}}
+	loginReq := httptest.NewRequest("POST", "/login", strings.NewReader(body.Encode()))
 	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	loginRR := httptest.NewRecorder()
 	authHandler.Login(loginRR, loginReq)
@@ -2366,6 +2372,11 @@ func toggleURL(eventID, profileID, responsibility string) string {
 		eventID, profileID, responsibility, eventID, profileID, responsibility)
 }
 
+func replaceURL(eventID, profileID, responsibility, currentHolderID string) string {
+	return fmt.Sprintf("/events/%s/replace-responsibility/%s/%s?id=%s&profile_id=%s&responsibility=%s&current_holder_id=%s",
+		eventID, profileID, responsibility, eventID, profileID, responsibility, currentHolderID)
+}
+
 func TestToggleResponsibility_AssignSPL(t *testing.T) {
 	handler, authService, store, _ := setupEventTest(t)
 	defer setupToggleMux()()
@@ -2603,8 +2614,20 @@ func TestToggleResponsibility_SingletonConflict(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Errorf("ToggleResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "toast-error") {
-		t.Errorf("expected toast-error on singleton conflict, got:\n%s", rr.Body.String())
+	if strings.Contains(rr.Body.String(), "toast-error") {
+		t.Errorf("unexpected toast-error, expected confirmation modal. Body:\n%s", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "Change SPL?") {
+		t.Errorf("expected confirmation modal with 'Change SPL?' in response. Body:\n%s", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), adminProfile.DisplayName()) {
+		t.Errorf("expected confirmation modal to name the current holder %q. Body:\n%s", adminProfile.DisplayName(), rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "Other User") {
+		t.Errorf("expected confirmation modal to name the requested profile. Body:\n%s", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "replace-responsibility") {
+		t.Errorf("expected confirmation modal to have replace-responsibility endpoint. Body:\n%s", rr.Body.String())
 	}
 }
 
@@ -2679,5 +2702,370 @@ func TestToggleResponsibility_GetAttendeesError(t *testing.T) {
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("ToggleResponsibility returned %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestReplaceResponsibility_Success(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	youthProfile := &profile.Profile{
+		FirstName: "Young", LastName: "Scout", Email: "youth@scout.com",
+		MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, youthProfile); err != nil {
+		t.Fatalf("Create youth profile: %v", err)
+	}
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp admin: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, youthProfile.ID); err != nil {
+		t.Fatalf("SignUp youth: %v", err)
+	}
+	if err := store.Event.AssignResponsibility(ctx, evt.ID, adminProfile.ID, event.ResponsibilitySPL); err != nil {
+		t.Fatalf("Assign SPL to admin: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", replaceURL(evt.ID, youthProfile.ID, "spl", adminProfile.ID))
+	rr := httptest.NewRecorder()
+	handler.ReplaceResponsibility(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("ReplaceResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "resp-on") {
+		t.Errorf("expected resp-on badge in response, got:\n%s", rr.Body.String())
+	}
+
+	resp, err := store.Event.GetResponsibilities(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetResponsibilities: %v", err)
+	}
+	foundAssignments := 0
+	for _, ra := range resp {
+		if ra.Responsibility == event.ResponsibilitySPL {
+			foundAssignments++
+			if ra.ProfileID != youthProfile.ID {
+				t.Errorf("SPL assigned to %s, want %s", ra.ProfileID, youthProfile.ID)
+			}
+		}
+	}
+	if foundAssignments != 1 {
+		t.Errorf("expected 1 SPL assignment, got %d", foundAssignments)
+	}
+}
+
+func TestReplaceResponsibility_PastEvent(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	otherProfile := &profile.Profile{
+		FirstName: "Other", LastName: "User", Email: "other@scout.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, otherProfile); err != nil {
+		t.Fatalf("Create other profile: %v", err)
+	}
+
+	evt := pastEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp admin: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, otherProfile.ID); err != nil {
+		t.Fatalf("SignUp other: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", replaceURL(evt.ID, otherProfile.ID, "spl", adminProfile.ID))
+	rr := httptest.NewRecorder()
+	handler.ReplaceResponsibility(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestReplaceResponsibility_Unauthenticated(t *testing.T) {
+	handler, _, _, _ := setupEventTest(t)
+	defer setupToggleMux()()
+
+	req := httptest.NewRequest("POST", replaceURL("e1", "p1", "spl", "p2"), nil)
+	rr := httptest.NewRecorder()
+	handler.ReplaceResponsibility(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestReplaceResponsibility_NotSignedUp(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	otherProfile := &profile.Profile{
+		FirstName: "Other", LastName: "User", Email: "other@scout.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, otherProfile); err != nil {
+		t.Fatalf("Create other profile: %v", err)
+	}
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp admin: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", replaceURL(evt.ID, otherProfile.ID, "spl", adminProfile.ID))
+	rr := httptest.NewRecorder()
+	handler.ReplaceResponsibility(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("ReplaceResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
+func TestReplaceResponsibility_EmptyParams(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+	defer setupToggleMux()()
+
+	req := loggedInRequest(t, authService, "POST", "/events//replace-responsibility//spl?id=&profile_id=&responsibility=spl&current_holder_id=")
+	rr := httptest.NewRecorder()
+	handler.ReplaceResponsibility(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestReplaceResponsibility_DriverReturnsBadRequest(t *testing.T) {
+	handler, authService, _, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+
+	req := loggedInRequest(t, authService, "POST", replaceURL("e1", "p1", "driver", adminProfile.ID))
+	rr := httptest.NewRecorder()
+	handler.ReplaceResponsibility(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestReplaceResponsibility_EventNotFound(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+	defer setupToggleMux()()
+
+	req := loggedInRequest(t, authService, "POST", "/events/nonexistent/replace-responsibility/p1/spl?id=nonexistent&profile_id=p1&responsibility=spl&current_holder_id=p2")
+	rr := httptest.NewRecorder()
+	handler.ReplaceResponsibility(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestReplaceResponsibility_GetByIDError(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	handler.repo = &failingEventRepo{Repository: store.Event, failOnGetByID: true}
+
+	req := loggedInRequest(t, authService, "POST", replaceURL(evt.ID, adminProfile.ID, "spl", adminProfile.ID))
+	rr := httptest.NewRecorder()
+	handler.ReplaceResponsibility(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestReplaceResponsibility_GetAttendeesError(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	handler.repo = &failingEventRepo{Repository: store.Event, failOnGetAttendees: true}
+
+	req := loggedInRequest(t, authService, "POST", replaceURL(evt.ID, adminProfile.ID, "spl", adminProfile.ID))
+	rr := httptest.NewRecorder()
+	handler.ReplaceResponsibility(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestReplaceResponsibility_Forbidden(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupToggleMux()()
+	ctx := t.Context()
+
+	hasher := &auth.MockHasher{}
+	hash, _ := hasher.Hash("password")
+	regularUser := &user.User{
+		Email:        "regular@scout.com",
+		PasswordHash: hash,
+	}
+	if err := store.User.Create(ctx, regularUser); err != nil {
+		t.Fatalf("Create user: %v", err)
+	}
+
+	nonAdminProfile := &profile.Profile{
+		FirstName: "Regular", LastName: "User", Email: "regular@scout.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+		UserID: &regularUser.ID,
+	}
+	if err := store.Profile.Create(ctx, nonAdminProfile); err != nil {
+		t.Fatalf("Create non-admin profile: %v", err)
+	}
+
+	otherProfile := &profile.Profile{
+		FirstName: "Other", LastName: "Adult", Email: "other@scout.com",
+		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, otherProfile); err != nil {
+		t.Fatalf("Create other profile: %v", err)
+	}
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, otherProfile.ID); err != nil {
+		t.Fatalf("SignUp other: %v", err)
+	}
+
+	// non-admin tries to manage otherProfile (not themselves) - should be forbidden
+	req := loggedInAs(t, authService, "POST", replaceURL(evt.ID, otherProfile.ID, "spl", otherProfile.ID), "regular@scout.com")
+	rr := httptest.NewRecorder()
+	handler.ReplaceResponsibility(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
+
+func TestResponsibilityLabel(t *testing.T) {
+	tests := []struct {
+		input    event.Responsibility
+		expected string
+	}{
+		{event.ResponsibilitySPL, "SPL"},
+		{event.ResponsibilityCoordinator, "Coordinator"},
+		{event.ResponsibilityMedicalOfficer, "Medical Officer"},
+		{event.Responsibility("unknown"), "unknown"},
+	}
+	for _, tc := range tests {
+		got := responsibilityLabel(tc.input)
+		if got != tc.expected {
+			t.Errorf("responsibilityLabel(%q) = %q, want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestAttendeeSection_HasOobSwap(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=5")
+	rr := httptest.NewRecorder()
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("AddDriver returned %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `id="attendee-section" hx-swap-oob="true"`) {
+		t.Errorf("expected attendee-section to have hx-swap-oob=\"true\", got:\n%s", body)
+	}
+}
+
+func TestDriverBadge_Pluralization_Multiple(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=5")
+	rr := httptest.NewRecorder()
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("AddDriver returned %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "5 seats") {
+		t.Errorf("expected '5 seats' in driver badge, got:\n%s", body)
+	}
+}
+
+func TestDriverBadge_Pluralization_Singular(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=1")
+	rr := httptest.NewRecorder()
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("AddDriver returned %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "1 seat") {
+		t.Errorf("expected '1 seat' in driver badge, got:\n%s", body)
+	}
+	if strings.Contains(body, "1 seats") {
+		t.Errorf("expected singular '1 seat', got '1 seats':\n%s", body)
 	}
 }
