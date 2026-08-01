@@ -518,6 +518,35 @@ func TestEventHandler_SignUp_ShowsDriverModalForAdult(t *testing.T) {
 	}
 }
 
+func TestEventHandler_SignUp_DriverModalSubmitDoesNotRemoveOverlayPrematurely(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID+"&profile_id="+adminProfile.ID)
+	rr := httptest.NewRecorder()
+
+	handler.SignUp(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("SignUp returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+
+	if !strings.Contains(body, "driver-modal-overlay") {
+		t.Fatalf("expected driver modal overlay in signup response for adult, got:\n%s", body)
+	}
+
+	if strings.Contains(body, "setTimeout") {
+		t.Errorf("driver modal submit button must not remove the overlay before the response arrives (removing the form mid-flight breaks htmx OOB swaps under latency), got setTimeout in:\n%s", body)
+	}
+}
+
 func TestEventHandler_EventDetail_ShowsSeatbeltBadge(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
