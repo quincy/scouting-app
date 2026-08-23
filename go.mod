@@ -1,6 +1,6 @@
 module scout-app
 
-go 1.25.12
+go 1.26.7
 
 require (
 	github.com/gorilla/mux v1.8.1
