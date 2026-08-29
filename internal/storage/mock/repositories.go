@@ -332,6 +332,7 @@ type EventRepository struct {
 	attendees        map[string][]*profile.Profile
 	profiles         *ProfileRepository
 	responsibilities map[string][]event.ResponsibilityAssignment
+	cookingPatrols   map[string][]*event.CookingPatrol
 }
 
 func NewEventRepository(profiles *ProfileRepository) *EventRepository {
@@ -340,6 +341,7 @@ func NewEventRepository(profiles *ProfileRepository) *EventRepository {
 		attendees:        make(map[string][]*profile.Profile),
 		profiles:         profiles,
 		responsibilities: make(map[string][]event.ResponsibilityAssignment),
+		cookingPatrols:   make(map[string][]*event.CookingPatrol),
 	}
 }
 
@@ -518,6 +520,171 @@ func (r *EventRepository) GetAttendees(ctx context.Context, eventID string) ([]*
 	for i, p := range r.attendees[eventID] {
 		clone := *p
 		result[i] = &clone
+	}
+	return result, nil
+}
+
+func (r *EventRepository) CreateCookingPatrol(ctx context.Context, eventID string, isAdult bool) (*event.CookingPatrol, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.events[eventID]; !ok {
+		return nil, errors.New("event not found")
+	}
+	if isAdult {
+		for _, p := range r.cookingPatrols[eventID] {
+			if p.IsAdult {
+				return nil, errors.New("adult cooking patrol already exists for event")
+			}
+		}
+	}
+	p := &event.CookingPatrol{
+		ID:        newUUID(),
+		EventID:   eventID,
+		IsAdult:   isAdult,
+		CreatedAt: time.Now(),
+		Members:   []event.CookingPatrolMember{},
+	}
+	if isAdult {
+		p.Name = event.CookingPatrolAdultsName
+	} else {
+		highest := 0
+		for _, existing := range r.cookingPatrols[eventID] {
+			if n, ok := event.CookingPatrolNumber(existing.Name); ok && n > highest {
+				highest = n
+			}
+		}
+		p.Name = event.CookingPatrolNextName(highest + 1)
+	}
+	r.cookingPatrols[eventID] = append(r.cookingPatrols[eventID], p)
+	return p, nil
+}
+
+func (r *EventRepository) DeleteCookingPatrol(ctx context.Context, patrolID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for eventID, patrols := range r.cookingPatrols {
+		for i, p := range patrols {
+			if p.ID == patrolID {
+				r.cookingPatrols[eventID] = append(patrols[:i], patrols[i+1:]...)
+				return nil
+			}
+		}
+	}
+	return errors.New("cooking patrol not found")
+}
+
+func (r *EventRepository) AssignCookingPatrolMember(ctx context.Context, eventID string, patrolID string, profileID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.events[eventID]; !ok {
+		return errors.New("event not found")
+	}
+	var patrol *event.CookingPatrol
+	for _, p := range r.cookingPatrols[eventID] {
+		if p.ID == patrolID {
+			patrol = p
+			break
+		}
+	}
+	if patrol == nil {
+		return errors.New("cooking patrol not found")
+	}
+	p, err := r.profiles.GetByID(ctx, profileID)
+	if err != nil {
+		return fmt.Errorf("profile not found: %w", err)
+	}
+	attendee := false
+	for _, a := range r.attendees[eventID] {
+		if a.ID == profileID {
+			attendee = true
+			break
+		}
+	}
+	if !attendee {
+		return errors.New("profile is not signed up for this event")
+	}
+	for _, existing := range r.cookingPatrols[eventID] {
+		for i, m := range existing.Members {
+			if m.ProfileID == profileID {
+				existing.Members = append(existing.Members[:i], existing.Members[i+1:]...)
+				break
+			}
+		}
+	}
+	patrol.Members = append(patrol.Members, event.CookingPatrolMember{
+		EventID:     eventID,
+		PatrolID:    patrolID,
+		ProfileID:   profileID,
+		ProfileName: p.DisplayName(),
+		CreatedAt:   time.Now(),
+	})
+	return nil
+}
+
+func (r *EventRepository) RemoveCookingPatrolMember(ctx context.Context, eventID string, profileID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, patrol := range r.cookingPatrols[eventID] {
+		for i, m := range patrol.Members {
+			if m.ProfileID == profileID {
+				patrol.Members = append(patrol.Members[:i], patrol.Members[i+1:]...)
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+func (r *EventRepository) SetCookingPatrolCook(ctx context.Context, eventID string, patrolID string, profileID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, patrol := range r.cookingPatrols[eventID] {
+		if patrol.ID != patrolID {
+			continue
+		}
+		found := false
+		for i := range patrol.Members {
+			if patrol.Members[i].ProfileID == profileID {
+				found = true
+			}
+			patrol.Members[i].IsCook = patrol.Members[i].ProfileID == profileID
+		}
+		if !found {
+			return errors.New("profile is not a member of this cooking patrol")
+		}
+		return nil
+	}
+	return errors.New("profile is not a member of this cooking patrol")
+}
+
+func (r *EventRepository) ClearCookingPatrolCook(ctx context.Context, patrolID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, patrols := range r.cookingPatrols {
+		for _, patrol := range patrols {
+			if patrol.ID == patrolID {
+				for i := range patrol.Members {
+					patrol.Members[i].IsCook = false
+				}
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+func (r *EventRepository) ListCookingPatrols(ctx context.Context, eventID string) ([]*event.CookingPatrol, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if _, ok := r.events[eventID]; !ok {
+		return nil, errors.New("event not found")
+	}
+	result := make([]*event.CookingPatrol, 0, len(r.cookingPatrols[eventID]))
+	for _, p := range r.cookingPatrols[eventID] {
+		clone := *p
+		clone.Members = make([]event.CookingPatrolMember, len(p.Members))
+		copy(clone.Members, p.Members)
+		result = append(result, &clone)
 	}
 	return result, nil
 }

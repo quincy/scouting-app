@@ -27,4 +27,11 @@ type Repository interface {
 	RemoveResponsibility(ctx context.Context, eventID string, profileID string, responsibility Responsibility) error
 	GetResponsibilities(ctx context.Context, eventID string) ([]ResponsibilityAssignment, error)
 	GetResponsibilityHolder(ctx context.Context, eventID string, responsibility Responsibility) (*ResponsibilityHolder, error)
+	CreateCookingPatrol(ctx context.Context, eventID string, isAdult bool) (*CookingPatrol, error)
+	DeleteCookingPatrol(ctx context.Context, patrolID string) error
+	AssignCookingPatrolMember(ctx context.Context, eventID string, patrolID string, profileID string) error
+	RemoveCookingPatrolMember(ctx context.Context, eventID string, profileID string) error
+	SetCookingPatrolCook(ctx context.Context, eventID string, patrolID string, profileID string) error
+	ClearCookingPatrolCook(ctx context.Context, patrolID string) error
+	ListCookingPatrols(ctx context.Context, eventID string) ([]*CookingPatrol, error)
 }
