@@ -5,7 +5,7 @@ This document defines the ubiquitous language for the scout troop event organiza
 ## Glossary
 
 ### Event
-A planned social or troop activity with a title, description, location, and timing.
+A planned social or troop activity with a title, description, location, and timing. An Event may independently enable **Cooking Patrols** and **Tenting assignments**; when either is disabled, that section does not appear and its rules are not enforced.
 
 ### Campout
 A specific type of **Event** that typically spans multiple days.
@@ -41,7 +41,7 @@ A **Profile** that has been signed up to participate in a specific **Event**. An
 Indicates whether an **Attendee** is currently participating (`signed_up`) or has been removed (`canceled`).
 
 ### Responsibility
-A designated function an **Attendee** holds for a specific **Event** (e.g., `driver`, `spl`, `coordinator`, `medical_officer`, `cook`). An Attendee may hold multiple responsibilities. A `driver` responsibility includes a **Seatbelt Count** indicating the total number of seatbelts in that driver's vehicle (including the driver's own seatbelt). Some responsibilities are **Singleton** — only one attendee can hold them per event.
+A designated function an **Attendee** holds for a specific **Event** (e.g., `driver`, `spl`, `coordinator`, `medical_officer`). An Attendee may hold multiple responsibilities. A `driver` responsibility includes a **Seatbelt Count** indicating the total number of seatbelts in that driver's vehicle (including the driver's own seatbelt). Some responsibilities are **Singleton** — only one attendee can hold them per event.
 
 ### Coordinator
 A **Singleton** **Responsibility** for an **Event**, auto-assigned to the event creator. Coordinates the event logistics. Reassignable by anyone with `event:create` permission.
@@ -66,6 +66,24 @@ The sum of all **Seatbelt Counts** across all **Drivers** for an **Event**. Must
 
 ### Required Seatbelts
 The total number of **Attendees** (with `signed_up` status) for an **Event**. Each attendee consumes one seatbelt.
+
+### Cooking Patrol
+A per-event grouping of **Attendees** for an **Event** where cooking will take place, used to divide attendees into kitchen groups of roughly equal size to spread food costs evenly. An Event has zero or more Cooking Patrols. The intended end-state is one Cooking Patrol per attendee, but assignments are never required or restricted. Exactly one Cooking Patrol per event is the **Adult Cooking Patrol**. Patrols are auto-named (`Cooking 1`, `Cooking 2`, ...) with stable, non-customizable names. Created and managed by holders of `event:create` permission — and only surfaces on an Event whose cooking toggle is enabled. Menus and duty rosters are real-world duties of the **Cook**, not app data.
+
+### Adult Cooking Patrol
+The one **Cooking Patrol** that all adult **Attendees** belong to on an **Event** where cooking is enabled, and the only patrol whose name is fixed — always labeled "Adults" while all other patrols are auto-numbered. Adults are placed into it automatically when they sign up. Youth may be placed into it by `event:create` permission holders (e.g., the **SPL** or Eagle Scouts), but adults may never belong to a youth Cooking Patrol.
+
+### Cook
+The designated leader of a **Cooking Patrol**. Exactly one Cook per Cooking Patrol at a time; the Cook must be a member of their own patrol and may be youth or adult. Leads menu creation and creates the patrol's duty roster (real-world duties, not tracked by the app). Designated by holders of `event:create` permission.
+
+### Tent
+A group of two or more youth **Attendees** who share sleeping quarters at an **Event**. Tents are auto-numbered (`Tent 1`, `Tent 2`, ...) with stable, non-customizable names, and only appear on an Event whose tenting toggle is enabled. The app tracks youth tenting only — adult sleeping arrangements are outside the system. All scouts in a Tent must be the same gender, and every pair of scouts within a Tent must be within the **Max Tent Age Gap** unless they are **Siblings**. A scout never sleeps alone. Assigned by `event:create` permission holders; a withdrawn **Attendee** is removed from their Tent.
+
+### Max Tent Age Gap
+A unit-wide **App Config** setting defining the maximum number of years between tent-mates. Computed as each scout's birthday-aware age in whole years on the **Event** start date, applied pairwise to every scout in a **Tent**. **Siblings** are exempt.
+
+### Sibling
+Two youth **Profiles** who share at least one parent via approved **Parent Youth Connections**. Siblings may share a **Tent** regardless of the **Max Tent Age Gap**.
 
 ### Event Type
 A classification of an **Event** (e.g., `campout`). Defined as a fixed set of known values.

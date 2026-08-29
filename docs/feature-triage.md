@@ -27,9 +27,9 @@ if you should move on to the next unchecked triage item.
 
 # Milestone 5
 
-- [ ] Track cooks and cooking patrols
-- [ ] Track tenting buddies with age verification
-- [ ] Printable camp roster
+- [x] Track cooks and cooking patrols → #40
+- [x] Track tenting buddies with age verification → #41
+- [x] Printable camp roster → #42
 
 # Milestone 6
 
