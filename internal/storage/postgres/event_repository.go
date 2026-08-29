@@ -402,4 +402,229 @@ func (r *EventRepository) GetResponsibilityHolder(ctx context.Context, eventID s
 	return &h, nil
 }
 
+func (r *EventRepository) CreateCookingPatrol(ctx context.Context, eventID string, isAdult bool) (*event.CookingPatrol, error) {
+	p := &event.CookingPatrol{
+		ID:      newUUID(),
+		EventID: eventID,
+		Name:    event.CookingPatrolAdultsName,
+		IsAdult: isAdult,
+		Members: []event.CookingPatrolMember{},
+	}
+	if isAdult {
+		if err := r.db.QueryRowContext(ctx,
+			`INSERT INTO event_cooking_patrols (id, event_id, name, is_adult)
+			 VALUES ($1, $2, $3, TRUE)
+			 RETURNING created_at`,
+			p.ID, p.EventID, p.Name,
+		).Scan(&p.CreatedAt); err != nil {
+			return nil, err
+		}
+		return p, nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx,
+		`SELECT name FROM event_cooking_patrols
+		 WHERE event_id = $1 AND is_adult = FALSE
+		 FOR UPDATE`,
+		eventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	highest := 0
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if n, ok := event.CookingPatrolNumber(name); ok && n > highest {
+			highest = n
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	p.Name = event.CookingPatrolNextName(highest + 1)
+	if err := tx.QueryRowContext(ctx,
+		`INSERT INTO event_cooking_patrols (id, event_id, name, is_adult)
+		 VALUES ($1, $2, $3, FALSE)
+		 RETURNING created_at`,
+		p.ID, p.EventID, p.Name,
+	).Scan(&p.CreatedAt); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (r *EventRepository) ListCookingPatrols(ctx context.Context, eventID string) ([]*event.CookingPatrol, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, name, is_adult, created_at
+		 FROM event_cooking_patrols
+		 WHERE event_id = $1
+		 ORDER BY created_at, id`,
+		eventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	patrols := []*event.CookingPatrol{}
+	for rows.Next() {
+		p := &event.CookingPatrol{}
+		if err := rows.Scan(&p.ID, &p.Name, &p.IsAdult, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		p.EventID = eventID
+		p.Members = []event.CookingPatrolMember{}
+		patrols = append(patrols, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	memberRows, err := r.db.QueryContext(ctx,
+		`SELECT m.event_id, m.patrol_id, m.profile_id,
+		        CASE WHEN p.nickname != '' THEN p.nickname || ' (' || p.first_name || ') ' || p.last_name
+		             ELSE p.first_name || ' ' || p.last_name
+		        END AS profile_name,
+		        m.is_cook, m.created_at
+		 FROM event_cooking_patrol_members m
+		 JOIN profiles p ON p.id = m.profile_id
+		 WHERE m.event_id = $1
+		 ORDER BY m.created_at, m.profile_id`,
+		eventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer memberRows.Close()
+
+	membersByPatrol := make(map[string][]event.CookingPatrolMember)
+	for memberRows.Next() {
+		var m event.CookingPatrolMember
+		if err := memberRows.Scan(&m.EventID, &m.PatrolID, &m.ProfileID, &m.ProfileName, &m.IsCook, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		membersByPatrol[m.PatrolID] = append(membersByPatrol[m.PatrolID], m)
+	}
+	if err := memberRows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, p := range patrols {
+		p.Members = membersByPatrol[p.ID]
+		if p.Members == nil {
+			p.Members = []event.CookingPatrolMember{}
+		}
+	}
+	return patrols, nil
+}
+
+func (r *EventRepository) DeleteCookingPatrol(ctx context.Context, patrolID string) error {
+	result, err := r.db.ExecContext(ctx,
+		`DELETE FROM event_cooking_patrols WHERE id = $1`, patrolID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("cooking patrol not found")
+	}
+	return nil
+}
+
+func (r *EventRepository) AssignCookingPatrolMember(ctx context.Context, eventID string, patrolID string, profileID string) error {
+	result, err := r.db.ExecContext(ctx,
+		`INSERT INTO event_cooking_patrol_members (event_id, profile_id, patrol_id, is_cook, created_at, updated_at)
+		 SELECT $1, $2, p.id, FALSE, NOW(), NOW()
+		 FROM event_cooking_patrols p
+		 WHERE p.id = $3 AND p.event_id = $1
+		 ON CONFLICT (event_id, profile_id) DO UPDATE SET patrol_id = EXCLUDED.patrol_id, is_cook = FALSE, updated_at = NOW()`,
+		eventID, profileID, patrolID,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("cooking patrol not found")
+	}
+	return nil
+}
+
+func (r *EventRepository) RemoveCookingPatrolMember(ctx context.Context, eventID string, profileID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM event_cooking_patrol_members WHERE event_id = $1 AND profile_id = $2`,
+		eventID, profileID,
+	)
+	return err
+}
+
+func (r *EventRepository) SetCookingPatrolCook(ctx context.Context, eventID string, patrolID string, profileID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var member bool
+	if err := tx.QueryRowContext(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM event_cooking_patrol_members
+			WHERE event_id = $1 AND patrol_id = $2 AND profile_id = $3
+		 )`,
+		eventID, patrolID, profileID,
+	).Scan(&member); err != nil {
+		return err
+	}
+	if !member {
+		return errors.New("profile is not a member of this cooking patrol")
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE event_cooking_patrol_members
+		 SET is_cook = FALSE, updated_at = NOW()
+		 WHERE event_id = $1 AND patrol_id = $2 AND is_cook`,
+		eventID, patrolID,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE event_cooking_patrol_members
+		 SET is_cook = TRUE, updated_at = NOW()
+		 WHERE event_id = $1 AND patrol_id = $2 AND profile_id = $3`,
+		eventID, patrolID, profileID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *EventRepository) ClearCookingPatrolCook(ctx context.Context, patrolID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE event_cooking_patrol_members SET is_cook = FALSE, updated_at = NOW() WHERE patrol_id = $1`,
+		patrolID,
+	)
+	return err
+}
+
 var _ event.Repository = (*EventRepository)(nil)
