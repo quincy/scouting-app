@@ -79,6 +79,13 @@ h1.small-margin {
 /* === Event List === */
 section { margin-bottom: 32px; }
 
+.settings-section {
+  margin-top: 24px;
+  margin-bottom: 12px;
+  font-size: 1.1rem;
+  color: #16213e;
+}
+
 section h2 {
   font-size: 1.25rem;
   margin-bottom: 8px;

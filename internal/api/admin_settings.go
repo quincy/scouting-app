@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
 
 	"scout-app/internal/domain/appconfig"
 	"scout-app/internal/domain/auth"
@@ -13,18 +14,19 @@ import (
 )
 
 type adminSettingsPageData struct {
-	Title        string
-	UnitType     string
-	UnitNumber   string
-	OrgGUID      string
-	Timezone     string
-	Timezones    []timezoneOption
-	SMTPHost     string
-	SMTPPort     string
-	SMTPUser     string
-	SMTPFrom     string
-	FlashSuccess string
-	Error        string
+	Title         string
+	UnitType      string
+	UnitNumber    string
+	OrgGUID       string
+	Timezone      string
+	Timezones     []timezoneOption
+	SMTPHost      string
+	SMTPPort      string
+	SMTPUser      string
+	SMTPFrom      string
+	MaxTentAgeGap string
+	FlashSuccess  string
+	Error         string
 	AdminPerms
 }
 
@@ -63,18 +65,20 @@ func (h *SettingsHandler) SettingsPage(w http.ResponseWriter, r *http.Request) {
 	smtpPort, _ := h.appConfigRepo.Get(ctx, appconfig.KeySMTPPort)
 	smtpUser, _ := h.appConfigRepo.Get(ctx, appconfig.KeySMTPUser)
 	smtpFrom, _ := h.appConfigRepo.Get(ctx, appconfig.KeySMTPFrom)
+	maxTentAgeGap := appconfig.GetWithHierarchy(ctx, h.appConfigRepo, "MAX_TENT_AGE_GAP", appconfig.KeyMaxTentAgeGap, "2")
 
 	data := adminSettingsPageData{
-		Title:      "Admin: Settings",
-		UnitType:   unitType,
-		UnitNumber: unitNumber,
-		OrgGUID:    orgGUID,
-		Timezone:   timezone,
-		Timezones:  timezonesWithSelected(timezone),
-		SMTPHost:   smtpHost,
-		SMTPPort:   smtpPort,
-		SMTPUser:   smtpUser,
-		SMTPFrom:   smtpFrom,
+		Title:         "Admin: Settings",
+		UnitType:      unitType,
+		UnitNumber:    unitNumber,
+		OrgGUID:       orgGUID,
+		Timezone:      timezone,
+		Timezones:     timezonesWithSelected(timezone),
+		SMTPHost:      smtpHost,
+		SMTPPort:      smtpPort,
+		SMTPUser:      smtpUser,
+		SMTPFrom:      smtpFrom,
+		MaxTentAgeGap: maxTentAgeGap,
 	}
 
 	if user, err := h.auth.GetAuthenticatedUser(r); err == nil && user != nil {
@@ -108,12 +112,41 @@ func (h *SettingsHandler) SettingsSave(w http.ResponseWriter, r *http.Request) {
 	smtpUser := r.FormValue("smtp_user")
 	smtpPass := r.FormValue("smtp_pass")
 	smtpFrom := r.FormValue("smtp_from")
+	maxTentAgeGap := r.FormValue("max_tent_age_gap")
 
 	if unitType == "" {
 		unitType = "Troop"
 	}
 	if timezone == "" {
 		timezone = "America/New_York"
+	}
+	if maxTentAgeGap == "" {
+		maxTentAgeGap = "2"
+	}
+	if maxAgeGap, err := strconv.Atoi(maxTentAgeGap); err != nil || maxAgeGap < 0 {
+		data := adminSettingsPageData{
+			Title:         "Admin: Settings",
+			UnitType:      unitType,
+			UnitNumber:    unitNumber,
+			OrgGUID:       orgGUID,
+			Timezone:      timezone,
+			Timezones:     timezonesWithSelected(timezone),
+			SMTPHost:      smtpHost,
+			SMTPPort:      smtpPort,
+			SMTPUser:      smtpUser,
+			SMTPFrom:      smtpFrom,
+			MaxTentAgeGap: maxTentAgeGap,
+			Error:         "Max Tent Age Gap must be a whole number of years (0 or more).",
+		}
+		if user, err := h.auth.GetAuthenticatedUser(r); err == nil && user != nil {
+			data.AdminPerms = computeAdminPerms(r.Context(), h.rbacRepo, user.ID)
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		t := template.Must(h.tmpl.Clone())
+		if err := t.ExecuteTemplate(w, "admin_settings", data); err != nil {
+			log.Printf("admin_settings template: %v", err)
+		}
+		return
 	}
 
 	if err := h.appConfigRepo.Set(ctx, appconfig.KeyUnitType, unitType); err != nil {
@@ -163,19 +196,25 @@ func (h *SettingsHandler) SettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+	if err := h.appConfigRepo.Set(ctx, appconfig.KeyMaxTentAgeGap, maxTentAgeGap); err != nil {
+		log.Printf("save max tent age gap: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
 	data := adminSettingsPageData{
-		Title:        "Admin: Settings",
-		UnitType:     unitType,
-		UnitNumber:   unitNumber,
-		OrgGUID:      orgGUID,
-		Timezone:     timezone,
-		Timezones:    timezonesWithSelected(timezone),
-		SMTPHost:     smtpHost,
-		SMTPPort:     smtpPort,
-		SMTPUser:     smtpUser,
-		SMTPFrom:     smtpFrom,
-		FlashSuccess: "Settings saved successfully!",
+		Title:         "Admin: Settings",
+		UnitType:      unitType,
+		UnitNumber:    unitNumber,
+		OrgGUID:       orgGUID,
+		Timezone:      timezone,
+		Timezones:     timezonesWithSelected(timezone),
+		SMTPHost:      smtpHost,
+		SMTPPort:      smtpPort,
+		SMTPUser:      smtpUser,
+		SMTPFrom:      smtpFrom,
+		MaxTentAgeGap: maxTentAgeGap,
+		FlashSuccess:  "Settings saved successfully!",
 	}
 
 	if user, err := h.auth.GetAuthenticatedUser(r); err == nil && user != nil {

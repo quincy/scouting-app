@@ -51,6 +51,9 @@ func TestSettingsPage_Defaults(t *testing.T) {
 	if !strings.Contains(body, "America/New_York") {
 		t.Errorf("expected default timezone 'America/New_York' in response")
 	}
+	if !strings.Contains(body, `name="max_tent_age_gap" value="2"`) {
+		t.Errorf("expected default max tent age gap '2' in response")
+	}
 }
 
 func TestSettingsPage_ShowsStoredValues(t *testing.T) {
@@ -67,6 +70,7 @@ func TestSettingsPage_ShowsStoredValues(t *testing.T) {
 	appCfg.Set(ctx, appconfig.KeySMTPPort, "587")
 	appCfg.Set(ctx, appconfig.KeySMTPUser, "user@example.com")
 	appCfg.Set(ctx, appconfig.KeySMTPFrom, "from@example.com")
+	appCfg.Set(ctx, appconfig.KeyMaxTentAgeGap, "5")
 
 	emailSvc := mock.NewEmailService()
 	handler2 := NewSettingsHandler(appCfg, emailSvc, authService, store.Profile, store.RBAC)
@@ -100,6 +104,9 @@ func TestSettingsPage_ShowsStoredValues(t *testing.T) {
 	if !strings.Contains(body, "from@example.com") {
 		t.Errorf("expected 'from@example.com' as SMTP from")
 	}
+	if !strings.Contains(body, `name="max_tent_age_gap" value="5"`) {
+		t.Errorf("expected stored max tent age gap '5' in response")
+	}
 	_ = adminProfile
 }
 
@@ -107,7 +114,7 @@ func TestSettingsSave_SavesValues(t *testing.T) {
 	handler, _, _, _ := setupSettingsTest(t)
 	ctx := t.Context()
 
-	form := strings.NewReader("unit_type=Pack&unit_number=456&org_guid=guid-789&timezone=America/Denver&smtp_host=smtp.test.com&smtp_port=587&smtp_user=testuser&smtp_pass=secret&smtp_from=test@test.com")
+	form := strings.NewReader("unit_type=Pack&unit_number=456&org_guid=guid-789&timezone=America/Denver&smtp_host=smtp.test.com&smtp_port=587&smtp_user=testuser&smtp_pass=secret&smtp_from=test@test.com&max_tent_age_gap=7")
 	req := httptest.NewRequest("POST", "/admin/settings", form)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -153,13 +160,17 @@ func TestSettingsSave_SavesValues(t *testing.T) {
 	if smtpPass != "secret" {
 		t.Errorf("expected stored SMTP pass 'secret', got %q", smtpPass)
 	}
+	maxAgeGap, _ := handler.appConfigRepo.Get(ctx, appconfig.KeyMaxTentAgeGap)
+	if maxAgeGap != "7" {
+		t.Errorf("expected stored max tent age gap '7', got %q", maxAgeGap)
+	}
 }
 
 func TestSettingsSave_DefaultsForEmptyFields(t *testing.T) {
 	handler, _, _, _ := setupSettingsTest(t)
 	ctx := t.Context()
 
-	form := strings.NewReader("unit_type=&unit_number=&org_guid=&timezone=&smtp_host=&smtp_port=&smtp_user=&smtp_pass=&smtp_from=")
+	form := strings.NewReader("unit_type=&unit_number=&org_guid=&timezone=&smtp_host=&smtp_port=&smtp_user=&smtp_pass=&smtp_from=&max_tent_age_gap=")
 	req := httptest.NewRequest("POST", "/admin/settings", form)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -177,6 +188,59 @@ func TestSettingsSave_DefaultsForEmptyFields(t *testing.T) {
 	timezone, _ := handler.appConfigRepo.Get(ctx, appconfig.KeyDefaultTimezone)
 	if timezone != "America/New_York" {
 		t.Errorf("expected default timezone 'America/New_York', got %q", timezone)
+	}
+	maxAgeGap, _ := handler.appConfigRepo.Get(ctx, appconfig.KeyMaxTentAgeGap)
+	if maxAgeGap != "2" {
+		t.Errorf("expected default max tent age gap '2', got %q", maxAgeGap)
+	}
+}
+
+func TestSettingsSave_InvalidMaxTentAgeGapRejected(t *testing.T) {
+	handler, _, _, _ := setupSettingsTest(t)
+	ctx := t.Context()
+
+	handler.appConfigRepo.Set(ctx, appconfig.KeyMaxTentAgeGap, "2")
+
+	form := strings.NewReader("unit_type=Troop&unit_number=&org_guid=&timezone=America/New_York&smtp_host=&smtp_port=&smtp_user=&smtp_pass=&smtp_from=&max_tent_age_gap=abc")
+	req := httptest.NewRequest("POST", "/admin/settings", form)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handler.SettingsSave(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Max Tent Age Gap must be a whole number of years") {
+		t.Errorf("expected validation error message in response, got: %s", body)
+	}
+
+	got, _ := handler.appConfigRepo.Get(ctx, appconfig.KeyMaxTentAgeGap)
+	if got != "2" {
+		t.Errorf("expected max tent age gap to remain '2', got %q", got)
+	}
+}
+
+func TestSettingsSave_NegativeMaxTentAgeGapRejected(t *testing.T) {
+	handler, _, _, _ := setupSettingsTest(t)
+	ctx := t.Context()
+
+	form := strings.NewReader("unit_type=Troop&unit_number=&org_guid=&timezone=America/New_York&smtp_host=&smtp_port=&smtp_user=&smtp_pass=&smtp_from=&max_tent_age_gap=-3")
+	req := httptest.NewRequest("POST", "/admin/settings", form)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handler.SettingsSave(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Max Tent Age Gap must be a whole number of years") {
+		t.Errorf("expected validation error message in response, got: %s", body)
+	}
+
+	got, _ := handler.appConfigRepo.Get(ctx, appconfig.KeyMaxTentAgeGap)
+	if got != "" {
+		t.Errorf("expected max tent age gap to remain unset, got %q", got)
 	}
 }
 
