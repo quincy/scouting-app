@@ -16,17 +16,19 @@ type ListItem struct {
 }
 
 type Event struct {
-	ID          string
-	Title       string
-	Description string
-	Location    string
-	StartTime   time.Time
-	EndTime     time.Time
-	CostCents   int
-	CostDecimal float64
-	Type        string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID             string
+	Title          string
+	Description    string
+	Location       string
+	StartTime      time.Time
+	EndTime        time.Time
+	CostCents      int
+	CostDecimal    float64
+	Type           string
+	CookingEnabled bool
+	TentingEnabled bool
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type Responsibility string

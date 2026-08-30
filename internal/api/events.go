@@ -449,6 +449,8 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 	endTimeStr := r.FormValue("end_time")
 	costStr := r.FormValue("cost")
 	eventType := r.FormValue("type")
+	cookingEnabled := r.FormValue("cooking_enabled") != ""
+	tentingEnabled := r.FormValue("tenting_enabled") != ""
 
 	errors := make(map[string]string)
 
@@ -500,13 +502,15 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	evt := &event.Event{
-		Title:       title,
-		Description: description,
-		Location:    location,
-		StartTime:   startTime,
-		EndTime:     endTime,
-		CostCents:   costCents,
-		Type:        eventType,
+		Title:          title,
+		Description:    description,
+		Location:       location,
+		StartTime:      startTime,
+		EndTime:        endTime,
+		CostCents:      costCents,
+		Type:           eventType,
+		CookingEnabled: cookingEnabled,
+		TentingEnabled: tentingEnabled,
 	}
 
 	if len(errors) > 0 {
@@ -638,6 +642,8 @@ func (h *EventHandler) EventEdit(w http.ResponseWriter, r *http.Request) {
 	endTimeStr := r.FormValue("end_time")
 	costStr := r.FormValue("cost")
 	eventType := r.FormValue("type")
+	cookingEnabled := r.FormValue("cooking_enabled") != ""
+	tentingEnabled := r.FormValue("tenting_enabled") != ""
 
 	errors := make(map[string]string)
 
@@ -710,15 +716,17 @@ func (h *EventHandler) EventEdit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	evt := &event.Event{
-		ID:          eventID,
-		Title:       title,
-		Description: description,
-		Location:    location,
-		StartTime:   startTime,
-		EndTime:     endTime,
-		CostCents:   costCents,
-		Type:        eventType,
-		CreatedAt:   existing.CreatedAt,
+		ID:             eventID,
+		Title:          title,
+		Description:    description,
+		Location:       location,
+		StartTime:      startTime,
+		EndTime:        endTime,
+		CostCents:      costCents,
+		Type:           eventType,
+		CookingEnabled: cookingEnabled,
+		TentingEnabled: tentingEnabled,
+		CreatedAt:      existing.CreatedAt,
 	}
 
 	if err := h.repo.Update(ctx, evt); err != nil {

@@ -1166,3 +1166,196 @@ func TestPostgresEventRepository_GetSeatbeltSummary_CancelledContext(t *testing.
 		t.Error("expected error with cancelled context")
 	}
 }
+
+func TestPostgresEventRepository_Toggles_DefaultFalse(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Toggle Defaults",
+		Location:  "Base Camp",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := repo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	fetched, err := repo.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if fetched.CookingEnabled {
+		t.Error("expected CookingEnabled to default to false")
+	}
+	if fetched.TentingEnabled {
+		t.Error("expected TentingEnabled to default to false")
+	}
+}
+
+func TestPostgresEventRepository_Toggles_RoundTripOnCreate(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:          "Round Trip",
+		Location:       "Camp",
+		StartTime:      time.Now().Add(24 * time.Hour),
+		EndTime:        time.Now().Add(48 * time.Hour),
+		Type:           "campout",
+		CookingEnabled: true,
+		TentingEnabled: true,
+	}
+	if err := repo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	fetched, err := repo.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if !fetched.CookingEnabled {
+		t.Error("expected CookingEnabled to persist as true")
+	}
+	if !fetched.TentingEnabled {
+		t.Error("expected TentingEnabled to persist as true")
+	}
+}
+
+func TestPostgresEventRepository_Toggles_UpdateRoundTrip(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		Title:     "Update Toggles",
+		Location:  "Camp",
+		StartTime: time.Now().Add(24 * time.Hour),
+		EndTime:   time.Now().Add(48 * time.Hour),
+		Type:      "campout",
+	}
+	if err := repo.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	evt.CookingEnabled = true
+	evt.TentingEnabled = true
+	if err := repo.Update(ctx, evt); err != nil {
+		t.Fatalf("Update event: %v", err)
+	}
+
+	fetched, err := repo.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if !fetched.CookingEnabled {
+		t.Error("expected CookingEnabled true after update")
+	}
+	if !fetched.TentingEnabled {
+		t.Error("expected TentingEnabled true after update")
+	}
+
+	evt.CookingEnabled = false
+	if err := repo.Update(ctx, evt); err != nil {
+		t.Fatalf("Update event (toggle off): %v", err)
+	}
+	fetched, err = repo.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if fetched.CookingEnabled {
+		t.Error("expected CookingEnabled false after toggling off")
+	}
+	if !fetched.TentingEnabled {
+		t.Error("expected TentingEnabled to remain true after toggling cooking off")
+	}
+}
+
+func TestPostgresEventRepository_ToggleOff_PreservesData(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := createTestEvent(t, repo, "Toggle Off Data")
+	adult := createTestProfile(t, profileRepo, "Chef", "Adult", profile.MemberTypeAdult)
+
+	adultPatrol, err := repo.CreateCookingPatrol(ctx, evt.ID, true)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if err := repo.SignUp(ctx, evt.ID, adult.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := repo.AssignCookingPatrolMember(ctx, evt.ID, adultPatrol.ID, adult.ID); err != nil {
+		t.Fatalf("AssignCookingPatrolMember: %v", err)
+	}
+
+	tent, err := repo.CreateTent(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("CreateTent: %v", err)
+	}
+	if err := repo.AssignTentMember(ctx, evt.ID, tent.ID, adult.ID); err != nil {
+		t.Fatalf("AssignTentMember: %v", err)
+	}
+
+	evt.CookingEnabled = true
+	evt.TentingEnabled = true
+	if err := repo.Update(ctx, evt); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	evt.CookingEnabled = false
+	evt.TentingEnabled = false
+	if err := repo.Update(ctx, evt); err != nil {
+		t.Fatalf("Update (toggle off): %v", err)
+	}
+
+	patrols, err := repo.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 1 {
+		t.Fatalf("expected 1 cooking patrol preserved, got %d", len(patrols))
+	}
+	if len(patrols[0].Members) != 1 {
+		t.Errorf("expected 1 cooking patrol member preserved, got %d", len(patrols[0].Members))
+	}
+
+	tents, err := repo.ListTents(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListTents: %v", err)
+	}
+	if len(tents) != 1 {
+		t.Fatalf("expected 1 tent preserved, got %d", len(tents))
+	}
+	if len(tents[0].Members) != 1 {
+		t.Errorf("expected 1 tent member preserved, got %d", len(tents[0].Members))
+	}
+
+	fetched, err := repo.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if fetched.CookingEnabled {
+		t.Error("expected CookingEnabled false")
+	}
+	if fetched.TentingEnabled {
+		t.Error("expected TentingEnabled false")
+	}
+}
