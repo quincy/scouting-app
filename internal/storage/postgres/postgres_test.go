@@ -30,6 +30,8 @@ func truncateAll(t *testing.T) {
 	t.Helper()
 	tables := []string{
 		"app_config",
+		"event_tent_members",
+		"event_tents",
 		"event_cooking_patrol_members",
 		"event_cooking_patrols",
 		"event_attendee_responsibilities",

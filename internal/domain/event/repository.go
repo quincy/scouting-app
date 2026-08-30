@@ -34,4 +34,9 @@ type Repository interface {
 	SetCookingPatrolCook(ctx context.Context, eventID string, patrolID string, profileID string) error
 	ClearCookingPatrolCook(ctx context.Context, patrolID string) error
 	ListCookingPatrols(ctx context.Context, eventID string) ([]*CookingPatrol, error)
+	CreateTent(ctx context.Context, eventID string) (*Tent, error)
+	DeleteTent(ctx context.Context, tentID string) error
+	AssignTentMember(ctx context.Context, eventID string, tentID string, profileID string) error
+	RemoveTentMember(ctx context.Context, eventID string, profileID string) error
+	ListTents(ctx context.Context, eventID string) ([]*Tent, error)
 }
