@@ -58,6 +58,18 @@
         </select>
     </div>
 
+    <fieldset class="form-group feature-toggles">
+        <legend>Features</legend>
+        <label class="feature-toggle">
+            <input type="checkbox" name="cooking_enabled" {{if .Event.CookingEnabled}}checked{{end}}>
+            <span>Cooking patrols</span>
+        </label>
+        <label class="feature-toggle">
+            <input type="checkbox" name="tenting_enabled" {{if .Event.TentingEnabled}}checked{{end}}>
+            <span>Tenting assignments</span>
+        </label>
+    </fieldset>
+
     <div class="form-actions">
         <button type="submit" class="btn-signup">{{.SubmitLabel}}</button>
         <a href="/events" class="btn-withdraw" style="text-decoration:none;display:inline-flex;align-items:center;">Cancel</a>

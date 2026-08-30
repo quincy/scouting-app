@@ -1043,6 +1043,13 @@ button.full-width:hover { background: #0d47a1; }
 .event-form .field-error { color: #c62828; font-size: 0.8rem; margin-top: 4px; }
 .event-form .form-actions { display: flex; gap: 12px; margin-top: 24px; }
 
+.event-form .feature-toggles { border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px 16px; }
+.event-form .feature-toggles legend { font-size: 0.875rem; font-weight: 600; color: #555; padding: 0 4px; }
+.event-form .feature-toggle { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.event-form .feature-toggle:last-child { margin-bottom: 0; }
+.event-form .feature-toggle input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+.event-form .feature-toggle span { font-size: 0.95rem; font-weight: 500; color: #333; }
+
 .split-editor { display: flex; gap: 16px; }
 .split-editor .editor-pane { flex: 1; }
 .split-editor .preview-pane { flex: 1; border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px; min-height: 200px; overflow-y: auto; background: #fafafa; }

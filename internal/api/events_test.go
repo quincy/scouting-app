@@ -1058,6 +1058,101 @@ func TestEventHandler_EventCreate_Success(t *testing.T) {
 	}
 }
 
+func TestEventHandler_EventCreateForm_RendersToggles(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+
+	req := loggedInRequest(t, authService, "GET", "/events/create")
+	rr := httptest.NewRecorder()
+
+	handler.EventCreateForm(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("EventCreateForm returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, `name="cooking_enabled"`) {
+		t.Errorf("expected cooking toggle checkbox, got:\n%s", body)
+	}
+	if !strings.Contains(body, `name="tenting_enabled"`) {
+		t.Errorf("expected tenting toggle checkbox, got:\n%s", body)
+	}
+}
+
+func TestEventHandler_EventCreate_PersistsToggles(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+
+	form := url.Values{
+		"title":           {"Test Event"},
+		"description":     {"Test description"},
+		"location":        {"Test Location"},
+		"start_time":      {time.Now().Add(24 * time.Hour).Format("2006-01-02T15:04")},
+		"end_time":        {time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")},
+		"cost":            {"25.00"},
+		"type":            {"campout"},
+		"cooking_enabled": {"on"},
+		"tenting_enabled": {"on"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/create", form)
+	rr := httptest.NewRecorder()
+
+	handler.EventCreate(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("EventCreate returned status %d, want %d (redirect)", rr.Code, http.StatusFound)
+	}
+
+	location := rr.Header().Get("Location")
+	eventID := strings.TrimPrefix(strings.Split(location, "?")[0], "/events/")
+	created, err := store.Event.GetByID(t.Context(), eventID)
+	if err != nil {
+		t.Fatalf("expected created event to exist, got error: %v", err)
+	}
+	if !created.CookingEnabled {
+		t.Error("expected CookingEnabled to be true")
+	}
+	if !created.TentingEnabled {
+		t.Error("expected TentingEnabled to be true")
+	}
+}
+
+func TestEventHandler_EventCreate_UncheckedTogglesDefaultFalse(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+
+	form := url.Values{
+		"title":       {"Test Event"},
+		"description": {"Test description"},
+		"location":    {"Test Location"},
+		"start_time":  {time.Now().Add(24 * time.Hour).Format("2006-01-02T15:04")},
+		"end_time":    {time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")},
+		"cost":        {"25.00"},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/create", form)
+	rr := httptest.NewRecorder()
+
+	handler.EventCreate(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("EventCreate returned status %d, want %d (redirect)", rr.Code, http.StatusFound)
+	}
+
+	location := rr.Header().Get("Location")
+	eventID := strings.TrimPrefix(strings.Split(location, "?")[0], "/events/")
+	created, err := store.Event.GetByID(t.Context(), eventID)
+	if err != nil {
+		t.Fatalf("expected created event to exist, got error: %v", err)
+	}
+	if created.CookingEnabled {
+		t.Error("expected CookingEnabled to default to false")
+	}
+	if created.TentingEnabled {
+		t.Error("expected TentingEnabled to default to false")
+	}
+}
+
 func TestEventHandler_EventCreate_ValidationError(t *testing.T) {
 	handler, authService, _, _ := setupEventTest(t)
 
@@ -1396,6 +1491,93 @@ func TestEventHandler_EventEdit_Success(t *testing.T) {
 	}
 	if updated.Type != "campout" {
 		t.Errorf("expected type 'campout', got %q", updated.Type)
+	}
+}
+
+func TestEventHandler_EventEdit_PersistsToggles(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title:     "Original Title",
+		Location:  "Original Location",
+		StartTime: time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents: 1000,
+		Type:      "campout",
+		CreatedAt: time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	form := url.Values{
+		"title":           {"Updated Title"},
+		"description":     {"Updated description"},
+		"location":        {"Updated Location"},
+		"start_time":      {time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC).Format("2006-01-02T15:04")},
+		"end_time":        {time.Date(2026, 7, 3, 18, 0, 0, 0, time.UTC).Format("2006-01-02T15:04")},
+		"cost":            {"25.00"},
+		"type":            {"campout"},
+		"cooking_enabled": {"on"},
+		"tenting_enabled": {"on"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/"+evt.ID+"/edit?id="+evt.ID, form)
+	rr := httptest.NewRecorder()
+
+	handler.EventEdit(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("EventEdit returned status %d, want %d (redirect)", rr.Code, http.StatusFound)
+	}
+
+	updated, err := store.Event.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("expected updated event to exist, got error: %v", err)
+	}
+	if !updated.CookingEnabled {
+		t.Error("expected CookingEnabled to be true after edit")
+	}
+	if !updated.TentingEnabled {
+		t.Error("expected TentingEnabled to be true after edit")
+	}
+}
+
+func TestEventHandler_EventEditForm_RendersCheckedToggles(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title:          "Campout",
+		Location:       "Lake George",
+		StartTime:      time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:        time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents:      1500,
+		Type:           "campout",
+		CookingEnabled: true,
+		TentingEnabled: true,
+		CreatedAt:      time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/edit?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventEditForm(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("EventEditForm returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, `name="cooking_enabled" checked`) {
+		t.Errorf("expected cooking toggle checked, got:\n%s", body)
+	}
+	if !strings.Contains(body, `name="tenting_enabled" checked`) {
+		t.Errorf("expected tenting toggle checked, got:\n%s", body)
 	}
 }
 

@@ -128,3 +128,22 @@ func TestValidResponsibilities(t *testing.T) {
 		}
 	}
 }
+
+func TestEvent_Toggles(t *testing.T) {
+	e := Event{}
+	if e.CookingEnabled {
+		t.Error("expected CookingEnabled to default to false")
+	}
+	if e.TentingEnabled {
+		t.Error("expected TentingEnabled to default to false")
+	}
+
+	e.CookingEnabled = true
+	e.TentingEnabled = true
+	if !e.CookingEnabled {
+		t.Error("expected CookingEnabled to be configurable")
+	}
+	if !e.TentingEnabled {
+		t.Error("expected TentingEnabled to be configurable")
+	}
+}
