@@ -333,6 +333,7 @@ type EventRepository struct {
 	profiles         *ProfileRepository
 	responsibilities map[string][]event.ResponsibilityAssignment
 	cookingPatrols   map[string][]*event.CookingPatrol
+	tents            map[string][]*event.Tent
 }
 
 func NewEventRepository(profiles *ProfileRepository) *EventRepository {
@@ -342,6 +343,7 @@ func NewEventRepository(profiles *ProfileRepository) *EventRepository {
 		profiles:         profiles,
 		responsibilities: make(map[string][]event.ResponsibilityAssignment),
 		cookingPatrols:   make(map[string][]*event.CookingPatrol),
+		tents:            make(map[string][]*event.Tent),
 	}
 }
 
@@ -684,6 +686,121 @@ func (r *EventRepository) ListCookingPatrols(ctx context.Context, eventID string
 		clone := *p
 		clone.Members = make([]event.CookingPatrolMember, len(p.Members))
 		copy(clone.Members, p.Members)
+		result = append(result, &clone)
+	}
+	return result, nil
+}
+
+func (r *EventRepository) CreateTent(ctx context.Context, eventID string) (*event.Tent, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.events[eventID]; !ok {
+		return nil, errors.New("event not found")
+	}
+	highest := 0
+	for _, existing := range r.tents[eventID] {
+		if n, ok := event.TentNumber(existing.Name); ok && n > highest {
+			highest = n
+		}
+	}
+	t := &event.Tent{
+		ID:        newUUID(),
+		EventID:   eventID,
+		Name:      event.TentNextName(highest + 1),
+		CreatedAt: time.Now(),
+		Members:   []event.TentMember{},
+	}
+	r.tents[eventID] = append(r.tents[eventID], t)
+	return t, nil
+}
+
+func (r *EventRepository) DeleteTent(ctx context.Context, tentID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for eventID, tents := range r.tents {
+		for i, t := range tents {
+			if t.ID == tentID {
+				r.tents[eventID] = append(tents[:i], tents[i+1:]...)
+				return nil
+			}
+		}
+	}
+	return errors.New("tent not found")
+}
+
+func (r *EventRepository) AssignTentMember(ctx context.Context, eventID string, tentID string, profileID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.events[eventID]; !ok {
+		return errors.New("event not found")
+	}
+	var tent *event.Tent
+	for _, t := range r.tents[eventID] {
+		if t.ID == tentID {
+			tent = t
+			break
+		}
+	}
+	if tent == nil {
+		return errors.New("tent not found")
+	}
+	p, err := r.profiles.GetByID(ctx, profileID)
+	if err != nil {
+		return fmt.Errorf("profile not found: %w", err)
+	}
+	attendee := false
+	for _, a := range r.attendees[eventID] {
+		if a.ID == profileID {
+			attendee = true
+			break
+		}
+	}
+	if !attendee {
+		return errors.New("profile is not signed up for this event")
+	}
+	for _, existing := range r.tents[eventID] {
+		for i, m := range existing.Members {
+			if m.ProfileID == profileID {
+				existing.Members = append(existing.Members[:i], existing.Members[i+1:]...)
+				break
+			}
+		}
+	}
+	tent.Members = append(tent.Members, event.TentMember{
+		EventID:     eventID,
+		TentID:      tentID,
+		ProfileID:   profileID,
+		ProfileName: p.DisplayName(),
+		CreatedAt:   time.Now(),
+	})
+	return nil
+}
+
+func (r *EventRepository) RemoveTentMember(ctx context.Context, eventID string, profileID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, tent := range r.tents[eventID] {
+		for i, m := range tent.Members {
+			if m.ProfileID == profileID {
+				tent.Members = append(tent.Members[:i], tent.Members[i+1:]...)
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+func (r *EventRepository) ListTents(ctx context.Context, eventID string) ([]*event.Tent, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if _, ok := r.events[eventID]; !ok {
+		return nil, errors.New("event not found")
+	}
+	result := make([]*event.Tent, 0, len(r.tents[eventID]))
+	for _, t := range r.tents[eventID] {
+		clone := *t
+		clone.Members = make([]event.TentMember, len(t.Members))
+		copy(clone.Members, t.Members)
 		result = append(result, &clone)
 	}
 	return result, nil

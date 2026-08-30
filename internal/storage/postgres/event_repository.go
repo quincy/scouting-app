@@ -627,4 +627,167 @@ func (r *EventRepository) ClearCookingPatrolCook(ctx context.Context, patrolID s
 	return err
 }
 
+func (r *EventRepository) CreateTent(ctx context.Context, eventID string) (*event.Tent, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx,
+		`SELECT name FROM event_tents
+		 WHERE event_id = $1
+		 FOR UPDATE`,
+		eventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	highest := 0
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if n, ok := event.TentNumber(name); ok && n > highest {
+			highest = n
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	t := &event.Tent{
+		ID:      newUUID(),
+		EventID: eventID,
+		Name:    event.TentNextName(highest + 1),
+		Members: []event.TentMember{},
+	}
+	if err := tx.QueryRowContext(ctx,
+		`INSERT INTO event_tents (id, event_id, name)
+		 VALUES ($1, $2, $3)
+		 RETURNING created_at`,
+		t.ID, t.EventID, t.Name,
+	).Scan(&t.CreatedAt); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+func (r *EventRepository) ListTents(ctx context.Context, eventID string) ([]*event.Tent, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, name, created_at
+		 FROM event_tents
+		 WHERE event_id = $1
+		 ORDER BY created_at, id`,
+		eventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tents := []*event.Tent{}
+	for rows.Next() {
+		t := &event.Tent{}
+		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt); err != nil {
+			return nil, err
+		}
+		t.EventID = eventID
+		t.Members = []event.TentMember{}
+		tents = append(tents, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	memberRows, err := r.db.QueryContext(ctx,
+		`SELECT m.event_id, m.tent_id, m.profile_id,
+		        CASE WHEN p.nickname != '' THEN p.nickname || ' (' || p.first_name || ') ' || p.last_name
+		             ELSE p.first_name || ' ' || p.last_name
+		        END AS profile_name,
+		        m.created_at
+		 FROM event_tent_members m
+		 JOIN profiles p ON p.id = m.profile_id
+		 WHERE m.event_id = $1
+		 ORDER BY m.created_at, m.profile_id`,
+		eventID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer memberRows.Close()
+
+	membersByTent := make(map[string][]event.TentMember)
+	for memberRows.Next() {
+		var m event.TentMember
+		if err := memberRows.Scan(&m.EventID, &m.TentID, &m.ProfileID, &m.ProfileName, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		membersByTent[m.TentID] = append(membersByTent[m.TentID], m)
+	}
+	if err := memberRows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, t := range tents {
+		t.Members = membersByTent[t.ID]
+		if t.Members == nil {
+			t.Members = []event.TentMember{}
+		}
+	}
+	return tents, nil
+}
+
+func (r *EventRepository) DeleteTent(ctx context.Context, tentID string) error {
+	result, err := r.db.ExecContext(ctx,
+		`DELETE FROM event_tents WHERE id = $1`, tentID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("tent not found")
+	}
+	return nil
+}
+
+func (r *EventRepository) AssignTentMember(ctx context.Context, eventID string, tentID string, profileID string) error {
+	result, err := r.db.ExecContext(ctx,
+		`INSERT INTO event_tent_members (event_id, profile_id, tent_id, created_at)
+		 SELECT $1, $2, t.id, NOW()
+		 FROM event_tents t
+		 WHERE t.id = $3 AND t.event_id = $1
+		 ON CONFLICT (event_id, profile_id) DO UPDATE SET tent_id = EXCLUDED.tent_id`,
+		eventID, profileID, tentID,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("tent not found")
+	}
+	return nil
+}
+
+func (r *EventRepository) RemoveTentMember(ctx context.Context, eventID string, profileID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM event_tent_members WHERE event_id = $1 AND profile_id = $2`,
+		eventID, profileID,
+	)
+	return err
+}
+
 var _ event.Repository = (*EventRepository)(nil)
