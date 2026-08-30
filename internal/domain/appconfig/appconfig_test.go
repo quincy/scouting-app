@@ -147,4 +147,7 @@ func TestDefaultKeyNames(t *testing.T) {
 	if KeyDefaultTimezone != "DEFAULT_TIMEZONE" {
 		t.Errorf("expected DEFAULT_TIMEZONE, got %q", KeyDefaultTimezone)
 	}
+	if KeyMaxTentAgeGap != "MAX_TENT_AGE_GAP" {
+		t.Errorf("expected MAX_TENT_AGE_GAP, got %q", KeyMaxTentAgeGap)
+	}
 }

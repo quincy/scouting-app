@@ -13,7 +13,7 @@
     <div class="error">{{.Error}}</div>
     {{end}}
 
-    <h3 style="margin-top:24px;margin-bottom:12px;font-size:1.1rem;color:#16213e;">Unit</h3>
+    <h3 class="settings-section">Unit</h3>
 
     <form hx-post="/admin/settings" hx-target="#admin-content" hx-swap="innerHTML" id="settings-form">
         <div class="form-group">
@@ -49,7 +49,15 @@
             </select>
         </div>
 
-        <h3 style="margin-top:24px;margin-bottom:12px;font-size:1.1rem;color:#16213e;">Email</h3>
+        <h3 class="settings-section">Tenting</h3>
+
+        <div class="form-group">
+            <label for="max_tent_age_gap">Max Tent Age Gap</label>
+            <input type="number" id="max_tent_age_gap" name="max_tent_age_gap" value="{{.MaxTentAgeGap}}" min="0">
+            <div class="hint">Maximum whole years between tent-mates (measured at the event start date). Applies to all events; siblings are exempt.</div>
+        </div>
+
+        <h3 class="settings-section">Email</h3>
 
         <div class="form-group">
             <label for="smtp_host">SMTP Host</label>

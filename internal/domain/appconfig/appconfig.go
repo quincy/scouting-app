@@ -11,6 +11,7 @@ const (
 	KeyUnitType           = "UNIT_TYPE"
 	KeyUnitNumber         = "UNIT_NUMBER"
 	KeyDefaultTimezone    = "DEFAULT_TIMEZONE"
+	KeyMaxTentAgeGap      = "MAX_TENT_AGE_GAP"
 
 	KeySMTPHost = "SMTP_HOST"
 	KeySMTPPort = "SMTP_PORT"
