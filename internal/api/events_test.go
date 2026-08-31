@@ -798,6 +798,97 @@ func TestEventHandler_EventDetail_PastEvent_ShowsEndedMessage(t *testing.T) {
 	}
 }
 
+func TestEventHandler_SignUp_Adult_CookingEnabled_AutoJoinsAdultsPatrol(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title:          "Campout",
+		Location:       "Lake",
+		StartTime:      time.Now(),
+		EndTime:        time.Now().Add(2 * time.Hour),
+		Type:           "campout",
+		CookingEnabled: true,
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID+"&profile_id="+adminProfile.ID)
+	rr := httptest.NewRecorder()
+
+	handler.SignUp(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("SignUp returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 1 {
+		t.Fatalf("expected 1 cooking patrol, got %d", len(patrols))
+	}
+	if patrols[0].Name != event.CookingPatrolAdultsName {
+		t.Errorf("expected Adults patrol, got %q", patrols[0].Name)
+	}
+	if !patrols[0].IsAdult {
+		t.Error("expected the patrol to be the adult patrol")
+	}
+	if len(patrols[0].Members) != 1 || patrols[0].Members[0].ProfileID != adminProfile.ID {
+		t.Errorf("expected admin to be sole member of Adults patrol, got %+v", patrols[0].Members)
+	}
+}
+
+func TestEventHandler_Withdraw_RemovesFromCookingPatrol(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title:          "Campout",
+		Location:       "Lake",
+		StartTime:      time.Now(),
+		EndTime:        time.Now().Add(2 * time.Hour),
+		Type:           "campout",
+		CookingEnabled: true,
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	patrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, true)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, adminProfile.ID); err != nil {
+		t.Fatalf("AssignCookingPatrolMember: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/withdraw?id="+evt.ID+"&profile_id="+adminProfile.ID)
+	rr := httptest.NewRecorder()
+
+	handler.Withdraw(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Withdraw returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	for _, p := range patrols {
+		for _, m := range p.Members {
+			if m.ProfileID == adminProfile.ID {
+				t.Error("expected withdrawn attendee to be removed from cooking patrol")
+			}
+		}
+	}
+}
+
 func TestEventHandler_SignUp_PastEvent_ReturnsError(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()

@@ -29,6 +29,7 @@ type EventHandler struct {
 	rbac            rbac.Repository
 	profiles        profile.Repository
 	parentYouthLink parentyouthlink.Repository
+	cooking         *event.CookingPatrolService
 	tmpl            *template.Template
 	appConfigRepo   appconfig.Repository
 }
@@ -161,6 +162,7 @@ func NewEventHandler(repo event.Repository, auth *auth.AuthService, rbac rbac.Re
 		rbac:            rbac,
 		profiles:        profiles,
 		parentYouthLink: parentYouthLink,
+		cooking:         event.NewCookingPatrolService(repo, profiles),
 		tmpl:            tmpl,
 		appConfigRepo:   appConfigRepo,
 	}
@@ -544,6 +546,9 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 		} else if err := h.repo.AssignResponsibility(ctx, evt.ID, creatorProfileID, event.ResponsibilityCoordinator); err != nil {
 			log.Printf("EventCreate AssignCoordinator: %v", err)
 		}
+		if err := h.cooking.AfterSignUp(ctx, evt.ID, creatorProfileID); err != nil {
+			log.Printf("EventCreate AfterSignUp (cooking): %v", err)
+		}
 	}
 
 	http.Redirect(w, r, fmt.Sprintf("/events/%s?created=1", evt.ID), http.StatusFound)
@@ -861,6 +866,11 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Auto-join adults into the Adult Cooking Patrol when cooking is enabled
+	if err := h.cooking.AfterSignUp(ctx, eventID, profileID); err != nil {
+		log.Printf("AfterSignUp (cooking): %v", err)
+	}
+
 	attendees, err := h.repo.GetAttendees(ctx, eventID)
 	if err != nil {
 		log.Printf("GetAttendees: %v", err)
@@ -999,6 +1009,11 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	_ = h.repo.RemoveResponsibility(ctx, eventID, profileID, event.ResponsibilityCoordinator)
 	_ = h.repo.RemoveResponsibility(ctx, eventID, profileID, event.ResponsibilityMedicalOfficer)
 	_ = h.repo.RemoveResponsibility(ctx, eventID, profileID, event.ResponsibilityDriver)
+
+	// Cascade: remove from cooking patrol and clear cook designation if held
+	if err := h.cooking.AfterWithdraw(ctx, eventID, profileID); err != nil {
+		log.Printf("AfterWithdraw (cooking): %v", err)
+	}
 
 	attendees, err := h.repo.GetAttendees(ctx, eventID)
 	if err != nil {
