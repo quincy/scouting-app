@@ -102,3 +102,32 @@ func (s *CookingPatrolService) SetCook(ctx context.Context, eventID, patrolID, p
 func (s *CookingPatrolService) ClearCook(ctx context.Context, eventID, patrolID string) error {
 	return s.repo.ClearCookingPatrolCook(ctx, patrolID)
 }
+
+func (s *CookingPatrolService) ListPatrols(ctx context.Context, eventID string) ([]*CookingPatrol, error) {
+	return s.repo.ListCookingPatrols(ctx, eventID)
+}
+
+func (s *CookingPatrolService) CreatePatrol(ctx context.Context, eventID string, isAdult bool) (*CookingPatrol, error) {
+	return s.repo.CreateCookingPatrol(ctx, eventID, isAdult)
+}
+
+func (s *CookingPatrolService) DeletePatrol(ctx context.Context, patrolID string) error {
+	return s.repo.DeleteCookingPatrol(ctx, patrolID)
+}
+
+func (s *CookingPatrolService) RemoveMember(ctx context.Context, eventID, profileID string) error {
+	patrols, err := s.repo.ListCookingPatrols(ctx, eventID)
+	if err != nil {
+		return err
+	}
+	for _, p := range patrols {
+		for _, m := range p.Members {
+			if m.ProfileID == profileID && m.IsCook {
+				if err := s.repo.ClearCookingPatrolCook(ctx, p.ID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return s.repo.RemoveCookingPatrolMember(ctx, eventID, profileID)
+}

@@ -3371,3 +3371,916 @@ func TestDriverBadge_Pluralization_Singular(t *testing.T) {
 		t.Errorf("expected singular '1 seat', got '1 seats':\n%s", body)
 	}
 }
+
+func setupCookingMux() func() {
+	orig := muxVars
+	SetMuxVars(func(r *http.Request) map[string]string {
+		return map[string]string{
+			"id":         r.URL.Query().Get("id"),
+			"patrol_id":  r.URL.Query().Get("patrol_id"),
+			"profile_id": r.URL.Query().Get("profile_id"),
+		}
+	})
+	return func() { muxVars = orig }
+}
+
+func newEventHandlerWithRepo(repo event.Repository, authService *auth.AuthService, store *postgres.Store) *EventHandler {
+	appCfg := appconfig.NewInMemoryRepository()
+	return NewEventHandler(repo, authService, store.RBAC, store.Profile, store.ParentYouthLink, appCfg)
+}
+
+type failingCookingRepo struct {
+	event.Repository
+	fail map[string]error
+}
+
+func (f *failingCookingRepo) errFor(op string) error {
+	if f.fail == nil {
+		return nil
+	}
+	return f.fail[op]
+}
+
+func (f *failingCookingRepo) CreateCookingPatrol(ctx context.Context, eventID string, isAdult bool) (*event.CookingPatrol, error) {
+	if err := f.errFor("create"); err != nil {
+		return nil, err
+	}
+	return f.Repository.CreateCookingPatrol(ctx, eventID, isAdult)
+}
+
+func (f *failingCookingRepo) DeleteCookingPatrol(ctx context.Context, patrolID string) error {
+	if err := f.errFor("delete"); err != nil {
+		return err
+	}
+	return f.Repository.DeleteCookingPatrol(ctx, patrolID)
+}
+
+func (f *failingCookingRepo) AssignCookingPatrolMember(ctx context.Context, eventID, patrolID, profileID string) error {
+	if err := f.errFor("assign"); err != nil {
+		return err
+	}
+	return f.Repository.AssignCookingPatrolMember(ctx, eventID, patrolID, profileID)
+}
+
+func (f *failingCookingRepo) RemoveCookingPatrolMember(ctx context.Context, eventID, profileID string) error {
+	if err := f.errFor("remove"); err != nil {
+		return err
+	}
+	return f.Repository.RemoveCookingPatrolMember(ctx, eventID, profileID)
+}
+
+func (f *failingCookingRepo) SetCookingPatrolCook(ctx context.Context, eventID, patrolID, profileID string) error {
+	if err := f.errFor("setCook"); err != nil {
+		return err
+	}
+	return f.Repository.SetCookingPatrolCook(ctx, eventID, patrolID, profileID)
+}
+
+func (f *failingCookingRepo) ClearCookingPatrolCook(ctx context.Context, patrolID string) error {
+	if err := f.errFor("clear"); err != nil {
+		return err
+	}
+	return f.Repository.ClearCookingPatrolCook(ctx, patrolID)
+}
+
+func (f *failingCookingRepo) ListCookingPatrols(ctx context.Context, eventID string) ([]*event.CookingPatrol, error) {
+	if err := f.errFor("list"); err != nil {
+		return nil, err
+	}
+	return f.Repository.ListCookingPatrols(ctx, eventID)
+}
+
+func (f *failingCookingRepo) GetAttendees(ctx context.Context, eventID string) ([]*profile.Profile, error) {
+	if err := f.errFor("attendees"); err != nil {
+		return nil, err
+	}
+	return f.Repository.GetAttendees(ctx, eventID)
+}
+
+func cookingEvent(t *testing.T, store *postgres.Store, cookingEnabled bool) *event.Event {
+	t.Helper()
+	evt := &event.Event{
+		Title:          "Campout",
+		Location:       "Lake",
+		StartTime:      time.Now(),
+		EndTime:        time.Now().Add(2 * time.Hour),
+		Type:           "campout",
+		CookingEnabled: cookingEnabled,
+	}
+	if err := store.Event.Create(t.Context(), evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	return evt
+}
+
+func createYouthProfile(t *testing.T, store *postgres.Store, name string) *profile.Profile {
+	t.Helper()
+	p := &profile.Profile{
+		FirstName:  name,
+		LastName:   "Scout",
+		Email:      strings.ToLower(name) + ".scout@scout.local",
+		MemberType: profile.MemberTypeYouth,
+		Status:     profile.StatusActive,
+	}
+	if err := store.Profile.Create(t.Context(), p); err != nil {
+		t.Fatalf("Create youth profile: %v", err)
+	}
+	return p
+}
+
+func signUpAttendee(t *testing.T, store *postgres.Store, evtID, profileID string) {
+	t.Helper()
+	if err := store.Event.SignUp(t.Context(), evtID, profileID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+}
+
+func createParentUser(t *testing.T, store *postgres.Store) *profile.Profile {
+	t.Helper()
+	ctx := t.Context()
+	hasher := &auth.MockHasher{}
+	hash, err := hasher.Hash("password")
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	u := &user.User{Email: "parent@scout.local", PasswordHash: hash}
+	if err := store.User.Create(ctx, u); err != nil {
+		t.Fatalf("Create user: %v", err)
+	}
+	p := &profile.Profile{
+		FirstName:  "Parent",
+		LastName:   "User",
+		Email:      "parent@scout.local",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+		UserID:     &u.ID,
+	}
+	if err := store.Profile.Create(ctx, p); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+	role, err := store.RBAC.GetRoleByName(ctx, "parent")
+	if err != nil {
+		t.Fatalf("GetRoleByName parent: %v", err)
+	}
+	if err := store.RBAC.AssignRoleToUser(ctx, u.ID, role.ID); err != nil {
+		t.Fatalf("AssignRoleToUser: %v", err)
+	}
+	return p
+}
+
+func TestCookingCreatePatrol_CreatesYouthPatrol(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/patrols?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.CookingCreatePatrol(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body:\n%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "Cooking Patrols") {
+		t.Errorf("expected cooking section in body:\n%s", rr.Body.String())
+	}
+	patrols, err := store.Event.ListCookingPatrols(t.Context(), evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 1 {
+		t.Fatalf("expected 1 patrol, got %d", len(patrols))
+	}
+	if patrols[0].Name != event.CookingPatrolNextName(1) {
+		t.Errorf("expected %q, got %q", event.CookingPatrolNextName(1), patrols[0].Name)
+	}
+	if patrols[0].IsAdult {
+		t.Error("expected a youth patrol")
+	}
+}
+
+func TestCookingCreatePatrol_ForbiddenForNonManager(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	createParentUser(t, store)
+
+	req := loggedInAs(t, authService, "POST", "/events/"+evt.ID+"/cooking/patrols?id="+evt.ID, "parent@scout.local")
+	rr := httptest.NewRecorder()
+
+	handler.CookingCreatePatrol(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
+
+func TestCookingCreatePatrol_CookingDisabled_Rejected(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, false)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/patrols?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.CookingCreatePatrol(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCookingCreatePatrol_PastEvent_Rejected(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := &event.Event{
+		Title:          "Past Campout",
+		Location:       "Lake",
+		StartTime:      time.Now().Add(-48 * time.Hour),
+		EndTime:        time.Now().Add(-46 * time.Hour),
+		Type:           "campout",
+		CookingEnabled: true,
+	}
+	if err := store.Event.Create(t.Context(), evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/patrols?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.CookingCreatePatrol(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCookingAssignMember_AssignsYouth(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	ctx := t.Context()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Tim")
+	signUpAttendee(t, store, evt.ID, youth.ID)
+	patrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/assign?id="+evt.ID,
+		url.Values{"profile_id": {youth.ID}, "patrol_id": {patrol.ID}}.Encode())
+	rr := httptest.NewRecorder()
+
+	handler.CookingAssignMember(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols[0].Members) != 1 || patrols[0].Members[0].ProfileID != youth.ID {
+		t.Errorf("expected youth assigned, got %+v", patrols[0].Members)
+	}
+}
+
+func TestCookingAssignMember_AdultInYouthPatrol_Rejected(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupCookingMux()()
+	ctx := t.Context()
+	evt := cookingEvent(t, store, true)
+	signUpAttendee(t, store, evt.ID, adminProfile.ID)
+	patrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/assign?id="+evt.ID,
+		url.Values{"profile_id": {adminProfile.ID}, "patrol_id": {patrol.ID}}.Encode())
+	rr := httptest.NewRecorder()
+
+	handler.CookingAssignMember(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCookingRemoveMember_RemovesMember(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	ctx := t.Context()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Tim")
+	signUpAttendee(t, store, evt.ID, youth.ID)
+	patrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatalf("AssignCookingPatrolMember: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "DELETE",
+		"/events/"+evt.ID+"/cooking/patrols/"+patrol.ID+"/members/"+youth.ID+"?id="+evt.ID+"&patrol_id="+patrol.ID+"&profile_id="+youth.ID)
+	rr := httptest.NewRecorder()
+
+	handler.CookingRemoveMember(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols[0].Members) != 0 {
+		t.Errorf("expected member removed, got %+v", patrols[0].Members)
+	}
+}
+
+func TestCookingDeletePatrol_RemovesPatrol(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	ctx := t.Context()
+	evt := cookingEvent(t, store, true)
+	patrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "DELETE",
+		"/events/"+evt.ID+"/cooking/patrols/"+patrol.ID+"?id="+evt.ID+"&patrol_id="+patrol.ID)
+	rr := httptest.NewRecorder()
+
+	handler.CookingDeletePatrol(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 0 {
+		t.Errorf("expected patrol deleted, got %d", len(patrols))
+	}
+}
+
+func TestCookingSetCook_SetsCookDirectly(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	ctx := t.Context()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Tim")
+	signUpAttendee(t, store, evt.ID, youth.ID)
+	patrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatalf("AssignCookingPatrolMember: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST",
+		"/events/"+evt.ID+"/cooking/patrols/"+patrol.ID+"/cook/"+youth.ID+"?id="+evt.ID+"&patrol_id="+patrol.ID+"&profile_id="+youth.ID)
+	rr := httptest.NewRecorder()
+
+	handler.CookingSetCook(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body:\n%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "Change Cook for") {
+		t.Errorf("did not expect confirmation modal when setting first cook:\n%s", rr.Body.String())
+	}
+	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if !patrols[0].Members[0].IsCook {
+		t.Error("expected cook to be set")
+	}
+}
+
+func TestCookingSetCook_ExistingCook_ShowsConfirmation(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	ctx := t.Context()
+	evt := cookingEvent(t, store, true)
+	youth1 := createYouthProfile(t, store, "Alpha")
+	youth2 := createYouthProfile(t, store, "Beta")
+	signUpAttendee(t, store, evt.ID, youth1.ID)
+	signUpAttendee(t, store, evt.ID, youth2.ID)
+	patrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth1.ID); err != nil {
+		t.Fatalf("Assign: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth2.ID); err != nil {
+		t.Fatalf("Assign: %v", err)
+	}
+	if err := store.Event.SetCookingPatrolCook(ctx, evt.ID, patrol.ID, youth1.ID); err != nil {
+		t.Fatalf("SetCook: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST",
+		"/events/"+evt.ID+"/cooking/patrols/"+patrol.ID+"/cook/"+youth2.ID+"?id="+evt.ID+"&patrol_id="+patrol.ID+"&profile_id="+youth2.ID)
+	rr := httptest.NewRecorder()
+
+	handler.CookingSetCook(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if !strings.Contains(rr.Body.String(), "Change Cook for") {
+		t.Errorf("expected confirmation modal for cook reassignment:\n%s", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "replace?current_cook_id=") {
+		t.Errorf("expected replace endpoint with current cook in modal:\n%s", rr.Body.String())
+	}
+}
+
+func TestCookingReplaceCook_ReassignsCook(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	ctx := t.Context()
+	evt := cookingEvent(t, store, true)
+	youth1 := createYouthProfile(t, store, "Alpha")
+	youth2 := createYouthProfile(t, store, "Beta")
+	signUpAttendee(t, store, evt.ID, youth1.ID)
+	signUpAttendee(t, store, evt.ID, youth2.ID)
+	patrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth1.ID); err != nil {
+		t.Fatalf("Assign: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth2.ID); err != nil {
+		t.Fatalf("Assign: %v", err)
+	}
+	if err := store.Event.SetCookingPatrolCook(ctx, evt.ID, patrol.ID, youth1.ID); err != nil {
+		t.Fatalf("SetCook: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST",
+		"/events/"+evt.ID+"/cooking/patrols/"+patrol.ID+"/cook/"+youth2.ID+"/replace?id="+evt.ID+"&patrol_id="+patrol.ID+"&profile_id="+youth2.ID+"&current_cook_id="+youth1.ID)
+	rr := httptest.NewRecorder()
+
+	handler.CookingReplaceCook(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	var cooks int
+	for _, m := range patrols[0].Members {
+		if m.IsCook {
+			cooks++
+			if m.ProfileID != youth2.ID {
+				t.Errorf("expected youth2 to be cook")
+			}
+		}
+	}
+	if cooks != 1 {
+		t.Errorf("expected exactly 1 cook, got %d", cooks)
+	}
+}
+
+func TestCookingClearCook_ClearsCook(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	ctx := t.Context()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Tim")
+	signUpAttendee(t, store, evt.ID, youth.ID)
+	patrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatalf("Assign: %v", err)
+	}
+	if err := store.Event.SetCookingPatrolCook(ctx, evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatalf("SetCook: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "DELETE",
+		"/events/"+evt.ID+"/cooking/patrols/"+patrol.ID+"/cook?id="+evt.ID+"&patrol_id="+patrol.ID)
+	rr := httptest.NewRecorder()
+
+	handler.CookingClearCook(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	for _, m := range patrols[0].Members {
+		if m.IsCook {
+			t.Error("expected cook to be cleared")
+		}
+	}
+}
+
+func TestEventDetail_RendersCookingSectionWhenEnabled(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	evt := cookingEvent(t, store, true)
+	signUpAttendee(t, store, evt.ID, adminProfile.ID)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDetail(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if !strings.Contains(rr.Body.String(), "Cooking Patrols") {
+		t.Errorf("expected cooking section on detail page:\n%s", rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "Adults") {
+		t.Errorf("expected Adults patrol label on detail page:\n%s", rr.Body.String())
+	}
+}
+
+func TestEventDetail_OmitsCookingSectionWhenDisabled(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	evt := cookingEvent(t, store, false)
+	signUpAttendee(t, store, evt.ID, adminProfile.ID)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDetail(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if strings.Contains(rr.Body.String(), "Cooking Patrols") {
+		t.Errorf("expected no cooking section when toggle is off:\n%s", rr.Body.String())
+	}
+}
+
+func TestEventDetail_CookingEmptyState_ShowsCreateForAdmin(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	evt := cookingEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDetail(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Cooking Patrols") {
+		t.Errorf("expected cooking section in empty state:\n%s", body)
+	}
+	if !strings.Contains(body, "Create Patrol") {
+		t.Errorf("expected Create Patrol button in empty state for admin:\n%s", body)
+	}
+}
+
+func TestCookingCreatePatrol_RepoError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"create": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/patrols?id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingCreatePatrol(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCookingCreatePatrol_RenderError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"attendees": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/patrols?id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingCreatePatrol(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCookingDeletePatrol_MissingPatrolID_Returns400(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/patrols/delete?id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingDeletePatrol(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCookingDeletePatrol_RepoError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"delete": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/patrols/delete?patrol_id="+patrol.ID+"&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingDeletePatrol(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCookingAssignMember_MissingParams_Returns400(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/assign?patrol_id=x&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingAssignMember(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCookingAssignMember_RepoError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Alice")
+	signUpAttendee(t, store, evt.ID, youth.ID)
+	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"assign": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/assign?patrol_id="+patrol.ID+"&profile_id="+youth.ID+"&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingAssignMember(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCookingRemoveMember_MissingParams_Returns400(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/remove?patrol_id=x&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingRemoveMember(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCookingRemoveMember_RepoError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Alice")
+	signUpAttendee(t, store, evt.ID, youth.ID)
+	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(t.Context(), evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatalf("AssignCookingPatrolMember: %v", err)
+	}
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"remove": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/remove?patrol_id="+patrol.ID+"&profile_id="+youth.ID+"&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingRemoveMember(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCookingSetCook_MissingParams_Returns400(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/setcook?patrol_id=x&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingSetCook(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCookingSetCook_PatrolNotFound_Returns404(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Alice")
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/setcook?patrol_id=nope&profile_id="+youth.ID+"&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingSetCook(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestCookingSetCook_ListError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Alice")
+	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"list": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/setcook?patrol_id="+patrol.ID+"&profile_id="+youth.ID+"&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingSetCook(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCookingSetCook_RepoError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Alice")
+	signUpAttendee(t, store, evt.ID, youth.ID)
+	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(t.Context(), evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatalf("AssignCookingPatrolMember: %v", err)
+	}
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"setCook": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/setcook?patrol_id="+patrol.ID+"&profile_id="+youth.ID+"&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingSetCook(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCookingSetCook_ConfirmBuildError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	youthA := createYouthProfile(t, store, "Alice")
+	youthB := createYouthProfile(t, store, "Bob")
+	signUpAttendee(t, store, evt.ID, youthA.ID)
+	signUpAttendee(t, store, evt.ID, youthB.ID)
+	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(t.Context(), evt.ID, patrol.ID, youthA.ID); err != nil {
+		t.Fatalf("Assign: %v", err)
+	}
+	if err := store.Event.AssignCookingPatrolMember(t.Context(), evt.ID, patrol.ID, youthB.ID); err != nil {
+		t.Fatalf("Assign: %v", err)
+	}
+	if err := store.Event.SetCookingPatrolCook(t.Context(), evt.ID, patrol.ID, youthA.ID); err != nil {
+		t.Fatalf("SetCook: %v", err)
+	}
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"attendees": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/setcook?patrol_id="+patrol.ID+"&profile_id="+youthB.ID+"&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingSetCook(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCookingClearCook_MissingPatrolID_Returns400(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/clearcook?id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingClearCook(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCookingClearCook_RepoError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"clear": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/clearcook?patrol_id="+patrol.ID+"&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingClearCook(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestCookingReplaceCook_MissingCurrentCook_Returns400(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Alice")
+	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/replace?patrol_id="+patrol.ID+"&profile_id="+youth.ID+"&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingReplaceCook(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCookingReplaceCook_RepoError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupCookingMux()()
+	evt := cookingEvent(t, store, true)
+	youth := createYouthProfile(t, store, "Alice")
+	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"setCook": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/replace?patrol_id="+patrol.ID+"&profile_id="+youth.ID+"&current_cook_id=abc&id="+evt.ID)
+	rr := httptest.NewRecorder()
+	handler.CookingReplaceCook(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}

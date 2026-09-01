@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -90,6 +91,7 @@ type eventDetailData struct {
 	Profiles        []profileSignUpVM
 	IsPast          bool
 	Summary         event.SeatbeltSummary
+	Cooking         *cookingSectionData
 }
 
 type attendeeViewModel struct {
@@ -141,6 +143,53 @@ type attendeeListData struct {
 	AdultAttendees []attendeeViewModel
 	AdultCount     int
 	AttendeeCount  int
+}
+
+type cookingSectionData struct {
+	EventID          string
+	IsPast           bool
+	IsAdmin          bool
+	Enabled          bool
+	YouthPatrols     []cookingPatrolVM
+	AdultPatrols     []cookingPatrolVM
+	UnassignedYouth  []cookingUnassignedVM
+	UnassignedAdults []cookingUnassignedVM
+}
+
+type cookingPatrolVM struct {
+	ID          string
+	Name        string
+	IsAdult     bool
+	Members     []cookingMemberVM
+	MoveTargets []cookingPatrolTargetVM
+}
+
+type cookingMemberVM struct {
+	ProfileID   string
+	ProfileName string
+	IsCook      bool
+}
+
+type cookingUnassignedVM struct {
+	ProfileID   string
+	ProfileName string
+	IsAdult     bool
+	Targets     []cookingPatrolTargetVM
+}
+
+type cookingPatrolTargetVM struct {
+	ID   string
+	Name string
+}
+
+type cookingReplaceCookData struct {
+	EventID            string
+	PatrolID           string
+	PatrolName         string
+	CurrentCookID      string
+	CurrentCookName    string
+	RequestedCookName  string
+	RequestedProfileID string
 }
 
 type eventListPartialData struct {
@@ -382,9 +431,21 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isAdmin := h.isAdmin(ctx, r)
+	var cooking *cookingSectionData
+	if evt.CookingEnabled {
+		cooking, err = h.buildCookingSectionData(ctx, eventID, isPast, isAdmin)
+		if err != nil {
+			log.Printf("buildCookingSectionData: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		cooking.Enabled = true
+	}
+
 	data := eventDetailData{
 		Title:           detailTitle,
-		IsAdmin:         h.isAdmin(ctx, r),
+		IsAdmin:         isAdmin,
 		ProfileID:       h.currentProfileID(r),
 		Event:           evt,
 		EventID:         eventID,
@@ -399,6 +460,7 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 		Profiles:        profileVMs,
 		IsPast:          isPast,
 		Summary:         *summary,
+		Cooking:         cooking,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -919,6 +981,10 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		log.Printf("template execution (attendee_list): %v", err)
 	}
 
+	if evt.CookingEnabled {
+		h.renderCookingSection(w, r, eventID)
+	}
+
 	// Show driver sign-up option for adult self-signups
 	if profileToSignUp.MemberType == profile.MemberTypeAdult {
 		isDriver, seatbeltCount := computeDriverInfo(profileToSignUp.ID, drivers)
@@ -1054,6 +1120,10 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		AttendeeCount:  len(attendees),
 	}); err != nil {
 		log.Printf("template execution (attendee_list): %v", err)
+	}
+
+	if evt.CookingEnabled {
+		h.renderCookingSection(w, r, eventID)
 	}
 
 	summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
@@ -1669,6 +1739,242 @@ func (h *EventHandler) ReplaceResponsibility(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+func (h *EventHandler) cookingPatrolPrereqs(r *http.Request) (string, int, string) {
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		return "", http.StatusUnauthorized, "Unauthorized"
+	}
+	if !h.isAdmin(ctx, r) {
+		return "", http.StatusForbidden, "Forbidden"
+	}
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		return "", http.StatusBadRequest, "Bad request"
+	}
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		return "", http.StatusNotFound, "Event not found"
+	}
+	if !evt.CookingEnabled {
+		return "", http.StatusBadRequest, "Cooking not enabled"
+	}
+	if evt.EndTime.Before(time.Now()) {
+		return "", http.StatusBadRequest, "Cannot modify cooking patrols for a past event"
+	}
+	return eventID, 0, ""
+}
+
+func (h *EventHandler) renderCookingSection(w http.ResponseWriter, r *http.Request, eventID string) {
+	ctx := r.Context()
+	data, err := h.buildCookingSectionData(ctx, eventID, false, h.isAdmin(ctx, r))
+	if err != nil {
+		log.Printf("renderCookingSection: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	data.Enabled = true
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "cooking_section.html", data); err != nil {
+		log.Printf("template execution (cooking_section): %v", err)
+	}
+}
+
+func (h *EventHandler) CookingCreatePatrol(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.cookingPatrolPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	if _, err := h.cooking.CreatePatrol(r.Context(), eventID, false); err != nil {
+		log.Printf("CreatePatrol: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderCookingSection(w, r, eventID)
+}
+
+func (h *EventHandler) CookingDeletePatrol(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.cookingPatrolPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	patrolID := muxVars(r)["patrol_id"]
+	if patrolID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if err := h.cooking.DeletePatrol(r.Context(), patrolID); err != nil {
+		log.Printf("DeletePatrol: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderCookingSection(w, r, eventID)
+}
+
+func (h *EventHandler) CookingAssignMember(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.cookingPatrolPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	profileID := r.FormValue("profile_id")
+	patrolID := r.FormValue("patrol_id")
+	if profileID == "" || patrolID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if err := h.cooking.AssignMember(r.Context(), eventID, patrolID, profileID); err != nil {
+		if errors.Is(err, event.ErrAdultInYouthPatrol) {
+			http.Error(w, "Adults cannot be placed into a youth cooking patrol", http.StatusBadRequest)
+			return
+		}
+		log.Printf("AssignMember: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderCookingSection(w, r, eventID)
+}
+
+func (h *EventHandler) CookingRemoveMember(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.cookingPatrolPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	vars := muxVars(r)
+	patrolID := vars["patrol_id"]
+	profileID := vars["profile_id"]
+	if patrolID == "" || profileID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if err := h.cooking.RemoveMember(r.Context(), eventID, profileID); err != nil {
+		log.Printf("RemoveMember: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderCookingSection(w, r, eventID)
+}
+
+func (h *EventHandler) CookingSetCook(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.cookingPatrolPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	ctx := r.Context()
+	vars := muxVars(r)
+	patrolID := vars["patrol_id"]
+	profileID := vars["profile_id"]
+	if patrolID == "" || profileID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	patrols, err := h.cooking.ListPatrols(ctx, eventID)
+	if err != nil {
+		log.Printf("ListPatrols: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	var patrolName, currentCookID, currentCookName, requestedName string
+	var patrolFound bool
+	for _, p := range patrols {
+		if p.ID != patrolID {
+			continue
+		}
+		patrolFound = true
+		patrolName = p.Name
+		for _, m := range p.Members {
+			if m.ProfileID == profileID {
+				requestedName = m.ProfileName
+			}
+			if m.IsCook {
+				currentCookID = m.ProfileID
+				currentCookName = m.ProfileName
+			}
+		}
+		break
+	}
+	if !patrolFound {
+		http.Error(w, "Patrol not found", http.StatusNotFound)
+		return
+	}
+
+	if currentCookID != "" && currentCookID != profileID {
+		data, err := h.buildCookingSectionData(ctx, eventID, false, true)
+		if err != nil {
+			log.Printf("buildCookingSectionData: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		data.Enabled = true
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		h.tmpl.ExecuteTemplate(w, "cooking_section.html", data)
+		h.tmpl.ExecuteTemplate(w, "cooking_confirm_cook.html", cookingReplaceCookData{
+			EventID:            eventID,
+			PatrolID:           patrolID,
+			PatrolName:         patrolName,
+			CurrentCookID:      currentCookID,
+			CurrentCookName:    currentCookName,
+			RequestedCookName:  requestedName,
+			RequestedProfileID: profileID,
+		})
+		return
+	}
+
+	if err := h.cooking.SetCook(ctx, eventID, patrolID, profileID); err != nil {
+		log.Printf("SetCook: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderCookingSection(w, r, eventID)
+}
+
+func (h *EventHandler) CookingClearCook(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.cookingPatrolPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	patrolID := muxVars(r)["patrol_id"]
+	if patrolID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if err := h.cooking.ClearCook(r.Context(), eventID, patrolID); err != nil {
+		log.Printf("ClearCook: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderCookingSection(w, r, eventID)
+}
+
+func (h *EventHandler) CookingReplaceCook(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.cookingPatrolPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	vars := muxVars(r)
+	patrolID := vars["patrol_id"]
+	profileID := vars["profile_id"]
+	currentCookID := r.URL.Query().Get("current_cook_id")
+	if patrolID == "" || profileID == "" || currentCookID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if err := h.cooking.SetCook(r.Context(), eventID, patrolID, profileID); err != nil {
+		log.Printf("SetCook (replace): %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderCookingSection(w, r, eventID)
+}
+
 var muxVars = func(r *http.Request) map[string]string {
 	return map[string]string{}
 }
@@ -1741,4 +2047,88 @@ func splitAttendeeVMs(attendees []*profile.Profile, drivers []event.DriverRespon
 		return adultVMs[i].ProfileName < adultVMs[j].ProfileName
 	})
 	return youthVMs, adultVMs
+}
+
+func (h *EventHandler) buildCookingSectionData(ctx context.Context, eventID string, isPast, isAdmin bool) (*cookingSectionData, error) {
+	attendees, err := h.repo.GetAttendees(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	patrols, err := h.cooking.ListPatrols(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	data := &cookingSectionData{
+		EventID: eventID,
+		IsPast:  isPast,
+		IsAdmin: isAdmin,
+	}
+
+	memberID := map[string]bool{}
+	for _, p := range patrols {
+		vm := cookingPatrolVM{ID: p.ID, Name: p.Name, IsAdult: p.IsAdult}
+		for _, m := range p.Members {
+			memberID[m.ProfileID] = true
+			vm.Members = append(vm.Members, cookingMemberVM{
+				ProfileID:   m.ProfileID,
+				ProfileName: m.ProfileName,
+				IsCook:      m.IsCook,
+			})
+		}
+		vm.MoveTargets = cookingTargets(patrols, p.ID, p.IsAdult)
+		if p.IsAdult {
+			data.AdultPatrols = append(data.AdultPatrols, vm)
+		} else {
+			data.YouthPatrols = append(data.YouthPatrols, vm)
+		}
+	}
+
+	for _, a := range attendees {
+		if memberID[a.ID] {
+			continue
+		}
+		isAdult := a.MemberType == profile.MemberTypeAdult
+		vm := cookingUnassignedVM{
+			ProfileID:   a.ID,
+			ProfileName: a.DisplayName(),
+			IsAdult:     isAdult,
+			Targets:     cookingTargets(patrols, "", isAdult),
+		}
+		if isAdult {
+			data.UnassignedAdults = append(data.UnassignedAdults, vm)
+		} else {
+			data.UnassignedYouth = append(data.UnassignedYouth, vm)
+		}
+	}
+
+	for _, list := range [][]cookingPatrolVM{data.YouthPatrols, data.AdultPatrols} {
+		for i := range list {
+			sort.Slice(list[i].Members, func(j, k int) bool {
+				return list[i].Members[j].ProfileName < list[i].Members[k].ProfileName
+			})
+		}
+	}
+	sort.Slice(data.UnassignedYouth, func(i, j int) bool {
+		return data.UnassignedYouth[i].ProfileName < data.UnassignedYouth[j].ProfileName
+	})
+	sort.Slice(data.UnassignedAdults, func(i, j int) bool {
+		return data.UnassignedAdults[i].ProfileName < data.UnassignedAdults[j].ProfileName
+	})
+
+	return data, nil
+}
+
+func cookingTargets(patrols []*event.CookingPatrol, excludeID string, isAdult bool) []cookingPatrolTargetVM {
+	var targets []cookingPatrolTargetVM
+	for _, p := range patrols {
+		if p.ID == excludeID {
+			continue
+		}
+		if isAdult && !p.IsAdult {
+			continue
+		}
+		targets = append(targets, cookingPatrolTargetVM{ID: p.ID, Name: p.Name})
+	}
+	return targets
 }
