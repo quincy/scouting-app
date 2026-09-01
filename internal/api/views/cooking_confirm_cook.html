@@ -1,0 +1,16 @@
+{{define "cooking_confirm_cook.html"}}
+<div class="modal-overlay" id="modal-container" hx-swap-oob="true" onclick="this.innerHTML=''">
+  <div class="modal-dialog" onclick="event.stopPropagation()">
+    <h3>Change Cook for {{.PatrolName}}?</h3>
+    <p>Change Cook from <strong>{{.CurrentCookName}}</strong> to <strong>{{.RequestedCookName}}</strong>?</p>
+    <div class="modal-actions">
+      <button class="btn-primary"
+        hx-post="/events/{{.EventID}}/cooking/patrols/{{.PatrolID}}/cook/{{.RequestedProfileID}}/replace?current_cook_id={{.CurrentCookID}}"
+        hx-target="#cooking-section"
+        hx-swap="outerHTML"
+        onclick="this.closest('.modal-overlay').remove()">Change</button>
+      <button class="btn-cancel" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+    </div>
+  </div>
+</div>
+{{end}}

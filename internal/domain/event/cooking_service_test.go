@@ -710,3 +710,211 @@ func TestAfterWithdraw_ClearCookError_Propagates(t *testing.T) {
 		t.Fatal("expected error clearing cook")
 	}
 }
+
+func TestCreatePatrol_CreatesYouthPatrol(t *testing.T) {
+	ctx := context.Background()
+	profiles := mock.NewProfileRepository()
+	events := &fakeEventRepo{EventRepository: mock.NewEventRepository(profiles)}
+
+	evt := &event.Event{Title: "Campout", CookingEnabled: true}
+	if err := events.Create(ctx, evt); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := event.NewCookingPatrolService(events, profiles)
+	patrol, err := svc.CreatePatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if patrol.IsAdult {
+		t.Error("expected a youth patrol")
+	}
+	if patrol.Name != event.CookingPatrolNextName(1) {
+		t.Errorf("expected auto-name %q, got %q", event.CookingPatrolNextName(1), patrol.Name)
+	}
+}
+
+func TestListPatrols_ReturnsPatrols(t *testing.T) {
+	ctx := context.Background()
+	profiles := mock.NewProfileRepository()
+	events := &fakeEventRepo{EventRepository: mock.NewEventRepository(profiles)}
+
+	evt := &event.Event{Title: "Campout", CookingEnabled: true}
+	if err := events.Create(ctx, evt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := events.CreateCookingPatrol(ctx, evt.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := event.NewCookingPatrolService(events, profiles)
+	patrols, err := svc.ListPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(patrols) != 1 {
+		t.Fatalf("expected 1 patrol, got %d", len(patrols))
+	}
+	if !patrols[0].IsAdult {
+		t.Error("expected the adult patrol")
+	}
+}
+
+func TestDeletePatrol_RemovesPatrol(t *testing.T) {
+	ctx := context.Background()
+	profiles := mock.NewProfileRepository()
+	events := &fakeEventRepo{EventRepository: mock.NewEventRepository(profiles)}
+
+	evt := &event.Event{Title: "Campout", CookingEnabled: true}
+	if err := events.Create(ctx, evt); err != nil {
+		t.Fatal(err)
+	}
+	patrol, err := events.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc := event.NewCookingPatrolService(events, profiles)
+	if err := svc.DeletePatrol(ctx, patrol.ID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	patrols, err := events.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(patrols) != 0 {
+		t.Errorf("expected patrol deleted, got %d patrols", len(patrols))
+	}
+}
+
+func TestRemoveMember_RemovesMemberFromPatrol(t *testing.T) {
+	ctx := context.Background()
+	profiles := mock.NewProfileRepository()
+	events := &fakeEventRepo{EventRepository: mock.NewEventRepository(profiles)}
+
+	evt := &event.Event{Title: "Campout", CookingEnabled: true}
+	if err := events.Create(ctx, evt); err != nil {
+		t.Fatal(err)
+	}
+	youth := &profile.Profile{FirstName: "Tim", LastName: "Scout", MemberType: profile.MemberTypeYouth}
+	if err := profiles.Create(ctx, youth); err != nil {
+		t.Fatal(err)
+	}
+	if err := events.SignUp(ctx, evt.ID, youth.ID); err != nil {
+		t.Fatal(err)
+	}
+	patrol, err := events.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := events.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := event.NewCookingPatrolService(events, profiles)
+	if err := svc.RemoveMember(ctx, evt.ID, youth.ID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	patrols, err := events.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range patrols[0].Members {
+		if m.ProfileID == youth.ID {
+			t.Error("expected member to be removed")
+		}
+	}
+}
+
+func TestRemoveMember_ClearsCookWhenRemovingCook(t *testing.T) {
+	ctx := context.Background()
+	profiles := mock.NewProfileRepository()
+	events := &fakeEventRepo{EventRepository: mock.NewEventRepository(profiles)}
+
+	evt := &event.Event{Title: "Campout", CookingEnabled: true}
+	if err := events.Create(ctx, evt); err != nil {
+		t.Fatal(err)
+	}
+	youth := &profile.Profile{FirstName: "Tim", LastName: "Scout", MemberType: profile.MemberTypeYouth}
+	if err := profiles.Create(ctx, youth); err != nil {
+		t.Fatal(err)
+	}
+	if err := events.SignUp(ctx, evt.ID, youth.ID); err != nil {
+		t.Fatal(err)
+	}
+	patrol, err := events.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := events.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatal(err)
+	}
+	svc := event.NewCookingPatrolService(events, profiles)
+	if err := svc.SetCook(ctx, evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.RemoveMember(ctx, evt.ID, youth.ID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	patrols, err := events.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range patrols[0].Members {
+		if m.IsCook {
+			t.Error("expected cook designation to be cleared on member removal")
+		}
+	}
+}
+
+func TestRemoveMember_ListPatrolsError_Propagates(t *testing.T) {
+	ctx := context.Background()
+	profiles := mock.NewProfileRepository()
+	events := &fakeEventRepo{EventRepository: mock.NewEventRepository(profiles)}
+	events.listCookingPatrolsErr = errors.New("list failed")
+
+	evt := &event.Event{Title: "Campout", CookingEnabled: true}
+	if err := events.Create(ctx, evt); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := event.NewCookingPatrolService(events, profiles)
+	if err := svc.RemoveMember(ctx, evt.ID, "p1"); err == nil {
+		t.Fatal("expected error listing cooking patrols")
+	}
+}
+
+func TestRemoveMember_ClearCookError_Propagates(t *testing.T) {
+	ctx := context.Background()
+	profiles := mock.NewProfileRepository()
+	events := &fakeEventRepo{EventRepository: mock.NewEventRepository(profiles)}
+
+	evt := &event.Event{Title: "Campout", CookingEnabled: true}
+	if err := events.Create(ctx, evt); err != nil {
+		t.Fatal(err)
+	}
+	youth := &profile.Profile{FirstName: "Tim", LastName: "Scout", MemberType: profile.MemberTypeYouth}
+	if err := profiles.Create(ctx, youth); err != nil {
+		t.Fatal(err)
+	}
+	if err := events.SignUp(ctx, evt.ID, youth.ID); err != nil {
+		t.Fatal(err)
+	}
+	patrol, err := events.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := events.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatal(err)
+	}
+	svc := event.NewCookingPatrolService(events, profiles)
+	if err := svc.SetCook(ctx, evt.ID, patrol.ID, youth.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	events.clearCookingPatrolErr = errors.New("clear failed")
+	if err := svc.RemoveMember(ctx, evt.ID, youth.ID); err == nil {
+		t.Fatal("expected error clearing cook")
+	}
+}

@@ -1,0 +1,160 @@
+{{define "cooking_section.html"}}
+{{$section := .}}
+{{$eventID := .EventID}}
+{{$isPast := .IsPast}}
+{{$isAdmin := .IsAdmin}}
+<div class="cooking-section" id="cooking-section" hx-swap-oob="true">
+  <div class="cooking-section-header">
+    <h2>Cooking Patrols</h2>
+    {{if and $isAdmin (not $isPast)}}
+    <button class="btn-secondary btn-small" hx-post="/events/{{$eventID}}/cooking/patrols" hx-target="#cooking-section" hx-swap="outerHTML">Create Patrol</button>
+    {{end}}
+  </div>
+
+  {{if or .YouthPatrols .AdultPatrols .UnassignedYouth .UnassignedAdults}}
+    {{range .YouthPatrols}}
+    <div class="cooking-group">
+      <h3 class="attendee-group-label">Youth Patrols</h3>
+      <div class="cooking-patrol">
+        <div class="cooking-patrol-header">
+          <strong>{{.Name}}</strong>
+          {{if and $isAdmin (not $isPast)}}
+          <button class="btn-danger-outline btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{.ID}}" hx-target="#cooking-section" hx-swap="outerHTML" hx-confirm="Delete this patrol?">Delete</button>
+          {{end}}
+        </div>
+        <table class="responsibility-table">
+          <thead>
+            <tr>
+              <th>Member</th>
+              <th>Cook</th>
+              {{if and $isAdmin (not $isPast)}}<th>Actions</th>{{end}}
+            </tr>
+          </thead>
+          <tbody>
+            {{$patrol := .}}
+            {{range .Members}}
+            <tr>
+              <td class="attendee-name"><a href="/profiles/{{.ProfileID}}">{{.ProfileName}}</a></td>
+              <td class="resp-cell">
+                {{if .IsCook}}
+                <span class="resp-badge resp-on resp-static">Cook</span>
+                {{else}}
+                <span class="resp-badge resp-off resp-static">&ndash;</span>
+                {{end}}
+              </td>
+              {{if and $isAdmin (not $isPast)}}
+              <td class="resp-cell">
+                {{if not .IsCook}}
+                <button class="btn-secondary btn-small" hx-post="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/cook/{{.ProfileID}}" hx-target="#cooking-section" hx-swap="outerHTML">Set Cook</button>
+                {{else}}
+                <button class="btn-secondary btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/cook" hx-target="#cooking-section" hx-swap="outerHTML">Clear Cook</button>
+                {{end}}
+                <button class="btn-danger-outline btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/members/{{.ProfileID}}" hx-target="#cooking-section" hx-swap="outerHTML" hx-confirm="Remove {{.ProfileName}} from this patrol?">Remove</button>
+              </td>
+              {{end}}
+            </tr>
+            {{else}}
+            <tr>
+              <td colspan="3" class="resp-empty">No members</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {{end}}
+
+    {{range .AdultPatrols}}
+    <div class="cooking-group">
+      <h3 class="attendee-group-label">Adults</h3>
+      <div class="cooking-patrol">
+        <div class="cooking-patrol-header">
+          <strong>{{.Name}}</strong>
+          {{if and $isAdmin (not $isPast)}}
+          <button class="btn-danger-outline btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{.ID}}" hx-target="#cooking-section" hx-swap="outerHTML" hx-confirm="Delete this patrol?">Delete</button>
+          {{end}}
+        </div>
+        <table class="responsibility-table">
+          <thead>
+            <tr>
+              <th>Member</th>
+              <th>Cook</th>
+              {{if and $isAdmin (not $isPast)}}<th>Actions</th>{{end}}
+            </tr>
+          </thead>
+          <tbody>
+            {{$patrol := .}}
+            {{range .Members}}
+            <tr>
+              <td class="attendee-name"><a href="/profiles/{{.ProfileID}}">{{.ProfileName}}</a></td>
+              <td class="resp-cell">
+                {{if .IsCook}}
+                <span class="resp-badge resp-on resp-static">Cook</span>
+                {{else}}
+                <span class="resp-badge resp-off resp-static">&ndash;</span>
+                {{end}}
+              </td>
+              {{if and $isAdmin (not $isPast)}}
+              <td class="resp-cell">
+                {{if not .IsCook}}
+                <button class="btn-secondary btn-small" hx-post="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/cook/{{.ProfileID}}" hx-target="#cooking-section" hx-swap="outerHTML">Set Cook</button>
+                {{else}}
+                <button class="btn-secondary btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/cook" hx-target="#cooking-section" hx-swap="outerHTML">Clear Cook</button>
+                {{end}}
+                <button class="btn-danger-outline btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/members/{{.ProfileID}}" hx-target="#cooking-section" hx-swap="outerHTML" hx-confirm="Remove {{.ProfileName}} from this patrol?">Remove</button>
+              </td>
+              {{end}}
+            </tr>
+            {{else}}
+            <tr>
+              <td colspan="3" class="resp-empty">No members</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {{end}}
+
+    {{if and $isAdmin (not $isPast) (or .UnassignedYouth .UnassignedAdults)}}
+    <div class="cooking-unassigned">
+      <h3 class="attendee-group-label">Unassigned Attendees</h3>
+      {{if .UnassignedYouth}}
+      <p class="cooking-subgroup-label">Youth</p>
+      {{range .UnassignedYouth}}
+      <div class="cooking-unassigned-row">
+        <a href="/profiles/{{.ProfileID}}" class="attendee-name-link">{{.ProfileName}}</a>
+        <form class="cooking-assign-form" hx-post="/events/{{$eventID}}/cooking/assign" hx-target="#cooking-section" hx-swap="outerHTML">
+          <input type="hidden" name="profile_id" value="{{.ProfileID}}">
+          <select name="patrol_id" class="cooking-select">
+            {{range .Targets}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+          </select>
+          <button class="btn-secondary btn-small" type="submit">Assign</button>
+        </form>
+      </div>
+      {{end}}
+      {{end}}
+      {{if .UnassignedAdults}}
+      <p class="cooking-subgroup-label">Adults</p>
+      {{range .UnassignedAdults}}
+      <div class="cooking-unassigned-row">
+        <a href="/profiles/{{.ProfileID}}" class="attendee-name-link">{{.ProfileName}}</a>
+        <form class="cooking-assign-form" hx-post="/events/{{$eventID}}/cooking/assign" hx-target="#cooking-section" hx-swap="outerHTML">
+          <input type="hidden" name="profile_id" value="{{.ProfileID}}">
+          <select name="patrol_id" class="cooking-select">
+            {{range .Targets}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+          </select>
+          <button class="btn-secondary btn-small" type="submit">Assign</button>
+        </form>
+      </div>
+      {{end}}
+      {{end}}
+    </div>
+    {{end}}
+  {{else}}
+    <p class="cooking-empty">
+      {{if and $isAdmin (not $isPast)}}No cooking patrols have been created yet. Use "Create Patrol" to get started.{{else}}No cooking patrols have been created for this event.{{end}}
+    </p>
+  {{end}}
+</div>
+{{end}}
