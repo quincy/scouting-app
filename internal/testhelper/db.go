@@ -134,6 +134,8 @@ func TruncateAll(t TB, db *sql.DB) {
 		"app_config",
 		"event_cooking_patrol_members",
 		"event_cooking_patrols",
+		"event_tent_members",
+		"event_tents",
 		"event_attendee_responsibilities",
 		"event_attendees",
 		"events",

@@ -53,6 +53,7 @@
 
 {{template "attendee_list.html" .}}
 {{if .Cooking}}{{template "cooking_section.html" .Cooking}}{{end}}
+{{if .Tenting}}{{template "tent_section.html" .Tenting}}{{end}}
 <div id="delete-modal"></div>
 <div id="modal-container"></div>
 {{template "base_tail" .}}
