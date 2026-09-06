@@ -1,0 +1,96 @@
+{{define "tent_section.html"}}
+{{$eventID := .EventID}}
+{{$isPast := .IsPast}}
+{{$isAdmin := .IsAdmin}}
+<div class="cooking-section" id="tent-section" hx-swap-oob="true">
+  <div class="cooking-section-header">
+    <h2>Tents</h2>
+    {{if and $isAdmin (not $isPast)}}
+    <button class="btn-secondary btn-small" hx-post="/events/{{$eventID}}/tents" hx-target="#tent-section" hx-swap="outerHTML">Create Tent</button>
+    {{end}}
+  </div>
+
+  {{if or .Tents .UnassignedYouth}}
+    {{range .Tents}}
+    <div class="cooking-group">
+      <div class="cooking-patrol">
+        <div class="cooking-patrol-header">
+          <strong>{{.Name}}</strong>
+          <div class="cooking-patrol-header-actions">
+            {{if .NeedsScout}}
+            <span class="needs-scout-badge">needs scout</span>
+            {{end}}
+            {{if and $isAdmin (not $isPast)}}
+            <button class="btn-danger-outline btn-small" hx-delete="/events/{{$eventID}}/tents/{{.ID}}" hx-target="#tent-section" hx-swap="outerHTML" hx-confirm="Delete this tent?">Delete</button>
+            {{end}}
+          </div>
+        </div>
+        <table class="responsibility-table">
+          <thead>
+            <tr>
+              <th>Member</th>
+              {{if and $isAdmin (not $isPast)}}<th>Move to</th>
+              <th>Actions</th>{{end}}
+            </tr>
+          </thead>
+          <tbody>
+            {{$tent := .}}
+            {{range .Members}}
+            <tr>
+              <td class="attendee-name"><a href="/profiles/{{.ProfileID}}">{{.ProfileName}}</a></td>
+              {{if and $isAdmin (not $isPast)}}
+              <td class="resp-cell">
+                {{if $tent.MoveTargets}}
+                <form class="cooking-assign-form" hx-post="/events/{{$eventID}}/tents/assign" hx-target="#tent-section" hx-swap="outerHTML">
+                  <input type="hidden" name="profile_id" value="{{.ProfileID}}">
+                  <select name="tent_id" class="cooking-select">
+                    {{range $tent.MoveTargets}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+                  </select>
+                  <button class="btn-secondary btn-small" type="submit">Move</button>
+                </form>
+                {{end}}
+              </td>
+              <td class="resp-cell">
+                <button class="btn-danger-outline btn-small" hx-delete="/events/{{$eventID}}/tents/members/{{.ProfileID}}" hx-target="#tent-section" hx-swap="outerHTML" hx-confirm="Remove {{.ProfileName}} from this tent?">Remove</button>
+              </td>
+              {{end}}
+            </tr>
+            {{else}}
+            <tr>
+              <td colspan="3" class="resp-empty">No members</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {{end}}
+
+    {{if and $isAdmin (not $isPast) .UnassignedYouth}}
+    <div class="cooking-unassigned">
+      <h3 class="attendee-group-label">Unassigned Youth</h3>
+      {{range .UnassignedYouth}}
+      <div class="cooking-unassigned-row">
+        <a href="/profiles/{{.ProfileID}}" class="attendee-name-link">{{.ProfileName}}</a>
+        {{if .Targets}}
+        <form class="cooking-assign-form" hx-post="/events/{{$eventID}}/tents/assign" hx-target="#tent-section" hx-swap="outerHTML">
+          <input type="hidden" name="profile_id" value="{{.ProfileID}}">
+          <select name="tent_id" class="cooking-select">
+            {{range .Targets}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+          </select>
+          <button class="btn-secondary btn-small" type="submit">Assign</button>
+        </form>
+        {{else}}
+        <span class="cooking-empty">No tents available</span>
+        {{end}}
+      </div>
+      {{end}}
+    </div>
+    {{end}}
+  {{else}}
+    <p class="cooking-empty">
+      {{if and $isAdmin (not $isPast)}}No tents have been created yet. Use "Create Tent" to get started.{{else}}No tents have been created for this event.{{end}}
+    </p>
+  {{end}}
+</div>
+{{end}}

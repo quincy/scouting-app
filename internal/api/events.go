@@ -31,6 +31,7 @@ type EventHandler struct {
 	profiles        profile.Repository
 	parentYouthLink parentyouthlink.Repository
 	cooking         *event.CookingPatrolService
+	tents           *event.TentService
 	tmpl            *template.Template
 	appConfigRepo   appconfig.Repository
 }
@@ -92,6 +93,7 @@ type eventDetailData struct {
 	IsPast          bool
 	Summary         event.SeatbeltSummary
 	Cooking         *cookingSectionData
+	Tenting         *tentingSectionData
 }
 
 type attendeeViewModel struct {
@@ -192,6 +194,46 @@ type cookingReplaceCookData struct {
 	RequestedProfileID string
 }
 
+type tentingSectionData struct {
+	EventID         string
+	IsPast          bool
+	IsAdmin         bool
+	Tents           []tentVM
+	UnassignedYouth []tentUnassignedVM
+}
+
+type tentVM struct {
+	ID          string
+	Name        string
+	NeedsScout  bool
+	Members     []tentMemberVM
+	MoveTargets []tentTargetVM
+}
+
+type tentMemberVM struct {
+	ProfileID   string
+	ProfileName string
+}
+
+type tentUnassignedVM struct {
+	ProfileID   string
+	ProfileName string
+	Targets     []tentTargetVM
+}
+
+type tentTargetVM struct {
+	ID   string
+	Name string
+}
+
+type tentOverrideConfirmData struct {
+	EventID     string
+	TentID      string
+	ProfileID   string
+	ProfileName string
+	Violations  []string
+}
+
 type eventListPartialData struct {
 	Events     []*event.ListItem
 	Section    string
@@ -212,6 +254,7 @@ func NewEventHandler(repo event.Repository, auth *auth.AuthService, rbac rbac.Re
 		profiles:        profiles,
 		parentYouthLink: parentYouthLink,
 		cooking:         event.NewCookingPatrolService(repo, profiles),
+		tents:           event.NewTentService(repo, profiles, parentYouthLink),
 		tmpl:            tmpl,
 		appConfigRepo:   appConfigRepo,
 	}
@@ -443,6 +486,16 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 		cooking.Enabled = true
 	}
 
+	var tenting *tentingSectionData
+	if evt.TentingEnabled {
+		tenting, err = h.buildTentingSectionData(ctx, eventID, isPast, isAdmin)
+		if err != nil {
+			log.Printf("buildTentingSectionData: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	data := eventDetailData{
 		Title:           detailTitle,
 		IsAdmin:         isAdmin,
@@ -461,6 +514,7 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 		IsPast:          isPast,
 		Summary:         *summary,
 		Cooking:         cooking,
+		Tenting:         tenting,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -985,6 +1039,10 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		h.renderCookingSection(w, r, eventID)
 	}
 
+	if evt.TentingEnabled {
+		h.renderTentingSection(w, r, eventID)
+	}
+
 	// Show driver sign-up option for adult self-signups
 	if profileToSignUp.MemberType == profile.MemberTypeAdult {
 		isDriver, seatbeltCount := computeDriverInfo(profileToSignUp.ID, drivers)
@@ -1081,6 +1139,11 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		log.Printf("AfterWithdraw (cooking): %v", err)
 	}
 
+	// Cascade: remove from tent if the attendee was assigned to one
+	if err := h.tents.AfterWithdraw(ctx, eventID, profileID); err != nil {
+		log.Printf("AfterWithdraw (tenting): %v", err)
+	}
+
 	attendees, err := h.repo.GetAttendees(ctx, eventID)
 	if err != nil {
 		log.Printf("GetAttendees: %v", err)
@@ -1124,6 +1187,10 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 
 	if evt.CookingEnabled {
 		h.renderCookingSection(w, r, eventID)
+	}
+
+	if evt.TentingEnabled {
+		h.renderTentingSection(w, r, eventID)
 	}
 
 	summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
@@ -2131,4 +2198,251 @@ func cookingTargets(patrols []*event.CookingPatrol, excludeID string, isAdult bo
 		targets = append(targets, cookingPatrolTargetVM{ID: p.ID, Name: p.Name})
 	}
 	return targets
+}
+
+func (h *EventHandler) tentPrereqs(r *http.Request) (string, int, string) {
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		return "", http.StatusUnauthorized, "Unauthorized"
+	}
+	if !h.isAdmin(ctx, r) {
+		return "", http.StatusForbidden, "Forbidden"
+	}
+	vars := muxVars(r)
+	eventID := vars["id"]
+	if eventID == "" {
+		return "", http.StatusBadRequest, "Bad request"
+	}
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		return "", http.StatusNotFound, "Event not found"
+	}
+	if !evt.TentingEnabled {
+		return "", http.StatusBadRequest, "Tenting not enabled"
+	}
+	if evt.EndTime.Before(time.Now()) {
+		return "", http.StatusBadRequest, "Cannot modify tents for a past event"
+	}
+	return eventID, 0, ""
+}
+
+func (h *EventHandler) tentMaxAgeGap(ctx context.Context) int {
+	v := appconfig.GetWithHierarchy(ctx, h.appConfigRepo, "MAX_TENT_AGE_GAP", appconfig.KeyMaxTentAgeGap, "2")
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 2
+	}
+	return n
+}
+
+func (h *EventHandler) renderTentingSection(w http.ResponseWriter, r *http.Request, eventID string) {
+	ctx := r.Context()
+	data, err := h.buildTentingSectionData(ctx, eventID, false, h.isAdmin(ctx, r))
+	if err != nil {
+		log.Printf("renderTentingSection: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "tent_section.html", data); err != nil {
+		log.Printf("template execution (tent_section): %v", err)
+	}
+}
+
+func (h *EventHandler) buildTentingSectionData(ctx context.Context, eventID string, isPast, isAdmin bool) (*tentingSectionData, error) {
+	tents, err := h.tents.ListTents(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	attendees, err := h.repo.GetAttendees(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	data := &tentingSectionData{
+		EventID: eventID,
+		IsPast:  isPast,
+		IsAdmin: isAdmin,
+	}
+
+	memberID := map[string]bool{}
+	for _, t := range tents {
+		vm := tentVM{ID: t.ID, Name: t.Name, NeedsScout: len(t.Members) < 2, MoveTargets: tentTargets(tents, t.ID)}
+		for _, m := range t.Members {
+			memberID[m.ProfileID] = true
+			vm.Members = append(vm.Members, tentMemberVM{ProfileID: m.ProfileID, ProfileName: m.ProfileName})
+		}
+		sort.Slice(vm.Members, func(i, j int) bool {
+			return vm.Members[i].ProfileName < vm.Members[j].ProfileName
+		})
+		data.Tents = append(data.Tents, vm)
+	}
+
+	for _, a := range attendees {
+		if a.MemberType != profile.MemberTypeYouth {
+			continue
+		}
+		if memberID[a.ID] {
+			continue
+		}
+		data.UnassignedYouth = append(data.UnassignedYouth, tentUnassignedVM{
+			ProfileID:   a.ID,
+			ProfileName: a.DisplayName(),
+			Targets:     tentTargets(tents, ""),
+		})
+	}
+	sort.Slice(data.UnassignedYouth, func(i, j int) bool {
+		return data.UnassignedYouth[i].ProfileName < data.UnassignedYouth[j].ProfileName
+	})
+	return data, nil
+}
+
+func tentTargets(tents []*event.Tent, excludeID string) []tentTargetVM {
+	var targets []tentTargetVM
+	for _, t := range tents {
+		if t.ID == excludeID {
+			continue
+		}
+		targets = append(targets, tentTargetVM{ID: t.ID, Name: t.Name})
+	}
+	return targets
+}
+
+func (h *EventHandler) TentCreate(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.tentPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	if _, err := h.tents.CreateTent(r.Context(), eventID); err != nil {
+		log.Printf("CreateTent: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderTentingSection(w, r, eventID)
+}
+
+func (h *EventHandler) TentDelete(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.tentPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	tentID := muxVars(r)["tent_id"]
+	if tentID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if err := h.tents.DeleteTent(r.Context(), tentID); err != nil {
+		log.Printf("DeleteTent: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderTentingSection(w, r, eventID)
+}
+
+func (h *EventHandler) TentAssignMember(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.tentPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	ctx := r.Context()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	profileID := r.FormValue("profile_id")
+	tentID := r.FormValue("tent_id")
+	if profileID == "" || tentID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	violations, err := h.tents.AssignMember(ctx, eventID, tentID, profileID, h.tentMaxAgeGap(ctx), false)
+	if err != nil {
+		if errors.Is(err, event.ErrAdultInTent) {
+			http.Error(w, "Adults cannot be placed into a tent", http.StatusBadRequest)
+			return
+		}
+		log.Printf("AssignMember: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if len(violations) > 0 {
+		p, err := h.profiles.GetByID(ctx, profileID)
+		if err != nil {
+			log.Printf("GetByID: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		messages := make([]string, len(violations))
+		for i, v := range violations {
+			messages[i] = v.Message
+		}
+		data, err := h.buildTentingSectionData(ctx, eventID, false, true)
+		if err != nil {
+			log.Printf("buildTentingSectionData: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		h.tmpl.ExecuteTemplate(w, "tent_section.html", data)
+		h.tmpl.ExecuteTemplate(w, "tent_confirm_override.html", tentOverrideConfirmData{
+			EventID:     eventID,
+			TentID:      tentID,
+			ProfileID:   profileID,
+			ProfileName: p.DisplayName(),
+			Violations:  messages,
+		})
+		return
+	}
+
+	h.renderTentingSection(w, r, eventID)
+}
+
+func (h *EventHandler) TentAssignMemberOverride(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.tentPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	ctx := r.Context()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	profileID := r.FormValue("profile_id")
+	tentID := r.FormValue("tent_id")
+	if profileID == "" || tentID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.tents.AssignMember(ctx, eventID, tentID, profileID, h.tentMaxAgeGap(ctx), true); err != nil {
+		log.Printf("AssignMember (override): %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderTentingSection(w, r, eventID)
+}
+
+func (h *EventHandler) TentRemoveMember(w http.ResponseWriter, r *http.Request) {
+	eventID, status, msg := h.tentPrereqs(r)
+	if status != 0 {
+		http.Error(w, msg, status)
+		return
+	}
+	profileID := muxVars(r)["profile_id"]
+	if profileID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if err := h.tents.RemoveMember(r.Context(), eventID, profileID); err != nil {
+		log.Printf("RemoveMember: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	h.renderTentingSection(w, r, eventID)
 }
