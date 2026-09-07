@@ -1,0 +1,54 @@
+{{define "roster.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Event.Title}} - Roster</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="roster-page">
+<div class="roster-toolbar">
+    <a href="/events/{{.EventID}}" class="btn-secondary btn-small">&larr; Back to event</a>
+    <button class="btn-primary btn-small" onclick="window.print()">Print roster</button>
+</div>
+
+<div class="roster-doc">
+    <header class="roster-header">
+        <h1>{{.Event.Title}}</h1>
+        <p class="roster-meta">
+            <span>{{.Event.Type}}</span>
+            <span>&#x1f4cd; {{.Event.Location}}</span>
+            <span>&#x1f4c5; {{.Event.StartTime.Format "Mon, Jan 2, 2006"}} &ndash; {{.Event.EndTime.Format "Mon, Jan 2, 2006"}}</span>
+        </p>
+    </header>
+
+    <section class="roster-section" id="roster-attendance">
+        <h2>Attendance (Roster)</h2>
+        {{template "roster_attendance_section.html" .}}
+    </section>
+
+    {{if .CookingEnabled}}
+    <section class="roster-section" id="roster-cooking">
+        <h2>Cooking Patrols</h2>
+        {{template "roster_cooking_section.html" .}}
+    </section>
+    {{end}}
+
+    {{if .TentingEnabled}}
+    <section class="roster-section" id="roster-tenting">
+        <h2>Tenting Assignments</h2>
+        {{template "roster_tenting_section.html" .}}
+    </section>
+    {{end}}
+
+    {{if .DriversEnabled}}
+    <section class="roster-section" id="roster-drivers">
+        <h2>Drivers</h2>
+        {{template "roster_drivers_section.html" .}}
+    </section>
+    {{end}}
+</div>
+</body>
+</html>
+{{end}}

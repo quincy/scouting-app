@@ -1,0 +1,48 @@
+{{define "roster_tenting_section.html"}}
+{{with .Tenting}}
+    {{if or .Tents .UnassignedYouth}}
+        {{if .Tents}}
+        <div class="roster-group">
+            {{range .Tents}}
+            <div class="roster-subgroup">
+                <h3>{{.Name}}</h3>
+                <table class="roster-table">
+                    <thead>
+                        <tr>
+                            <th>Member</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Members}}
+                        <tr>
+                            <td class="roster-name">{{.ProfileName}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td class="roster-empty">No members</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+
+        {{if .UnassignedYouth}}
+        <div class="roster-group">
+            <h3>Unassigned</h3>
+            <ul class="roster-unassigned">
+                {{range .UnassignedYouth}}
+                <li>{{.ProfileName}}</li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+    {{else}}
+        <p class="roster-empty">No tents have been created for this event.</p>
+    {{end}}
+{{else}}
+    <p class="roster-empty">No tents have been created for this event.</p>
+{{end}}
+{{end}}

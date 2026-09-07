@@ -1,0 +1,55 @@
+{{define "roster_attendance_section.html"}}
+{{if .AdultAttendees}}
+<div class="roster-group">
+    <h3>Adults ({{.AdultCount}})</h3>
+    <table class="roster-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Age</th>
+                <th>Driver</th>
+                <th>Coordinator</th>
+                <th>Medical Officer</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .AdultAttendees}}
+            <tr>
+                <td class="roster-name">{{.ProfileName}}</td>
+                <td>{{.Age}}</td>
+                <td>{{if .IsDriver}}{{.SeatbeltCount}} seats{{else}}&ndash;{{end}}</td>
+                <td>{{if .IsCoordinator}}&#10003;{{else}}&ndash;{{end}}</td>
+                <td>{{if .IsMedicalOfficer}}&#10003;{{else}}&ndash;{{end}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+
+{{if .YouthAttendees}}
+<div class="roster-group">
+    <h3>Youth / Scouts ({{.YouthCount}})</h3>
+    <table class="roster-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Age</th>
+                <th>SPL</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .YouthAttendees}}
+            <tr>
+                <td class="roster-name">{{.ProfileName}}</td>
+                <td>{{.Age}}</td>
+                <td>{{if .IsSPL}}&#10003;{{else}}&ndash;{{end}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{else if not .AdultAttendees}}
+<p class="roster-empty">No attendees signed up for this event.</p>
+{{end}}
+{{end}}
