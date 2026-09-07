@@ -48,16 +48,16 @@ func (s *TentService) RemoveMember(ctx context.Context, eventID, profileID strin
 	return s.repo.RemoveTentMember(ctx, eventID, profileID)
 }
 
-// AssignMember places a youth attendee into a tent after applying the tenting
-// rules to the prospective arrangement.
+// AssignMember places a youth attendee into a tent after applying the strict
+// tenting rules (mixed gender and age gap) to the prospective arrangement. The
+// "never alone" rule is treated as a non-blocking warning, so a single scout
+// may be placed and is flagged in the UI.
 //
 // The prospective tent is the target tent's current members plus the scout.
-// When the arrangement violates a rule and override is false, no change is
-// made and the violations are returned so the caller can offer an override
-// confirm dialog. When override is true, the placement is saved regardless of
-// violations. An empty violations slice or a nil error means the placement was
-// allowed.
-func (s *TentService) AssignMember(ctx context.Context, eventID, tentID, profileID string, maxAgeGap int, override bool) ([]Violation, error) {
+// When the arrangement violates a strict rule, no change is made and the
+// violations are returned. An empty violations slice or a nil error means the
+// placement was allowed.
+func (s *TentService) AssignMember(ctx context.Context, eventID, tentID, profileID string, maxAgeGap int) ([]Violation, error) {
 	p, err := s.profiles.GetByID(ctx, profileID)
 	if err != nil {
 		return nil, err
@@ -101,8 +101,8 @@ func (s *TentService) AssignMember(ctx context.Context, eventID, tentID, profile
 		return nil, err
 	}
 
-	violations := ValidateTent(scouts, evt.StartTime, maxAgeGap, siblings)
-	if len(violations) > 0 && !override {
+	violations := BlockingViolations(scouts, evt.StartTime, maxAgeGap, siblings)
+	if len(violations) > 0 {
 		return violations, nil
 	}
 
@@ -110,6 +110,50 @@ func (s *TentService) AssignMember(ctx context.Context, eventID, tentID, profile
 		return nil, err
 	}
 	return nil, nil
+}
+
+// ValidTargetTents returns the tents a scout could be assigned to without
+// violating a strict tenting rule (mixed gender or age gap). The scout's
+// current tent is excluded via excludeTentID. The "never alone" rule is
+// non-blocking, so a tent that would leave the scout alone is still returned —
+// the UI flags it separately. An empty result means no tent is a valid option
+// for this scout.
+func (s *TentService) ValidTargetTents(ctx context.Context, eventID, profileID, excludeTentID string, maxAgeGap int) ([]*Tent, error) {
+	p, err := s.profiles.GetByID(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+
+	evt, err := s.repo.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	siblings, err := s.siblingPairs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tents, err := s.repo.ListTents(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	var valid []*Tent
+	for _, t := range tents {
+		if t.ID == excludeTentID {
+			continue
+		}
+		scouts, err := s.prospectiveScouts(ctx, t.Members, p)
+		if err != nil {
+			return nil, err
+		}
+		if len(BlockingViolations(scouts, evt.StartTime, maxAgeGap, siblings)) > 0 {
+			continue
+		}
+		valid = append(valid, t)
+	}
+	return valid, nil
 }
 
 func (s *TentService) prospectiveScouts(ctx context.Context, members []TentMember, added *profile.Profile) ([]TentScout, error) {

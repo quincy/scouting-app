@@ -49,7 +49,7 @@
                 {{else}}
                 <button class="btn-secondary btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/cook" hx-target="#cooking-section" hx-swap="outerHTML">Clear Cook</button>
                 {{end}}
-                <button class="btn-danger-outline btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/members/{{.ProfileID}}" hx-target="#cooking-section" hx-swap="outerHTML" hx-confirm="Remove {{.ProfileName}} from this patrol?">Remove</button>
+                <button class="btn-danger-outline btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/members/{{.ProfileID}}" hx-target="#cooking-section" hx-swap="outerHTML">Remove</button>
               </td>
               {{end}}
             </tr>
@@ -101,7 +101,7 @@
                 {{else}}
                 <button class="btn-secondary btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/cook" hx-target="#cooking-section" hx-swap="outerHTML">Clear Cook</button>
                 {{end}}
-                <button class="btn-danger-outline btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/members/{{.ProfileID}}" hx-target="#cooking-section" hx-swap="outerHTML" hx-confirm="Remove {{.ProfileName}} from this patrol?">Remove</button>
+                <button class="btn-danger-outline btn-small" hx-delete="/events/{{$eventID}}/cooking/patrols/{{$patrol.ID}}/members/{{.ProfileID}}" hx-target="#cooking-section" hx-swap="outerHTML">Remove</button>
               </td>
               {{end}}
             </tr>

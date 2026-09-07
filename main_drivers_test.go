@@ -94,11 +94,12 @@ func setupDriverTest(t *testing.T) *driverTestEnv {
 	}
 
 	evt := &event.Event{
-		Title:     "Test Campout",
-		Location:  "Lake George",
-		StartTime: time.Now().Add(24 * time.Hour),
-		EndTime:   time.Now().Add(48 * time.Hour),
-		Type:      "campout",
+		Title:          "Test Campout",
+		Location:       "Lake George",
+		StartTime:      time.Now().Add(24 * time.Hour),
+		EndTime:        time.Now().Add(48 * time.Hour),
+		Type:           "campout",
+		DriversEnabled: true,
 	}
 	if err := store.Event.Create(ctx, evt); err != nil {
 		t.Fatalf("Create event: %v", err)

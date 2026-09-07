@@ -68,6 +68,10 @@
             <input type="checkbox" name="tenting_enabled" {{if .Event.TentingEnabled}}checked{{end}}>
             <span>Tenting assignments</span>
         </label>
+        <label class="feature-toggle">
+            <input type="checkbox" name="drivers_enabled" {{if .Event.DriversEnabled}}checked{{end}}>
+            <span>Drivers</span>
+        </label>
     </fieldset>
 
     <div class="form-actions">

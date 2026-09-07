@@ -91,9 +91,9 @@ type eventDetailData struct {
 	AttendeeCount   int
 	Profiles        []profileSignUpVM
 	IsPast          bool
-	Summary         event.SeatbeltSummary
-	Cooking         *cookingSectionData
-	Tenting         *tentingSectionData
+	CookingEnabled  bool
+	TentingEnabled  bool
+	DriversEnabled  bool
 }
 
 type attendeeViewModel struct {
@@ -111,29 +111,6 @@ type signupSectionData struct {
 	EventID  string
 	IsPast   bool
 	Profiles []profileSignUpVM
-}
-
-type confirmReplaceData struct {
-	EventID              string
-	ProfileID            string
-	Responsibility       string
-	ResponsibilityLabel  string
-	CurrentHolderID      string
-	CurrentHolderName    string
-	RequestedProfileName string
-}
-
-func responsibilityLabel(r event.Responsibility) string {
-	switch r {
-	case event.ResponsibilitySPL:
-		return "SPL"
-	case event.ResponsibilityCoordinator:
-		return "Coordinator"
-	case event.ResponsibilityMedicalOfficer:
-		return "Medical Officer"
-	default:
-		return string(r)
-	}
 }
 
 type attendeeListData struct {
@@ -184,16 +161,6 @@ type cookingPatrolTargetVM struct {
 	Name string
 }
 
-type cookingReplaceCookData struct {
-	EventID            string
-	PatrolID           string
-	PatrolName         string
-	CurrentCookID      string
-	CurrentCookName    string
-	RequestedCookName  string
-	RequestedProfileID string
-}
-
 type tentingSectionData struct {
 	EventID         string
 	IsPast          bool
@@ -203,16 +170,17 @@ type tentingSectionData struct {
 }
 
 type tentVM struct {
-	ID          string
-	Name        string
-	NeedsScout  bool
-	Members     []tentMemberVM
-	MoveTargets []tentTargetVM
+	ID         string
+	Name       string
+	NeedsScout bool
+	Alone      bool
+	Members    []tentMemberVM
 }
 
 type tentMemberVM struct {
 	ProfileID   string
 	ProfileName string
+	MoveTargets []tentTargetVM
 }
 
 type tentUnassignedVM struct {
@@ -224,14 +192,6 @@ type tentUnassignedVM struct {
 type tentTargetVM struct {
 	ID   string
 	Name string
-}
-
-type tentOverrideConfirmData struct {
-	EventID     string
-	TentID      string
-	ProfileID   string
-	ProfileName string
-	Violations  []string
 }
 
 type eventListPartialData struct {
@@ -463,38 +423,7 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 	unitType, unitNumber := h.loadUnitInfo(ctx)
 	detailTitle := fmt.Sprintf("%s %s Events", unitType, unitNumber)
 
-	summary, sErr := h.repo.GetSeatbeltSummary(ctx, eventID)
-	if sErr != nil {
-		log.Printf("GetSeatbeltSummary: %v", sErr)
-		return
-	}
-
-	userProfile, pErr := h.profiles.GetByUserID(ctx, currentUser.ID)
-	if pErr != nil {
-		return
-	}
-
 	isAdmin := h.isAdmin(ctx, r)
-	var cooking *cookingSectionData
-	if evt.CookingEnabled {
-		cooking, err = h.buildCookingSectionData(ctx, eventID, isPast, isAdmin)
-		if err != nil {
-			log.Printf("buildCookingSectionData: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		cooking.Enabled = true
-	}
-
-	var tenting *tentingSectionData
-	if evt.TentingEnabled {
-		tenting, err = h.buildTentingSectionData(ctx, eventID, isPast, isAdmin)
-		if err != nil {
-			log.Printf("buildTentingSectionData: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-	}
 
 	data := eventDetailData{
 		Title:           detailTitle,
@@ -512,21 +441,142 @@ func (h *EventHandler) EventDetail(w http.ResponseWriter, r *http.Request) {
 		AttendeeCount:   len(attendees),
 		Profiles:        profileVMs,
 		IsPast:          isPast,
-		Summary:         *summary,
-		Cooking:         cooking,
-		Tenting:         tenting,
+		CookingEnabled:  evt.CookingEnabled,
+		TentingEnabled:  evt.TentingEnabled,
+		DriversEnabled:  evt.DriversEnabled,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl.ExecuteTemplate(w, "event_detail.html", data); err != nil {
 		log.Printf("template execution: %v", err)
 	}
+}
 
-	isDriver, sc := computeDriverInfo(userProfile.ID, drivers)
+func (h *EventHandler) EventTentingTab(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	eventID := muxVars(r)["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if !evt.TentingEnabled {
+		http.Error(w, "Tenting not enabled", http.StatusBadRequest)
+		return
+	}
+
+	data, err := h.buildTentingSectionData(ctx, eventID, evt.EndTime.Before(time.Now()), h.isAdmin(ctx, r))
+	if err != nil {
+		log.Printf("EventTentingTab: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "tent_section.html", data); err != nil {
+		log.Printf("template execution (tent_section): %v", err)
+	}
+}
+
+func (h *EventHandler) EventCookingTab(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	eventID := muxVars(r)["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if !evt.CookingEnabled {
+		http.Error(w, "Cooking not enabled", http.StatusBadRequest)
+		return
+	}
+
+	data, err := h.buildCookingSectionData(ctx, eventID, evt.EndTime.Before(time.Now()), h.isAdmin(ctx, r))
+	if err != nil {
+		log.Printf("EventCookingTab: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	data.Enabled = true
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "cooking_section.html", data); err != nil {
+		log.Printf("template execution (cooking_section): %v", err)
+	}
+}
+
+func (h *EventHandler) EventDriversTab(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	currentUser, err := h.auth.GetAuthenticatedUser(r)
+	if err != nil || currentUser == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	eventID := muxVars(r)["id"]
+	if eventID == "" {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	evt, err := h.repo.GetByID(ctx, eventID)
+	if err != nil {
+		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if !evt.DriversEnabled {
+		http.Error(w, "Drivers not enabled", http.StatusBadRequest)
+		return
+	}
+
+	userProfile, pErr := h.profiles.GetByUserID(ctx, currentUser.ID)
+	if pErr != nil {
+		log.Printf("EventDriversTab GetByUserID: %v", pErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	drivers, dErr := h.repo.GetDrivers(ctx, eventID)
+	if dErr != nil {
+		log.Printf("EventDriversTab GetDrivers: %v", dErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	summary, sErr := h.repo.GetSeatbeltSummary(ctx, eventID)
+	if sErr != nil {
+		log.Printf("EventDriversTab GetSeatbeltSummary: %v", sErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	attendees, aErr := h.repo.GetAttendees(ctx, eventID)
+	if aErr != nil {
+		log.Printf("EventDriversTab GetAttendees: %v", aErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	isDriver, seatbeltCount := computeDriverInfo(userProfile.ID, drivers)
 	isSignedUp := isAttending(userProfile.ID, attendees)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
-		EventID: eventID, IsPast: isPast, ProfileID: userProfile.ID,
-		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: isSignedUp, IsDriver: isDriver, SeatbeltCount: sc,
+		EventID: eventID, IsPast: evt.EndTime.Before(time.Now()), ProfileID: userProfile.ID,
+		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: isSignedUp, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
 		Drivers: drivers, Summary: *summary,
 	}); err != nil {
 		log.Printf("template execution (drivers_section): %v", err)
@@ -569,6 +619,7 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 	eventType := r.FormValue("type")
 	cookingEnabled := r.FormValue("cooking_enabled") != ""
 	tentingEnabled := r.FormValue("tenting_enabled") != ""
+	driversEnabled := r.FormValue("drivers_enabled") != ""
 
 	errors := make(map[string]string)
 
@@ -629,6 +680,7 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 		Type:           eventType,
 		CookingEnabled: cookingEnabled,
 		TentingEnabled: tentingEnabled,
+		DriversEnabled: driversEnabled,
 	}
 
 	if len(errors) > 0 {
@@ -765,6 +817,7 @@ func (h *EventHandler) EventEdit(w http.ResponseWriter, r *http.Request) {
 	eventType := r.FormValue("type")
 	cookingEnabled := r.FormValue("cooking_enabled") != ""
 	tentingEnabled := r.FormValue("tenting_enabled") != ""
+	driversEnabled := r.FormValue("drivers_enabled") != ""
 
 	errors := make(map[string]string)
 
@@ -847,6 +900,7 @@ func (h *EventHandler) EventEdit(w http.ResponseWriter, r *http.Request) {
 		Type:           eventType,
 		CookingEnabled: cookingEnabled,
 		TentingEnabled: tentingEnabled,
+		DriversEnabled: driversEnabled,
 		CreatedAt:      existing.CreatedAt,
 	}
 
@@ -1044,7 +1098,7 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Show driver sign-up option for adult self-signups
-	if profileToSignUp.MemberType == profile.MemberTypeAdult {
+	if evt.DriversEnabled && profileToSignUp.MemberType == profile.MemberTypeAdult {
 		isDriver, seatbeltCount := computeDriverInfo(profileToSignUp.ID, drivers)
 		if err := h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
 			EventID: eventID, IsPast: false, ProfileID: profileToSignUp.ID,
@@ -1052,13 +1106,6 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 			Drivers: drivers, Summary: *summary,
 		}); err != nil {
 			log.Printf("template execution (drivers_section): %v", err)
-		}
-		if err := h.tmpl.ExecuteTemplate(w, "seatbelt_badge.html", driversSectionData{
-			EventID: eventID, IsPast: false, ProfileID: profileToSignUp.ID,
-			IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
-			Drivers: drivers, Summary: *summary,
-		}); err != nil {
-			log.Printf("template execution (seatbelt_badge): %v", err)
 		}
 		if !isDriver {
 			if err := h.tmpl.ExecuteTemplate(w, "driver_modal.html", driversSectionData{
@@ -1193,33 +1240,28 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		h.renderTentingSection(w, r, eventID)
 	}
 
-	summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
-	if err != nil {
-		log.Printf("GetSeatbeltSummary: %v", err)
-		return
-	}
+	if evt.DriversEnabled {
+		summary, err := h.repo.GetSeatbeltSummary(ctx, eventID)
+		if err != nil {
+			log.Printf("GetSeatbeltSummary: %v", err)
+			return
+		}
 
-	userProfile, err := h.profiles.GetByUserID(ctx, currentUser.ID)
-	if err != nil {
-		log.Printf("GetByUserID: %v", err)
-		return
-	}
+		userProfile, err := h.profiles.GetByUserID(ctx, currentUser.ID)
+		if err != nil {
+			log.Printf("GetByUserID: %v", err)
+			return
+		}
 
-	isDriver, seatbeltCount := computeDriverInfo(userProfile.ID, drivers)
-	isSignedUp := isAttending(userProfile.ID, attendees)
-	if err := h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
-		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
-		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: isSignedUp, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
-		Drivers: drivers, Summary: *summary,
-	}); err != nil {
-		log.Printf("template execution (drivers_section): %v", err)
-	}
-	if err := h.tmpl.ExecuteTemplate(w, "seatbelt_badge.html", driversSectionData{
-		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
-		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: isSignedUp, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
-		Drivers: drivers, Summary: *summary,
-	}); err != nil {
-		log.Printf("template execution (seatbelt_badge): %v", err)
+		isDriver, seatbeltCount := computeDriverInfo(userProfile.ID, drivers)
+		isSignedUp := isAttending(userProfile.ID, attendees)
+		if err := h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
+			EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
+			IsAdmin: h.isAdmin(ctx, r), IsSignedUp: isSignedUp, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
+			Drivers: drivers, Summary: *summary,
+		}); err != nil {
+			log.Printf("template execution (drivers_section): %v", err)
+		}
 	}
 }
 
@@ -1368,6 +1410,10 @@ func (h *EventHandler) AddDriver(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Event not found", http.StatusNotFound)
 		return
 	}
+	if !evt.DriversEnabled {
+		http.Error(w, "Drivers not enabled", http.StatusBadRequest)
+		return
+	}
 	if evt.EndTime.Before(time.Now()) {
 		http.Error(w, "Cannot modify drivers for a past event", http.StatusBadRequest)
 		return
@@ -1419,12 +1465,7 @@ func (h *EventHandler) AddDriver(w http.ResponseWriter, r *http.Request) {
 		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
 		Drivers: drivers, Summary: *summary,
 	})
-	h.tmpl.ExecuteTemplate(w, "seatbelt_badge.html", driversSectionData{
-		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
-		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
-		Drivers: drivers, Summary: *summary,
-	})
-	w.Write([]byte(`<div id="driver-modal-overlay" hx-swap-oob="delete"></div>`))
+	w.Write([]byte(`<div id="modal-container" hx-swap-oob="delete"></div>`))
 }
 
 func (h *EventHandler) RemoveDriver(w http.ResponseWriter, r *http.Request) {
@@ -1445,6 +1486,10 @@ func (h *EventHandler) RemoveDriver(w http.ResponseWriter, r *http.Request) {
 	evt, err := h.repo.GetByID(ctx, eventID)
 	if err != nil {
 		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if !evt.DriversEnabled {
+		http.Error(w, "Drivers not enabled", http.StatusBadRequest)
 		return
 	}
 	if evt.EndTime.Before(time.Now()) {
@@ -1498,11 +1543,6 @@ func (h *EventHandler) RemoveDriver(w http.ResponseWriter, r *http.Request) {
 		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
 		Drivers: drivers, Summary: *summary,
 	})
-	h.tmpl.ExecuteTemplate(w, "seatbelt_badge.html", driversSectionData{
-		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
-		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
-		Drivers: drivers, Summary: *summary,
-	})
 }
 
 func (h *EventHandler) UpdateDriverSeatbelt(w http.ResponseWriter, r *http.Request) {
@@ -1540,6 +1580,10 @@ func (h *EventHandler) UpdateDriverSeatbelt(w http.ResponseWriter, r *http.Reque
 	evt, err := h.repo.GetByID(ctx, eventID)
 	if err != nil {
 		http.Error(w, "Event not found", http.StatusNotFound)
+		return
+	}
+	if !evt.DriversEnabled {
+		http.Error(w, "Drivers not enabled", http.StatusBadRequest)
 		return
 	}
 	if evt.EndTime.Before(time.Now()) {
@@ -1589,11 +1633,6 @@ func (h *EventHandler) UpdateDriverSeatbelt(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.tmpl.ExecuteTemplate(w, "drivers_section.html", driversSectionData{
-		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
-		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
-		Drivers: drivers, Summary: *summary,
-	})
-	h.tmpl.ExecuteTemplate(w, "seatbelt_badge.html", driversSectionData{
 		EventID: eventID, IsPast: false, ProfileID: userProfile.ID,
 		IsAdmin: h.isAdmin(ctx, r), IsSignedUp: true, IsDriver: isDriver, SeatbeltCount: seatbeltCount,
 		Drivers: drivers, Summary: *summary,
@@ -1661,8 +1700,6 @@ func (h *EventHandler) ToggleResponsibility(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	youthVMs, adultVMs := splitAttendeeVMs(attendees, drivers, currentResp)
-
 	alreadyAssigned := false
 	for _, ra := range currentResp {
 		if ra.ProfileID == profileID && ra.Responsibility == respType {
@@ -1677,121 +1714,25 @@ func (h *EventHandler) ToggleResponsibility(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-
-		updatedResp, _ := h.repo.GetResponsibilities(ctx, eventID)
-		youthVMs, adultVMs = splitAttendeeVMs(attendees, drivers, updatedResp)
 	} else {
 		if err := h.repo.AssignResponsibility(ctx, eventID, profileID, respType); err != nil {
 			log.Printf("AssignResponsibility: %v", err)
 			if sec, ok := err.(event.ErrSingletonConflict); ok {
-				requestedName := sec.RequestedProfileID
-				for _, a := range attendees {
-					if a.ID == sec.RequestedProfileID {
-						requestedName = a.DisplayName()
-						break
-					}
+				if err := h.repo.RemoveResponsibility(ctx, eventID, sec.CurrentHolderID, respType); err != nil {
+					log.Printf("RemoveResponsibility (replace): %v", err)
+					http.Error(w, "Internal server error", http.StatusInternalServerError)
+					return
 				}
-
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
-					EventID: eventID, IsPast: false, IsAdmin: h.isAdmin(ctx, r),
-					YouthAttendees: youthVMs, YouthCount: len(youthVMs),
-					AdultAttendees: adultVMs, AdultCount: len(adultVMs),
-					AttendeeCount: len(attendees),
-				})
-				h.tmpl.ExecuteTemplate(w, "confirm_replace.html", confirmReplaceData{
-					EventID:              eventID,
-					ProfileID:            sec.RequestedProfileID,
-					Responsibility:       string(sec.Responsibility),
-					ResponsibilityLabel:  responsibilityLabel(sec.Responsibility),
-					CurrentHolderID:      sec.CurrentHolderID,
-					CurrentHolderName:    sec.CurrentHolderName,
-					RequestedProfileName: requestedName,
-				})
+				if err := h.repo.AssignResponsibility(ctx, eventID, profileID, respType); err != nil {
+					log.Printf("AssignResponsibility (replace): %v", err)
+					http.Error(w, "Internal server error", http.StatusInternalServerError)
+					return
+				}
+			} else {
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
 		}
-
-		updatedResp, _ := h.repo.GetResponsibilities(ctx, eventID)
-		youthVMs, adultVMs = splitAttendeeVMs(attendees, drivers, updatedResp)
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	h.tmpl.ExecuteTemplate(w, "attendee_list.html", attendeeListData{
-		EventID: eventID, IsPast: false, IsAdmin: h.isAdmin(ctx, r),
-		YouthAttendees: youthVMs, YouthCount: len(youthVMs),
-		AdultAttendees: adultVMs, AdultCount: len(adultVMs),
-		AttendeeCount: len(attendees),
-	})
-}
-
-func (h *EventHandler) ReplaceResponsibility(w http.ResponseWriter, r *http.Request) {
-	vars := muxVars(r)
-	eventID := vars["id"]
-	profileID := vars["profile_id"]
-	respParam := vars["responsibility"]
-	currentHolderID := r.URL.Query().Get("current_holder_id")
-	if eventID == "" || profileID == "" || respParam == "" || currentHolderID == "" {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-
-	respType := event.Responsibility(respParam)
-	if respType == event.ResponsibilityDriver {
-		http.Error(w, "Driver responsibility is managed separately", http.StatusBadRequest)
-		return
-	}
-
-	ctx := r.Context()
-	currentUser, err := h.auth.GetAuthenticatedUser(r)
-	if err != nil || currentUser == nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	evt, err := h.repo.GetByID(ctx, eventID)
-	if err != nil {
-		http.Error(w, "Event not found", http.StatusNotFound)
-		return
-	}
-	if evt.EndTime.Before(time.Now()) {
-		http.Error(w, "Cannot modify responsibilities for a past event", http.StatusBadRequest)
-		return
-	}
-
-	if !h.canManageProfile(ctx, currentUser.ID, profileID) && !h.isAdmin(ctx, r) {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	attendees, aErr := h.repo.GetAttendees(ctx, eventID)
-	if aErr != nil {
-		log.Printf("GetAttendees: %v", aErr)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	if !isAttending(profileID, attendees) {
-		http.Error(w, "Profile is not signed up", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.repo.RemoveResponsibility(ctx, eventID, currentHolderID, respType); err != nil {
-		log.Printf("RemoveResponsibility: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if err := h.repo.AssignResponsibility(ctx, eventID, profileID, respType); err != nil {
-		log.Printf("AssignResponsibility: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	drivers, dErr := h.repo.GetDrivers(ctx, eventID)
-	if dErr != nil {
-		log.Printf("GetDrivers: %v", dErr)
 	}
 
 	updatedResp, _ := h.repo.GetResponsibilities(ctx, eventID)
@@ -1947,49 +1888,15 @@ func (h *EventHandler) CookingSetCook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	var patrolName, currentCookID, currentCookName, requestedName string
 	var patrolFound bool
 	for _, p := range patrols {
-		if p.ID != patrolID {
-			continue
+		if p.ID == patrolID {
+			patrolFound = true
+			break
 		}
-		patrolFound = true
-		patrolName = p.Name
-		for _, m := range p.Members {
-			if m.ProfileID == profileID {
-				requestedName = m.ProfileName
-			}
-			if m.IsCook {
-				currentCookID = m.ProfileID
-				currentCookName = m.ProfileName
-			}
-		}
-		break
 	}
 	if !patrolFound {
 		http.Error(w, "Patrol not found", http.StatusNotFound)
-		return
-	}
-
-	if currentCookID != "" && currentCookID != profileID {
-		data, err := h.buildCookingSectionData(ctx, eventID, false, true)
-		if err != nil {
-			log.Printf("buildCookingSectionData: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		data.Enabled = true
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		h.tmpl.ExecuteTemplate(w, "cooking_section.html", data)
-		h.tmpl.ExecuteTemplate(w, "cooking_confirm_cook.html", cookingReplaceCookData{
-			EventID:            eventID,
-			PatrolID:           patrolID,
-			PatrolName:         patrolName,
-			CurrentCookID:      currentCookID,
-			CurrentCookName:    currentCookName,
-			RequestedCookName:  requestedName,
-			RequestedProfileID: profileID,
-		})
 		return
 	}
 
@@ -2014,28 +1921,6 @@ func (h *EventHandler) CookingClearCook(w http.ResponseWriter, r *http.Request) 
 	}
 	if err := h.cooking.ClearCook(r.Context(), eventID, patrolID); err != nil {
 		log.Printf("ClearCook: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	h.renderCookingSection(w, r, eventID)
-}
-
-func (h *EventHandler) CookingReplaceCook(w http.ResponseWriter, r *http.Request) {
-	eventID, status, msg := h.cookingPatrolPrereqs(r)
-	if status != 0 {
-		http.Error(w, msg, status)
-		return
-	}
-	vars := muxVars(r)
-	patrolID := vars["patrol_id"]
-	profileID := vars["profile_id"]
-	currentCookID := r.URL.Query().Get("current_cook_id")
-	if patrolID == "" || profileID == "" || currentCookID == "" {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-	if err := h.cooking.SetCook(r.Context(), eventID, patrolID, profileID); err != nil {
-		log.Printf("SetCook (replace): %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -2267,11 +2152,20 @@ func (h *EventHandler) buildTentingSectionData(ctx context.Context, eventID stri
 	}
 
 	memberID := map[string]bool{}
+	maxAgeGap := h.tentMaxAgeGap(ctx)
 	for _, t := range tents {
-		vm := tentVM{ID: t.ID, Name: t.Name, NeedsScout: len(t.Members) < 2, MoveTargets: tentTargets(tents, t.ID)}
+		vm := tentVM{ID: t.ID, Name: t.Name, NeedsScout: len(t.Members) < 2, Alone: len(t.Members) == 1}
 		for _, m := range t.Members {
 			memberID[m.ProfileID] = true
-			vm.Members = append(vm.Members, tentMemberVM{ProfileID: m.ProfileID, ProfileName: m.ProfileName})
+			valid, err := h.tents.ValidTargetTents(ctx, eventID, m.ProfileID, t.ID, maxAgeGap)
+			if err != nil {
+				return nil, err
+			}
+			vm.Members = append(vm.Members, tentMemberVM{
+				ProfileID:   m.ProfileID,
+				ProfileName: m.ProfileName,
+				MoveTargets: tentTargetVMs(valid),
+			})
 		}
 		sort.Slice(vm.Members, func(i, j int) bool {
 			return vm.Members[i].ProfileName < vm.Members[j].ProfileName
@@ -2286,10 +2180,14 @@ func (h *EventHandler) buildTentingSectionData(ctx context.Context, eventID stri
 		if memberID[a.ID] {
 			continue
 		}
+		valid, err := h.tents.ValidTargetTents(ctx, eventID, a.ID, "", maxAgeGap)
+		if err != nil {
+			return nil, err
+		}
 		data.UnassignedYouth = append(data.UnassignedYouth, tentUnassignedVM{
 			ProfileID:   a.ID,
 			ProfileName: a.DisplayName(),
-			Targets:     tentTargets(tents, ""),
+			Targets:     tentTargetVMs(valid),
 		})
 	}
 	sort.Slice(data.UnassignedYouth, func(i, j int) bool {
@@ -2298,15 +2196,12 @@ func (h *EventHandler) buildTentingSectionData(ctx context.Context, eventID stri
 	return data, nil
 }
 
-func tentTargets(tents []*event.Tent, excludeID string) []tentTargetVM {
-	var targets []tentTargetVM
+func tentTargetVMs(tents []*event.Tent) []tentTargetVM {
+	vms := make([]tentTargetVM, 0, len(tents))
 	for _, t := range tents {
-		if t.ID == excludeID {
-			continue
-		}
-		targets = append(targets, tentTargetVM{ID: t.ID, Name: t.Name})
+		vms = append(vms, tentTargetVM{ID: t.ID, Name: t.Name})
 	}
-	return targets
+	return vms
 }
 
 func (h *EventHandler) TentCreate(w http.ResponseWriter, r *http.Request) {
@@ -2360,7 +2255,7 @@ func (h *EventHandler) TentAssignMember(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	violations, err := h.tents.AssignMember(ctx, eventID, tentID, profileID, h.tentMaxAgeGap(ctx), false)
+	violations, err := h.tents.AssignMember(ctx, eventID, tentID, profileID, h.tentMaxAgeGap(ctx))
 	if err != nil {
 		if errors.Is(err, event.ErrAdultInTent) {
 			http.Error(w, "Adults cannot be placed into a tent", http.StatusBadRequest)
@@ -2372,59 +2267,14 @@ func (h *EventHandler) TentAssignMember(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if len(violations) > 0 {
-		p, err := h.profiles.GetByID(ctx, profileID)
-		if err != nil {
-			log.Printf("GetByID: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
 		messages := make([]string, len(violations))
 		for i, v := range violations {
 			messages[i] = v.Message
 		}
-		data, err := h.buildTentingSectionData(ctx, eventID, false, true)
-		if err != nil {
-			log.Printf("buildTentingSectionData: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		h.tmpl.ExecuteTemplate(w, "tent_section.html", data)
-		h.tmpl.ExecuteTemplate(w, "tent_confirm_override.html", tentOverrideConfirmData{
-			EventID:     eventID,
-			TentID:      tentID,
-			ProfileID:   profileID,
-			ProfileName: p.DisplayName(),
-			Violations:  messages,
-		})
+		http.Error(w, strings.Join(messages, "; "), http.StatusBadRequest)
 		return
 	}
 
-	h.renderTentingSection(w, r, eventID)
-}
-
-func (h *EventHandler) TentAssignMemberOverride(w http.ResponseWriter, r *http.Request) {
-	eventID, status, msg := h.tentPrereqs(r)
-	if status != 0 {
-		http.Error(w, msg, status)
-		return
-	}
-	ctx := r.Context()
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-	profileID := r.FormValue("profile_id")
-	tentID := r.FormValue("tent_id")
-	if profileID == "" || tentID == "" {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-	if _, err := h.tents.AssignMember(ctx, eventID, tentID, profileID, h.tentMaxAgeGap(ctx), true); err != nil {
-		log.Printf("AssignMember (override): %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
 	h.renderTentingSection(w, r, eventID)
 }
 

@@ -27,6 +27,7 @@ type Event struct {
 	Type           string
 	CookingEnabled bool
 	TentingEnabled bool
+	DriversEnabled bool
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

@@ -99,7 +99,7 @@ func createTentForEvent(t *testing.T, store *postgres.Store, evtID string) *even
 	return tent
 }
 
-func TestEventHandler_EventDetail_RendersTentSectionWhenEnabled(t *testing.T) {
+func TestEventHandler_EventDetail_RendersTentingTabWhenEnabled(t *testing.T) {
 	handler, authService, store, _ := setupEventTest(t)
 	evt := tentingEvent(t, store, true)
 
@@ -111,8 +111,198 @@ func TestEventHandler_EventDetail_RendersTentSectionWhenEnabled(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if !strings.Contains(rr.Body.String(), "Tents") {
-		t.Errorf("expected tent section in detail body:\n%s", rr.Body.String())
+	body := rr.Body.String()
+	if !strings.Contains(body, "tab-bar") {
+		t.Errorf("expected tab bar on detail page:\n%s", body)
+	}
+	if !strings.Contains(body, `data-tab="tenting"`) {
+		t.Errorf("expected Tenting tab on detail page:\n%s", body)
+	}
+	if !strings.Contains(body, `id="tent-section"`) {
+		t.Errorf("expected tent section placeholder on detail page:\n%s", body)
+	}
+}
+
+func TestEventTentingTab_SoloTentShowsAloneWarn(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTentMux()()
+	ctx := t.Context()
+	evt := tentingEvent(t, store, true)
+	tim := createYouthProfile(t, store, "Tim")
+	signUpAttendee(t, store, evt.ID, tim.ID)
+	tent := createTentForEvent(t, store, evt.ID)
+	if err := store.Event.AssignTentMember(ctx, evt.ID, tent.ID, tim.ID); err != nil {
+		t.Fatalf("seed AssignTentMember: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/tenting?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "tent-alone-warn") {
+		t.Errorf("expected alone-warn indicator for a solo tent:\n%s", body)
+	}
+	if !strings.Contains(body, "would sleep alone") {
+		t.Errorf("expected alone-warn tooltip explaining the problem:\n%s", body)
+	}
+}
+
+func TestEventTentingTab_TentTargetsExcludeInvalidTents(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTentMux()()
+	ctx := t.Context()
+	evt := tentingEvent(t, store, true)
+
+	sue := createYouthProfile(t, store, "Sue")
+	sue.Gender = "F"
+	if err := store.Profile.Update(ctx, sue); err != nil {
+		t.Fatalf("set Sue gender: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, sue.ID)
+
+	validEmpty := createTentForEvent(t, store, evt.ID)
+
+	validSameGender := createTentForEvent(t, store, evt.ID)
+	amy := createYouthProfile(t, store, "Amy")
+	amy.Gender = "F"
+	if err := store.Profile.Update(ctx, amy); err != nil {
+		t.Fatalf("set Amy gender: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, amy.ID)
+	if err := store.Event.AssignTentMember(ctx, evt.ID, validSameGender.ID, amy.ID); err != nil {
+		t.Fatalf("seed same-gender tent: %v", err)
+	}
+
+	invalidMixed := createTentForEvent(t, store, evt.ID)
+	mark := createYouthProfile(t, store, "Mark")
+	mark.Gender = "M"
+	if err := store.Profile.Update(ctx, mark); err != nil {
+		t.Fatalf("set Mark gender: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, mark.ID)
+	if err := store.Event.AssignTentMember(ctx, evt.ID, invalidMixed.ID, mark.ID); err != nil {
+		t.Fatalf("seed mixed-gender tent: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/tenting?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `value="`+validEmpty.ID+`"`) {
+		t.Errorf("expected empty tent offered as a valid assign target for Sue:\n%s", body)
+	}
+	if !strings.Contains(body, `value="`+validSameGender.ID+`"`) {
+		t.Errorf("expected same-gender tent offered as a valid assign target for Sue:\n%s", body)
+	}
+	if strings.Contains(body, `value="`+invalidMixed.ID+`"`) {
+		t.Errorf("mixed-gender tent must not be offered as an assign target:\n%s", body)
+	}
+}
+
+func TestEventTentingTab_ReturnsTentSection(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTentMux()()
+	evt := tentingEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/tenting?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body:\n%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Tents") {
+		t.Errorf("expected Tents heading:\n%s", body)
+	}
+	if !strings.Contains(body, "Create Tent") {
+		t.Errorf("expected Create Tent button for admin:\n%s", body)
+	}
+}
+
+func TestEventTentingTab_TentingDisabled_Returns400(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTentMux()()
+	evt := tentingEvent(t, store, false)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/tenting?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("EventTentingTab returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventTentingTab_NotFound(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+	defer setupTentMux()()
+
+	req := loggedInRequest(t, authService, "GET", "/events/nonexistent/tab/tenting?id=nonexistent")
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("EventTentingTab returned %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestEventTentingTab_Unauthenticated(t *testing.T) {
+	handler, _, _, _ := setupEventTest(t)
+	defer setupTentMux()()
+
+	req := httptest.NewRequest("GET", "/events/e1/tab/tenting?id=e1", nil)
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("EventTentingTab returned %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestEventTentingTab_MissingID_Returns400(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+	defer setupTentMux()()
+
+	req := loggedInRequest(t, authService, "GET", "/events//tab/tenting")
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("EventTentingTab returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventTentingTab_BuildError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupTentMux()()
+	evt := tentingEvent(t, store, true)
+
+	repo := &failingTentRepo{Repository: store.Event, fail: map[string]error{"listTents": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/tenting?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("EventTentingTab returned %d, want %d", rr.Code, http.StatusInternalServerError)
 	}
 }
 
@@ -128,8 +318,15 @@ func TestEventHandler_EventDetail_OmitsTentSectionWhenDisabled(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if strings.Contains(rr.Body.String(), "id=\"tent-section\"") {
-		t.Errorf("expected no tent section when tenting disabled:\n%s", rr.Body.String())
+	body := rr.Body.String()
+	if strings.Contains(body, "tab-bar") {
+		t.Errorf("expected no tab bar when no sections enabled:\n%s", body)
+	}
+	if strings.Contains(body, `data-tab="tenting"`) {
+		t.Errorf("expected no Tenting tab when tenting disabled:\n%s", body)
+	}
+	if strings.Contains(body, `id="tent-section"`) {
+		t.Errorf("expected no tent section when tenting disabled:\n%s", body)
 	}
 }
 
@@ -289,7 +486,7 @@ func TestTentAssignMember_AssignsYouth(t *testing.T) {
 	}
 }
 
-func TestTentAssignMember_BlockedShowsOverrideDialog(t *testing.T) {
+func TestTentAssignMember_SoloPlacementAllowedWithoutOverrideDialog(t *testing.T) {
 	handler, authService, store, _ := setupEventTest(t)
 	defer setupTentMux()()
 	ctx := t.Context()
@@ -307,42 +504,55 @@ func TestTentAssignMember_BlockedShowsOverrideDialog(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if !strings.Contains(rr.Body.String(), "Save Anyway") {
-		t.Errorf("expected override dialog in body:\n%s", rr.Body.String())
-	}
-	tents, err := store.Event.ListTents(ctx, evt.ID)
-	if err != nil {
-		t.Fatalf("ListTents: %v", err)
-	}
-	if len(tents[0].Members) != 0 {
-		t.Errorf("expected placement blocked, got %+v", tents[0].Members)
-	}
-}
-
-func TestTentAssignMember_OverrideSaves(t *testing.T) {
-	handler, authService, store, _ := setupEventTest(t)
-	defer setupTentMux()()
-	ctx := t.Context()
-	evt := tentingEvent(t, store, true)
-	tim := createYouthProfile(t, store, "Tim")
-	signUpAttendee(t, store, evt.ID, tim.ID)
-	tent := createTentForEvent(t, store, evt.ID)
-
-	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/tents/override?id="+evt.ID,
-		url.Values{"profile_id": {tim.ID}, "tent_id": {tent.ID}}.Encode())
-	rr := httptest.NewRecorder()
-
-	handler.TentAssignMemberOverride(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	if strings.Contains(rr.Body.String(), "Save Anyway") {
+		t.Errorf("expected no override dialog for solo placement:\n%s", rr.Body.String())
 	}
 	tents, err := store.Event.ListTents(ctx, evt.ID)
 	if err != nil {
 		t.Fatalf("ListTents: %v", err)
 	}
 	if len(tents[0].Members) != 1 || tents[0].Members[0].ProfileID != tim.ID {
-		t.Errorf("expected Tim assigned after override, got %+v", tents[0].Members)
+		t.Errorf("expected Tim assigned alone without an override dialog, got %+v", tents[0].Members)
+	}
+}
+
+func TestTentAssignMember_MixedGenderBlockedWithoutSave(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTentMux()()
+	ctx := t.Context()
+	evt := tentingEvent(t, store, true)
+	tim := createYouthProfile(t, store, "Tim")
+	sue := createYouthProfile(t, store, "Sue")
+	tim.Gender = "M"
+	sue.Gender = "F"
+	if err := store.Profile.Update(ctx, tim); err != nil {
+		t.Fatalf("set Tim gender: %v", err)
+	}
+	if err := store.Profile.Update(ctx, sue); err != nil {
+		t.Fatalf("set Sue gender: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, tim.ID)
+	signUpAttendee(t, store, evt.ID, sue.ID)
+	tent := createTentForEvent(t, store, evt.ID)
+	if err := store.Event.AssignTentMember(ctx, evt.ID, tent.ID, tim.ID); err != nil {
+		t.Fatalf("seed AssignTentMember: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/tents/assign?id="+evt.ID,
+		url.Values{"profile_id": {sue.ID}, "tent_id": {tent.ID}}.Encode())
+	rr := httptest.NewRecorder()
+
+	handler.TentAssignMember(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body:\n%s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	tents, err := store.Event.ListTents(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListTents: %v", err)
+	}
+	if len(tents[0].Members) != 1 || tents[0].Members[0].ProfileID != tim.ID {
+		t.Errorf("expected mixed-gender placement rejected (no change), got %+v", tents[0].Members)
 	}
 }
 
@@ -495,56 +705,6 @@ func TestTentRemoveMember_RepoError_Returns500(t *testing.T) {
 	}
 }
 
-func TestTentAssignMemberOverride_MissingParams_Returns400(t *testing.T) {
-	handler, authService, store, _ := setupEventTest(t)
-	defer setupTentMux()()
-	evt := tentingEvent(t, store, true)
-
-	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/tents/override?id="+evt.ID,
-		url.Values{"tent_id": {"x"}}.Encode())
-	rr := httptest.NewRecorder()
-	handler.TentAssignMemberOverride(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
-	}
-}
-
-func TestTentAssignMemberOverride_TentingDisabled_Returns400(t *testing.T) {
-	handler, authService, store, _ := setupEventTest(t)
-	defer setupTentMux()()
-	evt := tentingEvent(t, store, false)
-
-	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/tents/override?id="+evt.ID,
-		url.Values{"profile_id": {"x"}, "tent_id": {"y"}}.Encode())
-	rr := httptest.NewRecorder()
-	handler.TentAssignMemberOverride(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
-	}
-}
-
-func TestTentAssignMemberOverride_RepoError_Returns500(t *testing.T) {
-	_, authService, store, _ := setupEventTest(t)
-	defer setupTentMux()()
-	evt := tentingEvent(t, store, true)
-	youth := createYouthProfile(t, store, "Alice")
-	signUpAttendee(t, store, evt.ID, youth.ID)
-
-	repo := &failingTentRepo{Repository: store.Event, fail: map[string]error{"listTents": errors.New("boom")}}
-	handler := newEventHandlerWithRepo(repo, authService, store)
-
-	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/tents/override?id="+evt.ID,
-		url.Values{"profile_id": {youth.ID}, "tent_id": {"y"}}.Encode())
-	rr := httptest.NewRecorder()
-	handler.TentAssignMemberOverride(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
-	}
-}
-
 func TestTentAssignMember_RepoError_Returns500(t *testing.T) {
 	_, authService, store, _ := setupEventTest(t)
 	defer setupTentMux()()
@@ -557,27 +717,6 @@ func TestTentAssignMember_RepoError_Returns500(t *testing.T) {
 
 	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/tents/assign?id="+evt.ID,
 		url.Values{"profile_id": {youth.ID}, "tent_id": {"y"}}.Encode())
-	rr := httptest.NewRecorder()
-	handler.TentAssignMember(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d; body:\n%s", rr.Code, http.StatusInternalServerError, rr.Body.String())
-	}
-}
-
-func TestTentAssignMember_ViolationsRenderError_Returns500(t *testing.T) {
-	_, authService, store, _ := setupEventTest(t)
-	defer setupTentMux()()
-	evt := tentingEvent(t, store, true)
-	youth := createYouthProfile(t, store, "Alice")
-	signUpAttendee(t, store, evt.ID, youth.ID)
-	tent := createTentForEvent(t, store, evt.ID)
-
-	repo := &failingTentRepo{Repository: store.Event, fail: map[string]error{"attendees": errors.New("boom")}}
-	handler := newEventHandlerWithRepo(repo, authService, store)
-
-	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/tents/assign?id="+evt.ID,
-		url.Values{"profile_id": {youth.ID}, "tent_id": {tent.ID}}.Encode())
 	rr := httptest.NewRecorder()
 	handler.TentAssignMember(rr, req)
 
