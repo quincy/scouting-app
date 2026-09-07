@@ -1,0 +1,93 @@
+{{define "roster_cooking_section.html"}}
+{{with .Cooking}}
+    {{if or .YouthPatrols .AdultPatrols .UnassignedYouth .UnassignedAdults}}
+        {{if .YouthPatrols}}
+        <div class="roster-group">
+            <h3>Youth Patrols</h3>
+            {{range .YouthPatrols}}
+            <div class="roster-subgroup">
+                <h4>{{.Name}}</h4>
+                <table class="roster-table">
+                    <thead>
+                        <tr>
+                            <th>Member</th>
+                            <th>Cook</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Members}}
+                        <tr>
+                            <td class="roster-name">{{.ProfileName}}</td>
+                            <td>{{if .IsCook}}&#10003; Cook{{else}}&ndash;{{end}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="2" class="roster-empty">No members</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+
+        {{if .AdultPatrols}}
+        <div class="roster-group">
+            <h3>Adults</h3>
+            {{range .AdultPatrols}}
+            <div class="roster-subgroup">
+                <h4>{{.Name}}</h4>
+                <table class="roster-table">
+                    <thead>
+                        <tr>
+                            <th>Member</th>
+                            <th>Cook</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Members}}
+                        <tr>
+                            <td class="roster-name">{{.ProfileName}}</td>
+                            <td>{{if .IsCook}}&#10003; Cook{{else}}&ndash;{{end}}</td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="2" class="roster-empty">No members</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+
+        {{if or .UnassignedYouth .UnassignedAdults}}
+        <div class="roster-group">
+            <h3>Unassigned</h3>
+            {{if .UnassignedYouth}}
+            <p class="roster-subgroup-label">Youth</p>
+            <ul class="roster-unassigned">
+                {{range .UnassignedYouth}}
+                <li>{{.ProfileName}}</li>
+                {{end}}
+            </ul>
+            {{end}}
+            {{if .UnassignedAdults}}
+            <p class="roster-subgroup-label">Adults</p>
+            <ul class="roster-unassigned">
+                {{range .UnassignedAdults}}
+                <li>{{.ProfileName}}</li>
+                {{end}}
+            </ul>
+            {{end}}
+        </div>
+        {{end}}
+    {{else}}
+        <p class="roster-empty">No cooking patrols have been created for this event.</p>
+    {{end}}
+{{else}}
+    <p class="roster-empty">No cooking patrols have been created for this event.</p>
+{{end}}
+{{end}}

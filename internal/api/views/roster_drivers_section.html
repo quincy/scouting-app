@@ -1,0 +1,31 @@
+{{define "roster_drivers_section.html"}}
+<div class="roster-group">
+    <p class="roster-seatbelt-summary">
+        {{if .SeatbeltSummary.Sufficient}}
+        <span class="seatbelt-ok">&#10003; {{.SeatbeltSummary.Available}} / {{.SeatbeltSummary.RequiredSeatbelts}} seatbelts</span>
+        {{else}}
+        <span class="seatbelt-insufficient">&#10007; {{.SeatbeltSummary.Available}} / {{.SeatbeltSummary.RequiredSeatbelts}} seatbelts</span>
+        {{end}}
+    </p>
+    <table class="roster-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Seatbelt Count</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Drivers}}
+            <tr>
+                <td class="roster-name">{{.ProfileName}}</td>
+                <td>{{.SeatbeltCount}}</td>
+            </tr>
+            {{else}}
+            <tr>
+                <td colspan="2" class="roster-empty">No drivers signed up yet.</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
