@@ -1,16 +1,6 @@
-{{define "seatbelt_badge.html"}}
-<div id="seatbelt-badge" hx-swap-oob="true">
-    {{if .Summary.Sufficient}}
-        <span class="seatbelt-badge seatbelt-sufficient">&#10003; {{.Summary.Available}} / {{.Summary.RequiredSeatbelts}} seatbelts</span>
-    {{else}}
-        <span class="seatbelt-badge seatbelt-insufficient">&#10007; {{.Summary.Available}} / {{.Summary.RequiredSeatbelts}} seatbelts</span>
-    {{end}}
-</div>
-{{end}}
-
 {{define "driver_modal.html"}}
-<div class="modal-overlay" id="driver-modal-overlay">
-  <div class="modal-dialog" onclick="event.stopPropagation()">
+<div class="modal-overlay" id="modal-container" hx-swap-oob="true" onclick="this.innerHTML=''">
+  <div class="modal-dialog" id="driver-modal-overlay" onclick="event.stopPropagation()">
     <h3>Sign up as driver?</h3>
     <p>Would you like to sign up as a driver for this event?</p>
     <form hx-post="/events/{{.EventID}}/drivers" hx-target="#drivers-section" hx-swap="outerHTML">
@@ -29,6 +19,13 @@
 {{define "drivers_section.html"}}
 <div id="drivers-section" hx-swap-oob="true">
     <h3>Drivers</h3>
+    <div id="seatbelt-badge">
+        {{if .Summary.Sufficient}}
+            <span class="seatbelt-badge seatbelt-sufficient">&#10003; {{.Summary.Available}} / {{.Summary.RequiredSeatbelts}} seatbelts</span>
+        {{else}}
+            <span class="seatbelt-badge seatbelt-insufficient">&#10007; {{.Summary.Available}} / {{.Summary.RequiredSeatbelts}} seatbelts</span>
+        {{end}}
+    </div>
     <table class="driver-table">
         <thead>
             <tr>

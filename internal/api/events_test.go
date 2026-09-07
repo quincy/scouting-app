@@ -24,12 +24,26 @@ import (
 func futureEvent(title string, daysFromNow int) *event.Event {
 	start := time.Now().AddDate(0, 0, daysFromNow)
 	return &event.Event{
-		Title:     title,
-		Location:  "Test Location",
-		StartTime: start,
-		EndTime:   start.Add(2 * time.Hour),
-		Type:      "campout",
-		CreatedAt: time.Now(),
+		Title:          title,
+		Location:       "Test Location",
+		StartTime:      start,
+		EndTime:        start.Add(2 * time.Hour),
+		Type:           "campout",
+		DriversEnabled: true,
+		CreatedAt:      time.Now(),
+	}
+}
+
+func pastDriverEvent(title string, daysAgo int) *event.Event {
+	start := time.Now().AddDate(0, 0, -daysAgo)
+	return &event.Event{
+		Title:          title,
+		Location:       "Test Location",
+		StartTime:      start,
+		EndTime:        start.Add(2 * time.Hour),
+		Type:           "campout",
+		DriversEnabled: true,
+		CreatedAt:      time.Now(),
 	}
 }
 
@@ -465,7 +479,7 @@ func TestEventHandler_EventDetail_DriverTableShowsDriverNames(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout", DriversEnabled: true}
 	if err := store.Event.Create(ctx, evt); err != nil {
 		t.Fatalf("Create event: %v", err)
 	}
@@ -478,15 +492,18 @@ func TestEventHandler_EventDetail_DriverTableShowsDriverNames(t *testing.T) {
 		t.Fatalf("AddDriver: %v", err)
 	}
 
-	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/drivers?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
-	handler.EventDetail(rr, req)
+	handler.EventDriversTab(rr, req)
 
 	body := rr.Body.String()
 
 	if !strings.Contains(body, "driver-table") {
 		t.Errorf("expected driver table in drivers section, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Admin User") {
+		t.Errorf("expected 'Admin User' in driver table, got:\n%s", body)
 	}
 }
 
@@ -494,7 +511,7 @@ func TestEventHandler_SignUp_ShowsDriverModalForAdult(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout", DriversEnabled: true}
 	if err := store.Event.Create(ctx, evt); err != nil {
 		t.Fatalf("Create event: %v", err)
 	}
@@ -516,13 +533,16 @@ func TestEventHandler_SignUp_ShowsDriverModalForAdult(t *testing.T) {
 	if !strings.Contains(body, "Sign up as driver") {
 		t.Errorf("expected 'Sign up as driver' in signup response for adult, got:\n%s", body)
 	}
+	if !strings.Contains(body, `id="modal-container"`) || !strings.Contains(body, `hx-swap-oob="true"`) {
+		t.Errorf("expected driver modal to be OOB-swapped into #modal-container (so it renders reliably alongside the new OOB cooking/tent sections), got:\n%s", body)
+	}
 }
 
 func TestEventHandler_SignUp_DriverModalSubmitDoesNotRemoveOverlayPrematurely(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout", DriversEnabled: true}
 	if err := store.Event.Create(ctx, evt); err != nil {
 		t.Fatalf("Create event: %v", err)
 	}
@@ -551,7 +571,7 @@ func TestEventHandler_EventDetail_ShowsSeatbeltBadge(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout", DriversEnabled: true}
 	if err := store.Event.Create(ctx, evt); err != nil {
 		t.Fatalf("Create event: %v", err)
 	}
@@ -564,15 +584,22 @@ func TestEventHandler_EventDetail_ShowsSeatbeltBadge(t *testing.T) {
 		t.Fatalf("AddDriver: %v", err)
 	}
 
-	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/drivers?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
-	handler.EventDetail(rr, req)
+	handler.EventDriversTab(rr, req)
 
 	body := rr.Body.String()
 
-	if !strings.Contains(body, "id=\"seatbelt-badge\"") {
-		t.Errorf("expected seatbelt-badge element in event detail, got:\n%s", body)
+	badgeIdx := strings.Index(body, `id="seatbelt-badge"`)
+	if badgeIdx == -1 {
+		t.Errorf("expected seatbelt-badge element in drivers section, got:\n%s", body)
+	}
+
+	headingIdx := strings.Index(body, "<h3>Drivers</h3>")
+	tableIdx := strings.Index(body, "driver-table")
+	if !(badgeIdx > headingIdx && tableIdx > badgeIdx) {
+		t.Errorf("seatbelt badge must sit between the Drivers heading and the driver table (badgeIdx=%d headingIdx=%d tableIdx=%d)", badgeIdx, headingIdx, tableIdx)
 	}
 	if !strings.Contains(body, "5 / 1 seatbelts") {
 		t.Errorf("expected '5 / 1 seatbelts' in seatbelt badge, got:\n%s", body)
@@ -680,7 +707,7 @@ func TestEventHandler_Withdraw_UpdatesDriversSection(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout"}
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout", DriversEnabled: true}
 	if err := store.Event.Create(ctx, evt); err != nil {
 		t.Fatalf("Create event: %v", err)
 	}
@@ -1168,6 +1195,9 @@ func TestEventHandler_EventCreateForm_RendersToggles(t *testing.T) {
 	if !strings.Contains(body, `name="tenting_enabled"`) {
 		t.Errorf("expected tenting toggle checkbox, got:\n%s", body)
 	}
+	if !strings.Contains(body, `name="drivers_enabled"`) {
+		t.Errorf("expected drivers toggle checkbox, got:\n%s", body)
+	}
 }
 
 func TestEventHandler_EventCreate_PersistsToggles(t *testing.T) {
@@ -1183,6 +1213,7 @@ func TestEventHandler_EventCreate_PersistsToggles(t *testing.T) {
 		"type":            {"campout"},
 		"cooking_enabled": {"on"},
 		"tenting_enabled": {"on"},
+		"drivers_enabled": {"on"},
 	}
 
 	req := loggedInPostRequest(t, authService, "/events/create", form)
@@ -1205,6 +1236,9 @@ func TestEventHandler_EventCreate_PersistsToggles(t *testing.T) {
 	}
 	if !created.TentingEnabled {
 		t.Error("expected TentingEnabled to be true")
+	}
+	if !created.DriversEnabled {
+		t.Error("expected DriversEnabled to be true")
 	}
 }
 
@@ -1241,6 +1275,9 @@ func TestEventHandler_EventCreate_UncheckedTogglesDefaultFalse(t *testing.T) {
 	}
 	if created.TentingEnabled {
 		t.Error("expected TentingEnabled to default to false")
+	}
+	if created.DriversEnabled {
+		t.Error("expected DriversEnabled to default to false")
 	}
 }
 
@@ -1612,6 +1649,7 @@ func TestEventHandler_EventEdit_PersistsToggles(t *testing.T) {
 		"type":            {"campout"},
 		"cooking_enabled": {"on"},
 		"tenting_enabled": {"on"},
+		"drivers_enabled": {"on"},
 	}
 
 	req := loggedInPostRequest(t, authService, "/events/"+evt.ID+"/edit?id="+evt.ID, form)
@@ -1633,6 +1671,9 @@ func TestEventHandler_EventEdit_PersistsToggles(t *testing.T) {
 	if !updated.TentingEnabled {
 		t.Error("expected TentingEnabled to be true after edit")
 	}
+	if !updated.DriversEnabled {
+		t.Error("expected DriversEnabled to be true after edit")
+	}
 }
 
 func TestEventHandler_EventEditForm_RendersCheckedToggles(t *testing.T) {
@@ -1648,6 +1689,7 @@ func TestEventHandler_EventEditForm_RendersCheckedToggles(t *testing.T) {
 		Type:           "campout",
 		CookingEnabled: true,
 		TentingEnabled: true,
+		DriversEnabled: true,
 		CreatedAt:      time.Now(),
 	}
 	if err := store.Event.Create(ctx, evt); err != nil {
@@ -1669,6 +1711,9 @@ func TestEventHandler_EventEditForm_RendersCheckedToggles(t *testing.T) {
 	}
 	if !strings.Contains(body, `name="tenting_enabled" checked`) {
 		t.Errorf("expected tenting toggle checked, got:\n%s", body)
+	}
+	if !strings.Contains(body, `name="drivers_enabled" checked`) {
+		t.Errorf("expected drivers toggle checked, got:\n%s", body)
 	}
 }
 
@@ -1921,6 +1966,43 @@ func TestEventHandler_RemoveDriver_HappyPath(t *testing.T) {
 	}
 }
 
+func TestEventHandler_RemoveDriver_ResponseContainsSeatbeltBadgeInSection(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := futureEvent("Campout", 7)
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+	if err := store.Event.AddDriver(ctx, evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "DELETE", "/events/"+evt.ID+"/drivers?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.RemoveDriver(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("RemoveDriver returned %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	body := rr.Body.String()
+
+	sectionIdx := strings.Index(body, `id="drivers-section"`)
+	badgeIdx := strings.Index(body, `id="seatbelt-badge"`)
+	if sectionIdx == -1 || badgeIdx == -1 || badgeIdx < sectionIdx {
+		t.Errorf("seatbelt badge must be nested inside #drivers-section (sectionIdx=%d badgeIdx=%d):\n%s", sectionIdx, badgeIdx, body)
+	}
+
+	if !strings.Contains(body, "0 / 1 seatbelts") {
+		t.Errorf("expected updated seatbelt summary '0 / 1 seatbelts' after driver removal:\n%s", body)
+	}
+}
+
 func TestEventHandler_UpdateDriverSeatbelt_HappyPath(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
@@ -1961,7 +2043,7 @@ func TestEventHandler_AddDriver_PastEvent(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	evt := pastEvent("Past Campout", 1)
+	evt := pastDriverEvent("Past Campout", 1)
 	if err := store.Event.Create(ctx, evt); err != nil {
 		t.Fatalf("Create event: %v", err)
 	}
@@ -1983,7 +2065,7 @@ func TestEventHandler_RemoveDriver_PastEvent(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
 
-	evt := pastEvent("Past Campout", 1)
+	evt := pastDriverEvent("Past Campout", 1)
 	if err := store.Event.Create(ctx, evt); err != nil {
 		t.Fatalf("Create event: %v", err)
 	}
@@ -2052,7 +2134,7 @@ func TestEventHandler_UpdateDriverSeatbelt_PastEvent(t *testing.T) {
 	handler, authService, store, _ := setupEventTest(t)
 	ctx := t.Context()
 
-	evt := pastEvent("Past Campout", 1)
+	evt := pastDriverEvent("Past Campout", 1)
 	if err := store.Event.Create(ctx, evt); err != nil {
 		t.Fatalf("Create event: %v", err)
 	}
@@ -2674,9 +2756,14 @@ func toggleURL(eventID, profileID, responsibility string) string {
 		eventID, profileID, responsibility, eventID, profileID, responsibility)
 }
 
-func replaceURL(eventID, profileID, responsibility, currentHolderID string) string {
-	return fmt.Sprintf("/events/%s/replace-responsibility/%s/%s?id=%s&profile_id=%s&responsibility=%s&current_holder_id=%s",
-		eventID, profileID, responsibility, eventID, profileID, responsibility, currentHolderID)
+func setupTabMux() func() {
+	orig := muxVars
+	SetMuxVars(func(r *http.Request) map[string]string {
+		return map[string]string{
+			"id": r.URL.Query().Get("id"),
+		}
+	})
+	return func() { muxVars = orig }
 }
 
 func TestToggleResponsibility_AssignSPL(t *testing.T) {
@@ -2916,20 +3003,25 @@ func TestToggleResponsibility_SingletonConflict(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Errorf("ToggleResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusOK, rr.Body.String())
 	}
-	if strings.Contains(rr.Body.String(), "toast-error") {
-		t.Errorf("unexpected toast-error, expected confirmation modal. Body:\n%s", rr.Body.String())
+	if strings.Contains(rr.Body.String(), "modal") {
+		t.Errorf("expected no modal, got:\n%s", rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "Change SPL?") {
-		t.Errorf("expected confirmation modal with 'Change SPL?' in response. Body:\n%s", rr.Body.String())
+
+	resp, err := store.Event.GetResponsibilities(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetResponsibilities: %v", err)
 	}
-	if !strings.Contains(rr.Body.String(), adminProfile.DisplayName()) {
-		t.Errorf("expected confirmation modal to name the current holder %q. Body:\n%s", adminProfile.DisplayName(), rr.Body.String())
+	foundAssignments := 0
+	for _, ra := range resp {
+		if ra.Responsibility == event.ResponsibilitySPL {
+			foundAssignments++
+			if ra.ProfileID != otherProfile.ID {
+				t.Errorf("SPL assigned to %s, want %s", ra.ProfileID, otherProfile.ID)
+			}
+		}
 	}
-	if !strings.Contains(rr.Body.String(), "Other User") {
-		t.Errorf("expected confirmation modal to name the requested profile. Body:\n%s", rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "replace-responsibility") {
-		t.Errorf("expected confirmation modal to have replace-responsibility endpoint. Body:\n%s", rr.Body.String())
+	if foundAssignments != 1 {
+		t.Errorf("expected 1 SPL assignment, got %d", foundAssignments)
 	}
 }
 
@@ -3004,293 +3096,6 @@ func TestToggleResponsibility_GetAttendeesError(t *testing.T) {
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("ToggleResponsibility returned %d, want %d", rr.Code, http.StatusInternalServerError)
-	}
-}
-
-func TestReplaceResponsibility_Success(t *testing.T) {
-	handler, authService, store, adminProfile := setupEventTest(t)
-	defer setupToggleMux()()
-	ctx := t.Context()
-
-	youthProfile := &profile.Profile{
-		FirstName: "Young", LastName: "Scout", Email: "youth@scout.com",
-		MemberType: profile.MemberTypeYouth, Status: profile.StatusActive,
-	}
-	if err := store.Profile.Create(ctx, youthProfile); err != nil {
-		t.Fatalf("Create youth profile: %v", err)
-	}
-
-	evt := futureEvent("Campout", 7)
-	if err := store.Event.Create(ctx, evt); err != nil {
-		t.Fatalf("Create event: %v", err)
-	}
-	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
-		t.Fatalf("SignUp admin: %v", err)
-	}
-	if err := store.Event.SignUp(ctx, evt.ID, youthProfile.ID); err != nil {
-		t.Fatalf("SignUp youth: %v", err)
-	}
-	if err := store.Event.AssignResponsibility(ctx, evt.ID, adminProfile.ID, event.ResponsibilitySPL); err != nil {
-		t.Fatalf("Assign SPL to admin: %v", err)
-	}
-
-	req := loggedInRequest(t, authService, "POST", replaceURL(evt.ID, youthProfile.ID, "spl", adminProfile.ID))
-	rr := httptest.NewRecorder()
-	handler.ReplaceResponsibility(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("ReplaceResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "resp-on") {
-		t.Errorf("expected resp-on badge in response, got:\n%s", rr.Body.String())
-	}
-
-	resp, err := store.Event.GetResponsibilities(ctx, evt.ID)
-	if err != nil {
-		t.Fatalf("GetResponsibilities: %v", err)
-	}
-	foundAssignments := 0
-	for _, ra := range resp {
-		if ra.Responsibility == event.ResponsibilitySPL {
-			foundAssignments++
-			if ra.ProfileID != youthProfile.ID {
-				t.Errorf("SPL assigned to %s, want %s", ra.ProfileID, youthProfile.ID)
-			}
-		}
-	}
-	if foundAssignments != 1 {
-		t.Errorf("expected 1 SPL assignment, got %d", foundAssignments)
-	}
-}
-
-func TestReplaceResponsibility_PastEvent(t *testing.T) {
-	handler, authService, store, adminProfile := setupEventTest(t)
-	defer setupToggleMux()()
-	ctx := t.Context()
-
-	otherProfile := &profile.Profile{
-		FirstName: "Other", LastName: "User", Email: "other@scout.com",
-		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
-	}
-	if err := store.Profile.Create(ctx, otherProfile); err != nil {
-		t.Fatalf("Create other profile: %v", err)
-	}
-
-	evt := pastEvent("Campout", 7)
-	if err := store.Event.Create(ctx, evt); err != nil {
-		t.Fatalf("Create event: %v", err)
-	}
-	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
-		t.Fatalf("SignUp admin: %v", err)
-	}
-	if err := store.Event.SignUp(ctx, evt.ID, otherProfile.ID); err != nil {
-		t.Fatalf("SignUp other: %v", err)
-	}
-
-	req := loggedInRequest(t, authService, "POST", replaceURL(evt.ID, otherProfile.ID, "spl", adminProfile.ID))
-	rr := httptest.NewRecorder()
-	handler.ReplaceResponsibility(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusBadRequest)
-	}
-}
-
-func TestReplaceResponsibility_Unauthenticated(t *testing.T) {
-	handler, _, _, _ := setupEventTest(t)
-	defer setupToggleMux()()
-
-	req := httptest.NewRequest("POST", replaceURL("e1", "p1", "spl", "p2"), nil)
-	rr := httptest.NewRecorder()
-	handler.ReplaceResponsibility(rr, req)
-
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusUnauthorized)
-	}
-}
-
-func TestReplaceResponsibility_NotSignedUp(t *testing.T) {
-	handler, authService, store, adminProfile := setupEventTest(t)
-	defer setupToggleMux()()
-	ctx := t.Context()
-
-	otherProfile := &profile.Profile{
-		FirstName: "Other", LastName: "User", Email: "other@scout.com",
-		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
-	}
-	if err := store.Profile.Create(ctx, otherProfile); err != nil {
-		t.Fatalf("Create other profile: %v", err)
-	}
-
-	evt := futureEvent("Campout", 7)
-	if err := store.Event.Create(ctx, evt); err != nil {
-		t.Fatalf("Create event: %v", err)
-	}
-	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
-		t.Fatalf("SignUp admin: %v", err)
-	}
-
-	req := loggedInRequest(t, authService, "POST", replaceURL(evt.ID, otherProfile.ID, "spl", adminProfile.ID))
-	rr := httptest.NewRecorder()
-	handler.ReplaceResponsibility(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("ReplaceResponsibility returned %d, want %d. Body: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
-	}
-}
-
-func TestReplaceResponsibility_EmptyParams(t *testing.T) {
-	handler, authService, _, _ := setupEventTest(t)
-	defer setupToggleMux()()
-
-	req := loggedInRequest(t, authService, "POST", "/events//replace-responsibility//spl?id=&profile_id=&responsibility=spl&current_holder_id=")
-	rr := httptest.NewRecorder()
-	handler.ReplaceResponsibility(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusBadRequest)
-	}
-}
-
-func TestReplaceResponsibility_DriverReturnsBadRequest(t *testing.T) {
-	handler, authService, _, adminProfile := setupEventTest(t)
-	defer setupToggleMux()()
-
-	req := loggedInRequest(t, authService, "POST", replaceURL("e1", "p1", "driver", adminProfile.ID))
-	rr := httptest.NewRecorder()
-	handler.ReplaceResponsibility(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusBadRequest)
-	}
-}
-
-func TestReplaceResponsibility_EventNotFound(t *testing.T) {
-	handler, authService, _, _ := setupEventTest(t)
-	defer setupToggleMux()()
-
-	req := loggedInRequest(t, authService, "POST", "/events/nonexistent/replace-responsibility/p1/spl?id=nonexistent&profile_id=p1&responsibility=spl&current_holder_id=p2")
-	rr := httptest.NewRecorder()
-	handler.ReplaceResponsibility(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusNotFound)
-	}
-}
-
-func TestReplaceResponsibility_GetByIDError(t *testing.T) {
-	handler, authService, store, adminProfile := setupEventTest(t)
-	defer setupToggleMux()()
-	ctx := t.Context()
-
-	evt := futureEvent("Campout", 7)
-	if err := store.Event.Create(ctx, evt); err != nil {
-		t.Fatalf("Create event: %v", err)
-	}
-	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
-		t.Fatalf("SignUp: %v", err)
-	}
-
-	handler.repo = &failingEventRepo{Repository: store.Event, failOnGetByID: true}
-
-	req := loggedInRequest(t, authService, "POST", replaceURL(evt.ID, adminProfile.ID, "spl", adminProfile.ID))
-	rr := httptest.NewRecorder()
-	handler.ReplaceResponsibility(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusNotFound)
-	}
-}
-
-func TestReplaceResponsibility_GetAttendeesError(t *testing.T) {
-	handler, authService, store, adminProfile := setupEventTest(t)
-	defer setupToggleMux()()
-	ctx := t.Context()
-
-	evt := futureEvent("Campout", 7)
-	if err := store.Event.Create(ctx, evt); err != nil {
-		t.Fatalf("Create event: %v", err)
-	}
-	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
-		t.Fatalf("SignUp: %v", err)
-	}
-
-	handler.repo = &failingEventRepo{Repository: store.Event, failOnGetAttendees: true}
-
-	req := loggedInRequest(t, authService, "POST", replaceURL(evt.ID, adminProfile.ID, "spl", adminProfile.ID))
-	rr := httptest.NewRecorder()
-	handler.ReplaceResponsibility(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusInternalServerError)
-	}
-}
-
-func TestReplaceResponsibility_Forbidden(t *testing.T) {
-	handler, authService, store, _ := setupEventTest(t)
-	defer setupToggleMux()()
-	ctx := t.Context()
-
-	hasher := &auth.MockHasher{}
-	hash, _ := hasher.Hash("password")
-	regularUser := &user.User{
-		Email:        "regular@scout.com",
-		PasswordHash: hash,
-	}
-	if err := store.User.Create(ctx, regularUser); err != nil {
-		t.Fatalf("Create user: %v", err)
-	}
-
-	nonAdminProfile := &profile.Profile{
-		FirstName: "Regular", LastName: "User", Email: "regular@scout.com",
-		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
-		UserID: &regularUser.ID,
-	}
-	if err := store.Profile.Create(ctx, nonAdminProfile); err != nil {
-		t.Fatalf("Create non-admin profile: %v", err)
-	}
-
-	otherProfile := &profile.Profile{
-		FirstName: "Other", LastName: "Adult", Email: "other@scout.com",
-		MemberType: profile.MemberTypeAdult, Status: profile.StatusActive,
-	}
-	if err := store.Profile.Create(ctx, otherProfile); err != nil {
-		t.Fatalf("Create other profile: %v", err)
-	}
-
-	evt := futureEvent("Campout", 7)
-	if err := store.Event.Create(ctx, evt); err != nil {
-		t.Fatalf("Create event: %v", err)
-	}
-	if err := store.Event.SignUp(ctx, evt.ID, otherProfile.ID); err != nil {
-		t.Fatalf("SignUp other: %v", err)
-	}
-
-	// non-admin tries to manage otherProfile (not themselves) - should be forbidden
-	req := loggedInAs(t, authService, "POST", replaceURL(evt.ID, otherProfile.ID, "spl", otherProfile.ID), "regular@scout.com")
-	rr := httptest.NewRecorder()
-	handler.ReplaceResponsibility(rr, req)
-
-	if rr.Code != http.StatusForbidden {
-		t.Errorf("ReplaceResponsibility returned %d, want %d", rr.Code, http.StatusForbidden)
-	}
-}
-
-func TestResponsibilityLabel(t *testing.T) {
-	tests := []struct {
-		input    event.Responsibility
-		expected string
-	}{
-		{event.ResponsibilitySPL, "SPL"},
-		{event.ResponsibilityCoordinator, "Coordinator"},
-		{event.ResponsibilityMedicalOfficer, "Medical Officer"},
-		{event.Responsibility("unknown"), "unknown"},
-	}
-	for _, tc := range tests {
-		got := responsibilityLabel(tc.input)
-		if got != tc.expected {
-			t.Errorf("responsibilityLabel(%q) = %q, want %q", tc.input, got, tc.expected)
-		}
 	}
 }
 
@@ -3764,7 +3569,7 @@ func TestCookingSetCook_SetsCookDirectly(t *testing.T) {
 	}
 }
 
-func TestCookingSetCook_ExistingCook_ShowsConfirmation(t *testing.T) {
+func TestCookingSetCook_ExistingCook_ReassignsDirectly(t *testing.T) {
 	handler, authService, store, _ := setupEventTest(t)
 	defer setupCookingMux()()
 	ctx := t.Context()
@@ -3796,45 +3601,8 @@ func TestCookingSetCook_ExistingCook_ShowsConfirmation(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if !strings.Contains(rr.Body.String(), "Change Cook for") {
-		t.Errorf("expected confirmation modal for cook reassignment:\n%s", rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), "replace?current_cook_id=") {
-		t.Errorf("expected replace endpoint with current cook in modal:\n%s", rr.Body.String())
-	}
-}
-
-func TestCookingReplaceCook_ReassignsCook(t *testing.T) {
-	handler, authService, store, _ := setupEventTest(t)
-	defer setupCookingMux()()
-	ctx := t.Context()
-	evt := cookingEvent(t, store, true)
-	youth1 := createYouthProfile(t, store, "Alpha")
-	youth2 := createYouthProfile(t, store, "Beta")
-	signUpAttendee(t, store, evt.ID, youth1.ID)
-	signUpAttendee(t, store, evt.ID, youth2.ID)
-	patrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, false)
-	if err != nil {
-		t.Fatalf("CreateCookingPatrol: %v", err)
-	}
-	if err := store.Event.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth1.ID); err != nil {
-		t.Fatalf("Assign: %v", err)
-	}
-	if err := store.Event.AssignCookingPatrolMember(ctx, evt.ID, patrol.ID, youth2.ID); err != nil {
-		t.Fatalf("Assign: %v", err)
-	}
-	if err := store.Event.SetCookingPatrolCook(ctx, evt.ID, patrol.ID, youth1.ID); err != nil {
-		t.Fatalf("SetCook: %v", err)
-	}
-
-	req := loggedInRequest(t, authService, "POST",
-		"/events/"+evt.ID+"/cooking/patrols/"+patrol.ID+"/cook/"+youth2.ID+"/replace?id="+evt.ID+"&patrol_id="+patrol.ID+"&profile_id="+youth2.ID+"&current_cook_id="+youth1.ID)
-	rr := httptest.NewRecorder()
-
-	handler.CookingReplaceCook(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	if strings.Contains(rr.Body.String(), "Change Cook for") {
+		t.Errorf("did not expect confirmation modal for cook reassignment:\n%s", rr.Body.String())
 	}
 	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
 	if err != nil {
@@ -3892,7 +3660,7 @@ func TestCookingClearCook_ClearsCook(t *testing.T) {
 	}
 }
 
-func TestEventDetail_RendersCookingSectionWhenEnabled(t *testing.T) {
+func TestEventDetail_RendersCookingTabWhenEnabled(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	evt := cookingEvent(t, store, true)
 	signUpAttendee(t, store, evt.ID, adminProfile.ID)
@@ -3905,15 +3673,19 @@ func TestEventDetail_RendersCookingSectionWhenEnabled(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if !strings.Contains(rr.Body.String(), "Cooking Patrols") {
-		t.Errorf("expected cooking section on detail page:\n%s", rr.Body.String())
+	body := rr.Body.String()
+	if !strings.Contains(body, "tab-bar") {
+		t.Errorf("expected tab bar on detail page:\n%s", body)
 	}
-	if !strings.Contains(rr.Body.String(), "Adults") {
-		t.Errorf("expected Adults patrol label on detail page:\n%s", rr.Body.String())
+	if !strings.Contains(body, `data-tab="cooking"`) {
+		t.Errorf("expected Cooking tab on detail page:\n%s", body)
+	}
+	if !strings.Contains(body, `id="cooking-section"`) {
+		t.Errorf("expected cooking section placeholder on detail page:\n%s", body)
 	}
 }
 
-func TestEventDetail_OmitsCookingSectionWhenDisabled(t *testing.T) {
+func TestEventDetail_OmitsCookingTabWhenDisabled(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	evt := cookingEvent(t, store, false)
 	signUpAttendee(t, store, evt.ID, adminProfile.ID)
@@ -3926,19 +3698,47 @@ func TestEventDetail_OmitsCookingSectionWhenDisabled(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
-	if strings.Contains(rr.Body.String(), "Cooking Patrols") {
-		t.Errorf("expected no cooking section when toggle is off:\n%s", rr.Body.String())
+	body := rr.Body.String()
+	if strings.Contains(body, `data-tab="cooking"`) {
+		t.Errorf("expected no Cooking tab when toggle is off:\n%s", body)
+	}
+	if strings.Contains(body, `id="cooking-section"`) {
+		t.Errorf("expected no cooking section when toggle is off:\n%s", body)
 	}
 }
 
-func TestEventDetail_CookingEmptyState_ShowsCreateForAdmin(t *testing.T) {
-	handler, authService, store, _ := setupEventTest(t)
+func TestEventCookingTab_ReturnsCookingSection(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupTabMux()()
 	evt := cookingEvent(t, store, true)
+	signUpAttendee(t, store, evt.ID, adminProfile.ID)
 
-	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/cooking?id="+evt.ID)
 	rr := httptest.NewRecorder()
 
-	handler.EventDetail(rr, req)
+	handler.EventCookingTab(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body:\n%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Cooking Patrols") {
+		t.Errorf("expected cooking patrols heading:\n%s", body)
+	}
+	if !strings.Contains(body, "Adults") {
+		t.Errorf("expected Adults patrol label:\n%s", body)
+	}
+}
+
+func TestEventCookingTab_EmptyState_ShowsCreateForAdmin(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTabMux()()
+	evt := cookingEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/cooking?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventCookingTab(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
@@ -3949,6 +3749,81 @@ func TestEventDetail_CookingEmptyState_ShowsCreateForAdmin(t *testing.T) {
 	}
 	if !strings.Contains(body, "Create Patrol") {
 		t.Errorf("expected Create Patrol button in empty state for admin:\n%s", body)
+	}
+}
+
+func TestEventCookingTab_NotFound(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+	defer setupTabMux()()
+
+	req := loggedInRequest(t, authService, "GET", "/events/nonexistent/tab/cooking?id=nonexistent")
+	rr := httptest.NewRecorder()
+
+	handler.EventCookingTab(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("EventCookingTab returned %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestEventCookingTab_Unauthenticated(t *testing.T) {
+	handler, _, _, _ := setupEventTest(t)
+	defer setupTabMux()()
+
+	req := httptest.NewRequest("GET", "/events/e1/tab/cooking?id=e1", nil)
+	rr := httptest.NewRecorder()
+
+	handler.EventCookingTab(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("EventCookingTab returned %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestEventCookingTab_CookingDisabled_Returns400(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTabMux()()
+	evt := cookingEvent(t, store, false)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/cooking?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventCookingTab(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("EventCookingTab returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventCookingTab_MissingID_Returns400(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+	defer setupTabMux()()
+
+	req := loggedInRequest(t, authService, "GET", "/events//tab/cooking")
+	rr := httptest.NewRecorder()
+
+	handler.EventCookingTab(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("EventCookingTab returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventCookingTab_BuildError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupTabMux()()
+	evt := cookingEvent(t, store, true)
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"list": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/cooking?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventCookingTab(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("EventCookingTab returned %d, want %d", rr.Code, http.StatusInternalServerError)
 	}
 }
 
@@ -4244,43 +4119,378 @@ func TestCookingClearCook_RepoError_Returns500(t *testing.T) {
 	}
 }
 
-func TestCookingReplaceCook_MissingCurrentCook_Returns400(t *testing.T) {
-	handler, authService, store, _ := setupEventTest(t)
-	defer setupCookingMux()()
-	evt := cookingEvent(t, store, true)
-	youth := createYouthProfile(t, store, "Alice")
-	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
-	if err != nil {
-		t.Fatalf("CreateCookingPatrol: %v", err)
+func driversEvent(t *testing.T, store *postgres.Store, driversEnabled bool) *event.Event {
+	t.Helper()
+	evt := &event.Event{
+		Title:          "Campout",
+		Location:       "Lake",
+		StartTime:      time.Now(),
+		EndTime:        time.Now().Add(2 * time.Hour),
+		Type:           "campout",
+		DriversEnabled: driversEnabled,
 	}
+	if err := store.Event.Create(t.Context(), evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	return evt
+}
 
-	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/replace?patrol_id="+patrol.ID+"&profile_id="+youth.ID+"&id="+evt.ID)
+type failingDriversRepo struct {
+	event.Repository
+	fail map[string]error
+}
+
+func (f *failingDriversRepo) GetDrivers(ctx context.Context, eventID string) ([]event.DriverResponsibility, error) {
+	if err := f.fail["drivers"]; err != nil {
+		return nil, err
+	}
+	return f.Repository.GetDrivers(ctx, eventID)
+}
+
+func (f *failingDriversRepo) GetSeatbeltSummary(ctx context.Context, eventID string) (*event.SeatbeltSummary, error) {
+	if err := f.fail["summary"]; err != nil {
+		return nil, err
+	}
+	return f.Repository.GetSeatbeltSummary(ctx, eventID)
+}
+
+func (f *failingDriversRepo) GetAttendees(ctx context.Context, eventID string) ([]*profile.Profile, error) {
+	if err := f.fail["attendees"]; err != nil {
+		return nil, err
+	}
+	return f.Repository.GetAttendees(ctx, eventID)
+}
+
+func TestEventDriversTab_ReturnsDriversSection(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupTabMux()()
+	evt := driversEvent(t, store, true)
+	signUpAttendee(t, store, evt.ID, adminProfile.ID)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/drivers?id="+evt.ID)
 	rr := httptest.NewRecorder()
-	handler.CookingReplaceCook(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	handler.EventDriversTab(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body:\n%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`id="drivers-section"`,
+		`hx-swap-oob="true"`,
+		"<h3>Drivers</h3>",
+		`id="seatbelt-badge"`,
+		"driver-table",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected %q in drivers tab response, got:\n%s", want, body)
+		}
+	}
+	if !strings.Contains(body, "No drivers signed up yet") {
+		t.Errorf("expected empty state in drivers tab response, got:\n%s", body)
 	}
 }
 
-func TestCookingReplaceCook_RepoError_Returns500(t *testing.T) {
-	_, authService, store, _ := setupEventTest(t)
-	defer setupCookingMux()()
-	evt := cookingEvent(t, store, true)
-	youth := createYouthProfile(t, store, "Alice")
-	patrol, err := store.Event.CreateCookingPatrol(t.Context(), evt.ID, false)
-	if err != nil {
-		t.Fatalf("CreateCookingPatrol: %v", err)
+func TestEventDriversTab_ShowsDriverRowForSignedUpDriver(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupTabMux()()
+	evt := driversEvent(t, store, true)
+	signUpAttendee(t, store, evt.ID, adminProfile.ID)
+	if err := store.Event.AddDriver(t.Context(), evt.ID, adminProfile.ID, 5); err != nil {
+		t.Fatalf("AddDriver: %v", err)
 	}
 
-	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"setCook": errors.New("boom")}}
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/drivers?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDriversTab(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Admin User") {
+		t.Errorf("expected driver name in driver table, got:\n%s", body)
+	}
+	if !strings.Contains(body, "5 / 1 seatbelts") {
+		t.Errorf("expected '5 / 1 seatbelts' in seatbelt badge, got:\n%s", body)
+	}
+}
+
+func TestEventDriversTab_NotFound(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+	defer setupTabMux()()
+
+	req := loggedInRequest(t, authService, "GET", "/events/nonexistent/tab/drivers?id=nonexistent")
+	rr := httptest.NewRecorder()
+
+	handler.EventDriversTab(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("EventDriversTab returned %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestEventDriversTab_Unauthenticated(t *testing.T) {
+	handler, _, _, _ := setupEventTest(t)
+	defer setupTabMux()()
+
+	req := httptest.NewRequest("GET", "/events/e1/tab/drivers?id=e1", nil)
+	rr := httptest.NewRecorder()
+
+	handler.EventDriversTab(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("EventDriversTab returned %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestEventDriversTab_DriversDisabled_Returns400(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTabMux()()
+	evt := driversEvent(t, store, false)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/drivers?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDriversTab(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("EventDriversTab returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventDriversTab_MissingID_Returns400(t *testing.T) {
+	handler, authService, _, _ := setupEventTest(t)
+	defer setupTabMux()()
+
+	req := loggedInRequest(t, authService, "GET", "/events//tab/drivers")
+	rr := httptest.NewRecorder()
+
+	handler.EventDriversTab(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("EventDriversTab returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventDriversTab_GetDriversError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupTabMux()()
+	evt := driversEvent(t, store, true)
+
+	repo := &failingDriversRepo{Repository: store.Event, fail: map[string]error{"drivers": errors.New("boom")}}
 	handler := newEventHandlerWithRepo(repo, authService, store)
 
-	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/cooking/replace?patrol_id="+patrol.ID+"&profile_id="+youth.ID+"&current_cook_id=abc&id="+evt.ID)
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/drivers?id="+evt.ID)
 	rr := httptest.NewRecorder()
-	handler.CookingReplaceCook(rr, req)
+
+	handler.EventDriversTab(rr, req)
 
 	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
+		t.Errorf("EventDriversTab returned %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestEventDriversTab_SummaryError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupTabMux()()
+	evt := driversEvent(t, store, true)
+
+	repo := &failingDriversRepo{Repository: store.Event, fail: map[string]error{"summary": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/drivers?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDriversTab(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("EventDriversTab returned %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestEventDriversTab_GetAttendeesError_Returns500(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	defer setupTabMux()()
+	evt := driversEvent(t, store, true)
+
+	repo := &failingDriversRepo{Repository: store.Event, fail: map[string]error{"attendees": errors.New("boom")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/drivers?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDriversTab(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("EventDriversTab returned %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestEventDriversTab_ProfileError_Returns500(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	defer setupTabMux()()
+	evt := driversEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/drivers?id="+evt.ID)
+
+	hasher := &auth.BCryptHasher{}
+	h, err := hasher.Hash("other")
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	otherUser := &user.User{Email: "tab-other@test.com", PasswordHash: h}
+	if err := store.User.Create(t.Context(), otherUser); err != nil {
+		t.Fatalf("Create other user: %v", err)
+	}
+	adminProfile.UserID = &otherUser.ID
+	if err := store.Profile.Update(t.Context(), adminProfile); err != nil {
+		t.Fatalf("Update profile: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+
+	handler.EventDriversTab(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("EventDriversTab returned %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestEventDetail_RendersDriversTabWhenEnabled(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	evt := driversEvent(t, store, true)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDetail(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`data-tab="drivers"`,
+		`id="drivers-tab-content"`,
+		`hx-get="/events/` + evt.ID + `/tab/drivers"`,
+		`hx-trigger="drivers-tab-shown once"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected %q in event detail with drivers enabled, got:\n%s", want, body)
+		}
+	}
+}
+
+func TestEventDetail_OmitsDriversTabWhenDisabled(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	evt := driversEvent(t, store, false)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventDetail(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`data-tab="drivers"`, `id="drivers-tab-content"`, `id="drivers-section"`} {
+		if strings.Contains(body, want) {
+			t.Errorf("expected no %q in event detail with drivers disabled, got:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "tab-bar") {
+		t.Errorf("expected no tab bar when no sections enabled, got:\n%s", body)
+	}
+}
+
+func TestEventHandler_SignUp_DriversDisabled_NoDriverModal(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout", DriversEnabled: false}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "POST", "/events/"+evt.ID+"/signup?id="+evt.ID+"&profile_id="+adminProfile.ID)
+	rr := httptest.NewRecorder()
+
+	handler.SignUp(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("SignUp returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"driver-modal-overlay", "drivers-section", "Sign up as driver"} {
+		if strings.Contains(body, want) {
+			t.Errorf("expected no %q in signup response when drivers disabled, got:\n%s", want, body)
+		}
+	}
+}
+
+func TestEventHandler_AddDriver_DriversDisabled_Returns400(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout", DriversEnabled: false}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=5")
+	rr := httptest.NewRecorder()
+
+	handler.AddDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("AddDriver returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_RemoveDriver_DriversDisabled_Returns400(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout", DriversEnabled: false}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "DELETE", "/events/"+evt.ID+"/drivers?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.RemoveDriver(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("RemoveDriver returned %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEventHandler_UpdateDriverSeatbelt_DriversDisabled_Returns400(t *testing.T) {
+	handler, authService, store, adminProfile := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{Title: "Campout", Location: "Lake", StartTime: time.Now(), EndTime: time.Now().Add(2 * time.Hour), Type: "campout", DriversEnabled: false}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	if err := store.Event.SignUp(ctx, evt.ID, adminProfile.ID); err != nil {
+		t.Fatalf("SignUp: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "PATCH", "/events/"+evt.ID+"/drivers?id="+evt.ID, "seatbelt_count=5")
+	rr := httptest.NewRecorder()
+
+	handler.UpdateDriverSeatbelt(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("UpdateDriverSeatbelt returned %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }

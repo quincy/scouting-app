@@ -156,7 +156,7 @@ func hasViolation(violations []event.Violation, code event.ViolationCode) bool {
 	return false
 }
 
-func TestTentAssignMember_BlockedWhenSoloPlacement(t *testing.T) {
+func TestTentAssignMember_SoloPlacementAllowed(t *testing.T) {
 	env := setupTentEnv(t)
 	ctx := context.Background()
 	evt := env.newEvent(t)
@@ -164,40 +164,12 @@ func TestTentAssignMember_BlockedWhenSoloPlacement(t *testing.T) {
 	env.signUp(t, evt.ID, tim.ID)
 	tent := env.createTent(t, evt.ID)
 
-	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, tim.ID, 2, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(violations) == 0 {
-		t.Fatal("expected a never-alone violation")
-	}
-	if !hasViolation(violations, event.ViolationNeverAlone) {
-		t.Errorf("expected ViolationNeverAlone, got %+v", violations)
-	}
-
-	tents, err := env.events.ListTents(ctx, evt.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tents[0].Members) != 0 {
-		t.Errorf("expected no change to tent members, got %+v", tents[0].Members)
-	}
-}
-
-func TestTentAssignMember_OverrideSavesSoloPlacement(t *testing.T) {
-	env := setupTentEnv(t)
-	ctx := context.Background()
-	evt := env.newEvent(t)
-	tim := env.newYouth(t, "Tim", "M", tentYoungBorn)
-	env.signUp(t, evt.ID, tim.ID)
-	tent := env.createTent(t, evt.ID)
-
-	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, tim.ID, 2, true)
+	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, tim.ID, 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(violations) != 0 {
-		t.Errorf("expected no violations to be returned after override, got %+v", violations)
+		t.Errorf("expected no blocking violations for a solo placement, got %+v", violations)
 	}
 
 	tents, err := env.events.ListTents(ctx, evt.ID)
@@ -205,7 +177,7 @@ func TestTentAssignMember_OverrideSavesSoloPlacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(tents[0].Members) != 1 || tents[0].Members[0].ProfileID != tim.ID {
-		t.Errorf("expected Tim assigned, got %+v", tents[0].Members)
+		t.Errorf("expected Tim assigned alone, got %+v", tents[0].Members)
 	}
 }
 
@@ -222,7 +194,7 @@ func TestTentAssignMember_ValidPlacementSaves(t *testing.T) {
 		t.Fatalf("seed AssignTentMember: %v", err)
 	}
 
-	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, bob.ID, 2, false)
+	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, bob.ID, 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -252,7 +224,7 @@ func TestTentAssignMember_MixedGender_Blocked(t *testing.T) {
 		t.Fatalf("seed AssignTentMember: %v", err)
 	}
 
-	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, sue.ID, 2, false)
+	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, sue.ID, 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -274,7 +246,7 @@ func TestTentAssignMember_AgeGap_Blocked(t *testing.T) {
 		t.Fatalf("seed AssignTentMember: %v", err)
 	}
 
-	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, young.ID, 2, false)
+	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, young.ID, 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -298,7 +270,7 @@ func TestTentAssignMember_SiblingsExemptFromAgeGap(t *testing.T) {
 		t.Fatalf("seed AssignTentMember: %v", err)
 	}
 
-	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, young.ID, 2, false)
+	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, young.ID, 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -329,7 +301,7 @@ func TestTentAssignMember_PendingLinkDoesNotExemptSibling(t *testing.T) {
 		t.Fatalf("seed AssignTentMember: %v", err)
 	}
 
-	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, young.ID, 2, false)
+	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, young.ID, 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -350,7 +322,7 @@ func TestTentAssignMember_ListLinksError_Propagates(t *testing.T) {
 	env.events.AssignTentMember(ctx, evt.ID, tent.ID, old.ID)
 
 	env.svc = event.NewTentService(env.events, env.profiles, &failingLinksRepo{err: errors.New("list failed")})
-	_, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, young.ID, 2, false)
+	_, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, young.ID, 2)
 	if err == nil {
 		t.Fatal("expected error listing approved links")
 	}
@@ -396,7 +368,7 @@ func TestTentAssignMember_AdultRejected(t *testing.T) {
 	env.signUp(t, evt.ID, adult.ID)
 	tent := env.createTent(t, evt.ID)
 
-	_, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, adult.ID, 2, false)
+	_, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, adult.ID, 2)
 	if err == nil {
 		t.Fatal("expected error for adult assigned to tent")
 	}
@@ -418,7 +390,7 @@ func TestTentAssignMember_AlreadyInTent_NoOp(t *testing.T) {
 		t.Fatalf("seed AssignTentMember: %v", err)
 	}
 
-	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, tim.ID, 2, false)
+	violations, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, tim.ID, 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -441,7 +413,7 @@ func TestTentAssignMember_ProfileNotFound_Error(t *testing.T) {
 	evt := env.newEvent(t)
 	tent := env.createTent(t, evt.ID)
 
-	_, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, "missing-profile", 2, false)
+	_, err := env.svc.AssignMember(ctx, evt.ID, tent.ID, "missing-profile", 2)
 	if err == nil {
 		t.Fatal("expected error for missing profile")
 	}
@@ -454,7 +426,7 @@ func TestTentAssignMember_TentNotFound_Error(t *testing.T) {
 	tim := env.newYouth(t, "Tim", "M", tentYoungBorn)
 	env.signUp(t, evt.ID, tim.ID)
 
-	_, err := env.svc.AssignMember(ctx, evt.ID, "missing-tent", tim.ID, 2, false)
+	_, err := env.svc.AssignMember(ctx, evt.ID, "missing-tent", tim.ID, 2)
 	if err == nil {
 		t.Fatal("expected error for missing tent")
 	}
@@ -565,5 +537,134 @@ func TestAfterWithdraw_RemovesScoutFromTent(t *testing.T) {
 	}
 	if len(tents[0].Members) != 0 {
 		t.Errorf("expected withdrawn attendee removed from tent, got %+v", tents[0].Members)
+	}
+}
+
+func TestValidTargetTents_OffersEmptyAndSameGender_ExcludesMixedGenderAndAgeGap(t *testing.T) {
+	env := setupTentEnv(t)
+	ctx := context.Background()
+	evt := env.newEvent(t)
+	sue := env.newYouth(t, "Sue", "F", tentYoungBorn)
+	env.signUp(t, evt.ID, sue.ID)
+
+	emptyTent := env.createTent(t, evt.ID)
+
+	sameGender := env.createTent(t, evt.ID)
+	amy := env.newYouth(t, "Amy", "F", tentYoungBorn)
+	env.signUp(t, evt.ID, amy.ID)
+	if err := env.events.AssignTentMember(ctx, evt.ID, sameGender.ID, amy.ID); err != nil {
+		t.Fatalf("seed same-gender: %v", err)
+	}
+
+	mixedGender := env.createTent(t, evt.ID)
+	mark := env.newYouth(t, "Mark", "M", tentYoungBorn)
+	env.signUp(t, evt.ID, mark.ID)
+	if err := env.events.AssignTentMember(ctx, evt.ID, mixedGender.ID, mark.ID); err != nil {
+		t.Fatalf("seed mixed-gender: %v", err)
+	}
+
+	ageGap := env.createTent(t, evt.ID)
+	old := env.newYouth(t, "Old", "F", tentOlderBorn)
+	env.signUp(t, evt.ID, old.ID)
+	if err := env.events.AssignTentMember(ctx, evt.ID, ageGap.ID, old.ID); err != nil {
+		t.Fatalf("seed age-gap: %v", err)
+	}
+
+	valid, err := env.svc.ValidTargetTents(ctx, evt.ID, sue.ID, "", 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantIDs := map[string]bool{emptyTent.ID: true, sameGender.ID: true}
+	gotIDs := map[string]bool{}
+	for _, v := range valid {
+		gotIDs[v.ID] = true
+	}
+	for id := range wantIDs {
+		if !gotIDs[id] {
+			t.Errorf("expected valid target tent %q, got %v", id, gotIDs)
+		}
+	}
+	if gotIDs[mixedGender.ID] {
+		t.Errorf("mixed-gender tent %q must not be a valid target, got %v", mixedGender.ID, gotIDs)
+	}
+	if gotIDs[ageGap.ID] {
+		t.Errorf("age-gap tent %q must not be a valid target, got %v", ageGap.ID, gotIDs)
+	}
+}
+
+func TestValidTargetTents_ExcludesCurrentTent(t *testing.T) {
+	env := setupTentEnv(t)
+	ctx := context.Background()
+	evt := env.newEvent(t)
+	tim := env.newYouth(t, "Tim", "M", tentYoungBorn)
+	env.signUp(t, evt.ID, tim.ID)
+
+	current := env.createTent(t, evt.ID)
+	other := env.createTent(t, evt.ID)
+	if err := env.events.AssignTentMember(ctx, evt.ID, current.ID, tim.ID); err != nil {
+		t.Fatalf("seed current tent: %v", err)
+	}
+
+	valid, err := env.svc.ValidTargetTents(ctx, evt.ID, tim.ID, current.ID, 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, v := range valid {
+		if v.ID == current.ID {
+			t.Errorf("current tent %q must be excluded from valid targets, got %v", current.ID, valid)
+		}
+	}
+	if len(valid) != 1 || valid[0].ID != other.ID {
+		t.Errorf("expected only the other tent as a valid target, got %v", valid)
+	}
+}
+
+type failingTentListRepo struct {
+	*fakeTentEventRepo
+}
+
+func (f *failingTentListRepo) ListTents(ctx context.Context, eventID string) ([]*event.Tent, error) {
+	return nil, errors.New("list tents failed")
+}
+
+func TestValidTargetTents_ProfileNotFound_Error(t *testing.T) {
+	env := setupTentEnv(t)
+	ctx := context.Background()
+	evt := env.newEvent(t)
+
+	_, err := env.svc.ValidTargetTents(ctx, evt.ID, "missing-profile", "", 2)
+	if err == nil {
+		t.Fatal("expected error for missing profile")
+	}
+}
+
+func TestValidTargetTents_ListLinksError_Propagates(t *testing.T) {
+	env := setupTentEnv(t)
+	ctx := context.Background()
+	evt := env.newEvent(t)
+	tim := env.newYouth(t, "Tim", "M", tentYoungBorn)
+	env.signUp(t, evt.ID, tim.ID)
+	env.createTent(t, evt.ID)
+
+	env.svc = event.NewTentService(env.events, env.profiles, &failingLinksRepo{err: errors.New("list links failed")})
+	_, err := env.svc.ValidTargetTents(ctx, evt.ID, tim.ID, "", 2)
+	if err == nil {
+		t.Fatal("expected error listing approved links")
+	}
+}
+
+func TestValidTargetTents_ListTentsError_Propagates(t *testing.T) {
+	env := setupTentEnv(t)
+	ctx := context.Background()
+	evt := env.newEvent(t)
+	tim := env.newYouth(t, "Tim", "M", tentYoungBorn)
+	env.signUp(t, evt.ID, tim.ID)
+	env.createTent(t, evt.ID)
+
+	env.svc = event.NewTentService(&failingTentListRepo{fakeTentEventRepo: env.events}, env.profiles, env.links)
+	_, err := env.svc.ValidTargetTents(ctx, evt.ID, tim.ID, "", 2)
+	if err == nil {
+		t.Fatal("expected error listing tents")
 	}
 }

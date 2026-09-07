@@ -25,9 +25,9 @@ func (r *EventRepository) Create(ctx context.Context, e *event.Event) error {
 	e.CreatedAt = now
 	e.UpdatedAt = now
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO events (id, title, description, location, start_time, end_time, cost_cents, type, cooking_enabled, tenting_enabled, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)`,
-		e.ID, e.Title, e.Description, e.Location, e.StartTime, e.EndTime, e.CostCents, e.Type, e.CookingEnabled, e.TentingEnabled, now,
+		`INSERT INTO events (id, title, description, location, start_time, end_time, cost_cents, type, cooking_enabled, tenting_enabled, drivers_enabled, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`,
+		e.ID, e.Title, e.Description, e.Location, e.StartTime, e.EndTime, e.CostCents, e.Type, e.CookingEnabled, e.TentingEnabled, e.DriversEnabled, now,
 	)
 	return err
 }
@@ -35,9 +35,9 @@ func (r *EventRepository) Create(ctx context.Context, e *event.Event) error {
 func (r *EventRepository) GetByID(ctx context.Context, id string) (*event.Event, error) {
 	e := &event.Event{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, title, description, location, start_time, end_time, cost_cents, cost_decimal, type, cooking_enabled, tenting_enabled, created_at, updated_at
+		`SELECT id, title, description, location, start_time, end_time, cost_cents, cost_decimal, type, cooking_enabled, tenting_enabled, drivers_enabled, created_at, updated_at
 		 FROM events WHERE id = $1`, id,
-	).Scan(&e.ID, &e.Title, &e.Description, &e.Location, &e.StartTime, &e.EndTime, &e.CostCents, &e.CostDecimal, &e.Type, &e.CookingEnabled, &e.TentingEnabled, &e.CreatedAt, &e.UpdatedAt)
+	).Scan(&e.ID, &e.Title, &e.Description, &e.Location, &e.StartTime, &e.EndTime, &e.CostCents, &e.CostDecimal, &e.Type, &e.CookingEnabled, &e.TentingEnabled, &e.DriversEnabled, &e.CreatedAt, &e.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("event not found")
 	}
@@ -47,9 +47,9 @@ func (r *EventRepository) GetByID(ctx context.Context, id string) (*event.Event,
 func (r *EventRepository) Update(ctx context.Context, e *event.Event) error {
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE events
-		 SET title = $2, description = $3, location = $4, start_time = $5, end_time = $6, cost_cents = $7, type = $8, cooking_enabled = $9, tenting_enabled = $10, updated_at = NOW()
+		 SET title = $2, description = $3, location = $4, start_time = $5, end_time = $6, cost_cents = $7, type = $8, cooking_enabled = $9, tenting_enabled = $10, drivers_enabled = $11, updated_at = NOW()
 		 WHERE id = $1`,
-		e.ID, e.Title, e.Description, e.Location, e.StartTime, e.EndTime, e.CostCents, e.Type, e.CookingEnabled, e.TentingEnabled,
+		e.ID, e.Title, e.Description, e.Location, e.StartTime, e.EndTime, e.CostCents, e.Type, e.CookingEnabled, e.TentingEnabled, e.DriversEnabled,
 	)
 	if err != nil {
 		return err

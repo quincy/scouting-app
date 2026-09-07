@@ -1196,6 +1196,9 @@ func TestPostgresEventRepository_Toggles_DefaultFalse(t *testing.T) {
 	if fetched.TentingEnabled {
 		t.Error("expected TentingEnabled to default to false")
 	}
+	if fetched.DriversEnabled {
+		t.Error("expected DriversEnabled to default to false")
+	}
 }
 
 func TestPostgresEventRepository_Toggles_RoundTripOnCreate(t *testing.T) {
@@ -1214,6 +1217,7 @@ func TestPostgresEventRepository_Toggles_RoundTripOnCreate(t *testing.T) {
 		Type:           "campout",
 		CookingEnabled: true,
 		TentingEnabled: true,
+		DriversEnabled: true,
 	}
 	if err := repo.Create(ctx, evt); err != nil {
 		t.Fatalf("Create event: %v", err)
@@ -1228,6 +1232,9 @@ func TestPostgresEventRepository_Toggles_RoundTripOnCreate(t *testing.T) {
 	}
 	if !fetched.TentingEnabled {
 		t.Error("expected TentingEnabled to persist as true")
+	}
+	if !fetched.DriversEnabled {
+		t.Error("expected DriversEnabled to persist as true")
 	}
 }
 
@@ -1252,6 +1259,7 @@ func TestPostgresEventRepository_Toggles_UpdateRoundTrip(t *testing.T) {
 
 	evt.CookingEnabled = true
 	evt.TentingEnabled = true
+	evt.DriversEnabled = true
 	if err := repo.Update(ctx, evt); err != nil {
 		t.Fatalf("Update event: %v", err)
 	}
@@ -1265,6 +1273,9 @@ func TestPostgresEventRepository_Toggles_UpdateRoundTrip(t *testing.T) {
 	}
 	if !fetched.TentingEnabled {
 		t.Error("expected TentingEnabled true after update")
+	}
+	if !fetched.DriversEnabled {
+		t.Error("expected DriversEnabled true after update")
 	}
 
 	evt.CookingEnabled = false
@@ -1280,6 +1291,9 @@ func TestPostgresEventRepository_Toggles_UpdateRoundTrip(t *testing.T) {
 	}
 	if !fetched.TentingEnabled {
 		t.Error("expected TentingEnabled to remain true after toggling cooking off")
+	}
+	if !fetched.DriversEnabled {
+		t.Error("expected DriversEnabled to remain true after toggling cooking off")
 	}
 }
 

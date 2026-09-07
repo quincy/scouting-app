@@ -104,13 +104,25 @@ type Violation struct {
 // rule always applies. An empty tent is allowed; a single scout is a
 // never-alone violation.
 func ValidateTent(scouts []TentScout, eventStart time.Time, maxAgeGap int, siblings map[ScoutPair]bool) []Violation {
-	if len(scouts) == 1 {
+	return validateTent(scouts, eventStart, maxAgeGap, siblings, true)
+}
+
+// BlockingViolations returns the tenting-rule violations that prevent a scout
+// from being assigned to a tent: mixed-gender and age-gap placements. The
+// "never alone" rule is treated as a non-blocking warning — a single scout may
+// still be placed and is flagged in the UI — so it is excluded here.
+func BlockingViolations(scouts []TentScout, eventStart time.Time, maxAgeGap int, siblings map[ScoutPair]bool) []Violation {
+	return validateTent(scouts, eventStart, maxAgeGap, siblings, false)
+}
+
+func validateTent(scouts []TentScout, eventStart time.Time, maxAgeGap int, siblings map[ScoutPair]bool, includeAlone bool) []Violation {
+	if len(scouts) == 1 && includeAlone {
 		return []Violation{{
 			Code:    ViolationNeverAlone,
 			Message: fmt.Sprintf("%s would sleep alone; every tent needs at least 2 scouts", scouts[0].Name),
 		}}
 	}
-	if len(scouts) == 0 {
+	if len(scouts) == 0 || len(scouts) == 1 {
 		return nil
 	}
 

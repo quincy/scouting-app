@@ -137,13 +137,20 @@ func TestEvent_Toggles(t *testing.T) {
 	if e.TentingEnabled {
 		t.Error("expected TentingEnabled to default to false")
 	}
+	if e.DriversEnabled {
+		t.Error("expected DriversEnabled to default to false")
+	}
 
 	e.CookingEnabled = true
 	e.TentingEnabled = true
+	e.DriversEnabled = true
 	if !e.CookingEnabled {
 		t.Error("expected CookingEnabled to be configurable")
 	}
 	if !e.TentingEnabled {
 		t.Error("expected TentingEnabled to be configurable")
+	}
+	if !e.DriversEnabled {
+		t.Error("expected DriversEnabled to be configurable")
 	}
 }
