@@ -180,12 +180,16 @@ type tentVM struct {
 type tentMemberVM struct {
 	ProfileID   string
 	ProfileName string
+	Birthdate   string // formatted birthdate (rendered for admins only)
+	Age         string // whole years at event start, "—" when birthdate unknown
 	MoveTargets []tentTargetVM
 }
 
 type tentUnassignedVM struct {
 	ProfileID   string
 	ProfileName string
+	Birthdate   string
+	Age         string
 	Targets     []tentTargetVM
 }
 
@@ -474,7 +478,7 @@ func (h *EventHandler) EventTentingTab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := h.buildTentingSectionData(ctx, eventID, evt.EndTime.Before(time.Now()), h.isAdmin(ctx, r))
+	data, err := h.buildTentingSectionData(ctx, eventID, evt.StartTime, evt.EndTime.Before(time.Now()), h.isAdmin(ctx, r))
 	if err != nil {
 		log.Printf("EventTentingTab: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -1094,7 +1098,7 @@ func (h *EventHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if evt.TentingEnabled {
-		h.renderTentingSection(w, r, eventID)
+		h.renderTentingSection(w, r, evt)
 	}
 
 	// Show driver sign-up option for adult self-signups
@@ -1237,7 +1241,7 @@ func (h *EventHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if evt.TentingEnabled {
-		h.renderTentingSection(w, r, eventID)
+		h.renderTentingSection(w, r, evt)
 	}
 
 	if evt.DriversEnabled {
@@ -2085,31 +2089,31 @@ func cookingTargets(patrols []*event.CookingPatrol, excludeID string, isAdult bo
 	return targets
 }
 
-func (h *EventHandler) tentPrereqs(r *http.Request) (string, int, string) {
+func (h *EventHandler) tentPrereqs(r *http.Request) (*event.Event, int, string) {
 	ctx := r.Context()
 	currentUser, err := h.auth.GetAuthenticatedUser(r)
 	if err != nil || currentUser == nil {
-		return "", http.StatusUnauthorized, "Unauthorized"
+		return nil, http.StatusUnauthorized, "Unauthorized"
 	}
 	if !h.isAdmin(ctx, r) {
-		return "", http.StatusForbidden, "Forbidden"
+		return nil, http.StatusForbidden, "Forbidden"
 	}
 	vars := muxVars(r)
 	eventID := vars["id"]
 	if eventID == "" {
-		return "", http.StatusBadRequest, "Bad request"
+		return nil, http.StatusBadRequest, "Bad request"
 	}
 	evt, err := h.repo.GetByID(ctx, eventID)
 	if err != nil {
-		return "", http.StatusNotFound, "Event not found"
+		return nil, http.StatusNotFound, "Event not found"
 	}
 	if !evt.TentingEnabled {
-		return "", http.StatusBadRequest, "Tenting not enabled"
+		return nil, http.StatusBadRequest, "Tenting not enabled"
 	}
 	if evt.EndTime.Before(time.Now()) {
-		return "", http.StatusBadRequest, "Cannot modify tents for a past event"
+		return nil, http.StatusBadRequest, "Cannot modify tents for a past event"
 	}
-	return eventID, 0, ""
+	return evt, 0, ""
 }
 
 func (h *EventHandler) tentMaxAgeGap(ctx context.Context) int {
@@ -2121,9 +2125,9 @@ func (h *EventHandler) tentMaxAgeGap(ctx context.Context) int {
 	return n
 }
 
-func (h *EventHandler) renderTentingSection(w http.ResponseWriter, r *http.Request, eventID string) {
+func (h *EventHandler) renderTentingSection(w http.ResponseWriter, r *http.Request, evt *event.Event) {
 	ctx := r.Context()
-	data, err := h.buildTentingSectionData(ctx, eventID, false, h.isAdmin(ctx, r))
+	data, err := h.buildTentingSectionData(ctx, evt.ID, evt.StartTime, false, h.isAdmin(ctx, r))
 	if err != nil {
 		log.Printf("renderTentingSection: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -2135,7 +2139,7 @@ func (h *EventHandler) renderTentingSection(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func (h *EventHandler) buildTentingSectionData(ctx context.Context, eventID string, isPast, isAdmin bool) (*tentingSectionData, error) {
+func (h *EventHandler) buildTentingSectionData(ctx context.Context, eventID string, startTime time.Time, isPast, isAdmin bool) (*tentingSectionData, error) {
 	tents, err := h.tents.ListTents(ctx, eventID)
 	if err != nil {
 		return nil, err
@@ -2143,6 +2147,11 @@ func (h *EventHandler) buildTentingSectionData(ctx context.Context, eventID stri
 	attendees, err := h.repo.GetAttendees(ctx, eventID)
 	if err != nil {
 		return nil, err
+	}
+
+	byID := make(map[string]*profile.Profile, len(attendees))
+	for _, a := range attendees {
+		byID[a.ID] = a
 	}
 
 	data := &tentingSectionData{
@@ -2161,11 +2170,18 @@ func (h *EventHandler) buildTentingSectionData(ctx context.Context, eventID stri
 			if err != nil {
 				return nil, err
 			}
-			vm.Members = append(vm.Members, tentMemberVM{
+			mm := tentMemberVM{
 				ProfileID:   m.ProfileID,
 				ProfileName: m.ProfileName,
+				Birthdate:   "—",
+				Age:         "—",
 				MoveTargets: tentTargetVMs(valid),
-			})
+			}
+			if p := byID[m.ProfileID]; p != nil {
+				mm.Age = tentAgeLabel(p.Birthdate, startTime)
+				mm.Birthdate = tentBirthdateLabel(p.Birthdate)
+			}
+			vm.Members = append(vm.Members, mm)
 		}
 		sort.Slice(vm.Members, func(i, j int) bool {
 			return vm.Members[i].ProfileName < vm.Members[j].ProfileName
@@ -2187,6 +2203,8 @@ func (h *EventHandler) buildTentingSectionData(ctx context.Context, eventID stri
 		data.UnassignedYouth = append(data.UnassignedYouth, tentUnassignedVM{
 			ProfileID:   a.ID,
 			ProfileName: a.DisplayName(),
+			Birthdate:   tentBirthdateLabel(a.Birthdate),
+			Age:         tentAgeLabel(a.Birthdate, startTime),
 			Targets:     tentTargetVMs(valid),
 		})
 	}
@@ -2194,6 +2212,33 @@ func (h *EventHandler) buildTentingSectionData(ctx context.Context, eventID stri
 		return data.UnassignedYouth[i].ProfileName < data.UnassignedYouth[j].ProfileName
 	})
 	return data, nil
+}
+
+// missingBirthdate reports whether a profile birthdate is unknown: the zero
+// time or the pre-/1970 sentinels (Go zero value or the schema default) that
+// can only occur when Scoutbook never supplied a date. A year-1970 birthdate
+// is implausible for any current youth.
+func missingBirthdate(bd time.Time) bool {
+	return bd.IsZero() || bd.Year() <= 1970
+}
+
+// tentBirthdateLabel renders a profile's birthdate for the tenting UI. Unknown
+// birthdates are shown as an em dash so they are visibly missing.
+func tentBirthdateLabel(bd time.Time) string {
+	if missingBirthdate(bd) {
+		return "—"
+	}
+	return bd.Format("Jan 2, 2006")
+}
+
+// tentAgeLabel renders a scout's whole-year age on the event start date for
+// the tenting UI, matching the rule engine's AgeWholeYears computation. Unknown
+// birthdates display as an em dash.
+func tentAgeLabel(bd time.Time, at time.Time) string {
+	if missingBirthdate(bd) {
+		return "—"
+	}
+	return strconv.Itoa(event.AgeWholeYears(bd, at))
 }
 
 func tentTargetVMs(tents []*event.Tent) []tentTargetVM {
@@ -2205,21 +2250,21 @@ func tentTargetVMs(tents []*event.Tent) []tentTargetVM {
 }
 
 func (h *EventHandler) TentCreate(w http.ResponseWriter, r *http.Request) {
-	eventID, status, msg := h.tentPrereqs(r)
+	evt, status, msg := h.tentPrereqs(r)
 	if status != 0 {
 		http.Error(w, msg, status)
 		return
 	}
-	if _, err := h.tents.CreateTent(r.Context(), eventID); err != nil {
+	if _, err := h.tents.CreateTent(r.Context(), evt.ID); err != nil {
 		log.Printf("CreateTent: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	h.renderTentingSection(w, r, eventID)
+	h.renderTentingSection(w, r, evt)
 }
 
 func (h *EventHandler) TentDelete(w http.ResponseWriter, r *http.Request) {
-	eventID, status, msg := h.tentPrereqs(r)
+	evt, status, msg := h.tentPrereqs(r)
 	if status != 0 {
 		http.Error(w, msg, status)
 		return
@@ -2234,11 +2279,11 @@ func (h *EventHandler) TentDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	h.renderTentingSection(w, r, eventID)
+	h.renderTentingSection(w, r, evt)
 }
 
 func (h *EventHandler) TentAssignMember(w http.ResponseWriter, r *http.Request) {
-	eventID, status, msg := h.tentPrereqs(r)
+	evt, status, msg := h.tentPrereqs(r)
 	if status != 0 {
 		http.Error(w, msg, status)
 		return
@@ -2255,7 +2300,7 @@ func (h *EventHandler) TentAssignMember(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	violations, err := h.tents.AssignMember(ctx, eventID, tentID, profileID, h.tentMaxAgeGap(ctx))
+	violations, err := h.tents.AssignMember(ctx, evt.ID, tentID, profileID, h.tentMaxAgeGap(ctx))
 	if err != nil {
 		if errors.Is(err, event.ErrAdultInTent) {
 			http.Error(w, "Adults cannot be placed into a tent", http.StatusBadRequest)
@@ -2275,11 +2320,11 @@ func (h *EventHandler) TentAssignMember(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.renderTentingSection(w, r, eventID)
+	h.renderTentingSection(w, r, evt)
 }
 
 func (h *EventHandler) TentRemoveMember(w http.ResponseWriter, r *http.Request) {
-	eventID, status, msg := h.tentPrereqs(r)
+	evt, status, msg := h.tentPrereqs(r)
 	if status != 0 {
 		http.Error(w, msg, status)
 		return
@@ -2289,10 +2334,10 @@ func (h *EventHandler) TentRemoveMember(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	if err := h.tents.RemoveMember(r.Context(), eventID, profileID); err != nil {
+	if err := h.tents.RemoveMember(r.Context(), evt.ID, profileID); err != nil {
 		log.Printf("RemoveMember: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	h.renderTentingSection(w, r, eventID)
+	h.renderTentingSection(w, r, evt)
 }

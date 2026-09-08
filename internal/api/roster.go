@@ -166,7 +166,7 @@ func (h *EventHandler) RosterPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if evt.TentingEnabled {
-		tentingData, err := h.buildTentingSectionData(ctx, eventID, isPast, false)
+		tentingData, err := h.buildTentingSectionData(ctx, eventID, evt.StartTime, isPast, false)
 		if err != nil {
 			log.Printf("RosterPage buildTentingSectionData: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)

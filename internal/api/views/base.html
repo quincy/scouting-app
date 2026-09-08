@@ -7,8 +7,10 @@
     <title>{{.Title}} - Scout Events</title>
     <script src="/static/htmx.min.js"></script>
     <link rel="stylesheet" href="/static/app.css">
+    <script src="/static/app.js"></script>
 </head>
 <body class="main-page">
+    <div id="toast-root" class="toast-root"></div>
     {{template "header" .}}
 {{end}}
 

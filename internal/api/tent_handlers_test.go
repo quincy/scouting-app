@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -206,6 +207,191 @@ func TestEventTentingTab_TentTargetsExcludeInvalidTents(t *testing.T) {
 	}
 	if strings.Contains(body, `value="`+invalidMixed.ID+`"`) {
 		t.Errorf("mixed-gender tent must not be offered as an assign target:\n%s", body)
+	}
+}
+
+func TestEventTentingTab_TentTargetsExcludeAgeGapTents(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTentMux()()
+	ctx := t.Context()
+	evt := tentingEvent(t, store, true)
+
+	sue := createYouthProfile(t, store, "Sue")
+	sue.Gender = "M"
+	sue.Birthdate = time.Date(2014, 5, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.Profile.Update(ctx, sue); err != nil {
+		t.Fatalf("set Sue birthdate: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, sue.ID)
+
+	validEmpty := createTentForEvent(t, store, evt.ID)
+
+	validSameAge := createTentForEvent(t, store, evt.ID)
+	amy := createYouthProfile(t, store, "Amy")
+	amy.Gender = "M"
+	amy.Birthdate = time.Date(2014, 6, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.Profile.Update(ctx, amy); err != nil {
+		t.Fatalf("set Amy birthdate: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, amy.ID)
+	if err := store.Event.AssignTentMember(ctx, evt.ID, validSameAge.ID, amy.ID); err != nil {
+		t.Fatalf("seed same-age tent: %v", err)
+	}
+
+	invalidAgeGap := createTentForEvent(t, store, evt.ID)
+	mark := createYouthProfile(t, store, "Mark")
+	mark.Gender = "M"
+	mark.Birthdate = time.Date(2008, 5, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.Profile.Update(ctx, mark); err != nil {
+		t.Fatalf("set Mark birthdate: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, mark.ID)
+	if err := store.Event.AssignTentMember(ctx, evt.ID, invalidAgeGap.ID, mark.ID); err != nil {
+		t.Fatalf("seed age-gap tent: %v", err)
+	}
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/tenting?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `value="`+validEmpty.ID+`"`) {
+		t.Errorf("expected empty tent offered as a valid assign target for Sue:\n%s", body)
+	}
+	if !strings.Contains(body, `value="`+validSameAge.ID+`"`) {
+		t.Errorf("expected same-age tent offered as a valid assign target for Sue:\n%s", body)
+	}
+	if strings.Contains(body, `value="`+invalidAgeGap.ID+`"`) {
+		t.Errorf("age-gap tent must not be offered as an assign target:\n%s", body)
+	}
+}
+
+func TestEventTentingTab_RendersAgeAndBirthdate(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTentMux()()
+	ctx := t.Context()
+	evt := tentingEvent(t, store, true)
+
+	tim := createYouthProfile(t, store, "Tim")
+	tim.Gender = "M"
+	tim.Birthdate = time.Date(2008, 5, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.Profile.Update(ctx, tim); err != nil {
+		t.Fatalf("set Tim birthdate: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, tim.ID)
+	tent := createTentForEvent(t, store, evt.ID)
+	if err := store.Event.AssignTentMember(ctx, evt.ID, tent.ID, tim.ID); err != nil {
+		t.Fatalf("seed AssignTentMember: %v", err)
+	}
+
+	uma := createYouthProfile(t, store, "Uma")
+	uma.Gender = "M"
+	uma.Birthdate = time.Date(2013, 2, 10, 0, 0, 0, 0, time.UTC)
+	if err := store.Profile.Update(ctx, uma); err != nil {
+		t.Fatalf("set Uma birthdate: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, uma.ID)
+
+	req := loggedInRequest(t, authService, "GET", "/events/"+evt.ID+"/tab/tenting?id="+evt.ID)
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "May 1, 2008") {
+		t.Errorf("expected Tim's formatted birthdate on tenting tab:\n%s", body)
+	}
+	if !strings.Contains(body, "Feb 10, 2013") {
+		t.Errorf("expected Uma's formatted birthdate in unassigned youth:\n%s", body)
+	}
+	timAge := strconv.Itoa(event.AgeWholeYears(tim.Birthdate, startTime(t, store, evt.ID)))
+	if !strings.Contains(body, ">"+timAge+"<") {
+		t.Errorf("expected Tim's age %q on tenting tab:\n%s", timAge, body)
+	}
+	umaAge := strconv.Itoa(event.AgeWholeYears(uma.Birthdate, startTime(t, store, evt.ID)))
+	if !strings.Contains(body, ">"+umaAge+"<") {
+		t.Errorf("expected Uma's age %q in unassigned youth:\n%s", umaAge, body)
+	}
+}
+
+func TestEventTentingTab_NonAdminShowsAgeNotBirthdate(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTentMux()()
+	ctx := t.Context()
+	evt := tentingEvent(t, store, true)
+
+	tim := createYouthProfile(t, store, "Tim")
+	tim.Gender = "M"
+	tim.Birthdate = time.Date(2008, 5, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.Profile.Update(ctx, tim); err != nil {
+		t.Fatalf("set Tim birthdate: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, tim.ID)
+	tent := createTentForEvent(t, store, evt.ID)
+	if err := store.Event.AssignTentMember(ctx, evt.ID, tent.ID, tim.ID); err != nil {
+		t.Fatalf("seed AssignTentMember: %v", err)
+	}
+
+	createParentUser(t, store)
+	req := loggedInAs(t, authService, "GET", "/events/"+evt.ID+"/tab/tenting?id="+evt.ID, "parent@scout.local")
+	rr := httptest.NewRecorder()
+
+	handler.EventTentingTab(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "May 1, 2008") {
+		t.Errorf("expected birthdate hidden from non-admin:\n%s", body)
+	}
+	if strings.Contains(body, "Birth date") {
+		t.Errorf("expected no birth date column for non-admin:\n%s", body)
+	}
+	age := strconv.Itoa(event.AgeWholeYears(tim.Birthdate, startTime(t, store, evt.ID)))
+	if !strings.Contains(body, ">"+age+"<") {
+		t.Errorf("expected age %q visible to non-admin:\n%s", age, body)
+	}
+}
+
+func startTime(t *testing.T, store *postgres.Store, eventID string) time.Time {
+	t.Helper()
+	saved, err := store.Event.GetByID(t.Context(), eventID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	return saved.StartTime
+}
+
+func TestTentBirthdateLabel(t *testing.T) {
+	if got := tentBirthdateLabel(time.Time{}); got != "—" {
+		t.Errorf("zero birthdate: got %q, want dash", got)
+	}
+	if got := tentBirthdateLabel(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)); got != "—" {
+		t.Errorf("sentinel 1970 birthdate: got %q, want dash", got)
+	}
+	if got := tentBirthdateLabel(time.Date(2008, 5, 1, 0, 0, 0, 0, time.UTC)); got != "May 1, 2008" {
+		t.Errorf("normal birthdate: got %q, want formatted date", got)
+	}
+}
+
+func TestTentAgeLabel(t *testing.T) {
+	at := time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC)
+	if got := tentAgeLabel(time.Time{}, at); got != "—" {
+		t.Errorf("zero birthdate: got %q, want dash", got)
+	}
+	if got := tentAgeLabel(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), at); got != "—" {
+		t.Errorf("sentinel 1970 birthdate: got %q, want dash", got)
+	}
+	if got := tentAgeLabel(time.Date(2013, 2, 10, 0, 0, 0, 0, time.UTC), at); got != "13" {
+		t.Errorf("normal birthdate: got %q, want 13", got)
 	}
 }
 
@@ -553,6 +739,52 @@ func TestTentAssignMember_MixedGenderBlockedWithoutSave(t *testing.T) {
 	}
 	if len(tents[0].Members) != 1 || tents[0].Members[0].ProfileID != tim.ID {
 		t.Errorf("expected mixed-gender placement rejected (no change), got %+v", tents[0].Members)
+	}
+}
+
+func TestTentAssignMember_AgeGapBlockedWithoutSave(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	defer setupTentMux()()
+	ctx := t.Context()
+	evt := tentingEvent(t, store, true)
+
+	old := createYouthProfile(t, store, "Oscar")
+	old.Gender = "M"
+	old.Birthdate = time.Date(2008, 5, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.Profile.Update(ctx, old); err != nil {
+		t.Fatalf("set Oscar birthdate: %v", err)
+	}
+	young := createYouthProfile(t, store, "Young")
+	young.Gender = "M"
+	young.Birthdate = time.Date(2014, 5, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.Profile.Update(ctx, young); err != nil {
+		t.Fatalf("set Young birthdate: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, old.ID)
+	signUpAttendee(t, store, evt.ID, young.ID)
+	tent := createTentForEvent(t, store, evt.ID)
+	if err := store.Event.AssignTentMember(ctx, evt.ID, tent.ID, old.ID); err != nil {
+		t.Fatalf("seed AssignTentMember: %v", err)
+	}
+
+	req := loggedInBodyRequest(t, authService, "POST", "/events/"+evt.ID+"/tents/assign?id="+evt.ID,
+		url.Values{"profile_id": {young.ID}, "tent_id": {tent.ID}}.Encode())
+	rr := httptest.NewRecorder()
+
+	handler.TentAssignMember(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body:\n%s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "years older") {
+		t.Errorf("expected age-gap violation message, got: %s", rr.Body.String())
+	}
+	tents, err := store.Event.ListTents(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListTents: %v", err)
+	}
+	if len(tents[0].Members) != 1 || tents[0].Members[0].ProfileID != old.ID {
+		t.Errorf("expected age-gap placement rejected (no change), got %+v", tents[0].Members)
 	}
 }
 

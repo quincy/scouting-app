@@ -33,6 +33,8 @@
           <thead>
             <tr>
               <th>Member</th>
+              <th>Age</th>
+              {{if $isAdmin}}<th>Birth date</th>{{end}}
               {{if and $isAdmin (not $isPast)}}<th>Move to</th>
               <th>Actions</th>{{end}}
             </tr>
@@ -42,6 +44,8 @@
             {{range .Members}}
             <tr>
               <td class="attendee-name"><a href="/profiles/{{.ProfileID}}">{{.ProfileName}}</a></td>
+              <td class="resp-cell">{{.Age}}</td>
+              {{if $isAdmin}}<td class="resp-cell">{{.Birthdate}}</td>{{end}}
               {{if and $isAdmin (not $isPast)}}
               <td class="resp-cell">
                 {{if .MoveTargets}}
@@ -61,7 +65,7 @@
             </tr>
             {{else}}
             <tr>
-              <td colspan="3" class="resp-empty">No members</td>
+              <td colspan="{{if and $isAdmin (not $isPast)}}5{{else if $isAdmin}}3{{else}}2{{end}}" class="resp-empty">No members</td>
             </tr>
             {{end}}
           </tbody>
@@ -76,6 +80,8 @@
       {{range .UnassignedYouth}}
       <div class="cooking-unassigned-row">
         <a href="/profiles/{{.ProfileID}}" class="attendee-name-link">{{.ProfileName}}</a>
+        <span class="resp-cell">{{.Age}}</span>
+        <span class="resp-cell">{{.Birthdate}}</span>
         {{if .Targets}}
         <form class="cooking-assign-form" hx-post="/events/{{$eventID}}/tents/assign" hx-target="#tent-section" hx-swap="outerHTML">
           <input type="hidden" name="profile_id" value="{{.ProfileID}}">
