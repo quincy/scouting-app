@@ -688,12 +688,9 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(errors) > 0 {
+		errors["cooking"] = "Some fields were invalid. Please fix the indicated errors above."
 		data := h.buildFormDataOnError(ctx, r, "Create Event", "/events/create", "Create Event", evt, startTimeStr, endTimeStr, costStr, errors)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
-			log.Printf("template execution: %v", err)
-		}
+		h.renderEventForm(w, r, data, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -702,12 +699,8 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.repo.Create(ctx, evt); err != nil {
 		log.Printf("EventCreate: %v", err)
-		data := h.buildFormDataOnError(ctx, r, "Create Event", "/events/create", "Create Event", evt, startTimeStr, endTimeStr, costStr, map[string]string{"title": "Failed to create event"})
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusInternalServerError)
-		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
-			log.Printf("template execution: %v", err)
-		}
+		data := h.buildFormDataOnError(ctx, r, "Create Event", "/events/create", "Create Event", evt, startTimeStr, endTimeStr, costStr, map[string]string{"cooking": fmt.Sprintf("Failed to create event. %v", err)})
+		h.renderEventForm(w, r, data, http.StatusInternalServerError)
 		return
 	}
 
@@ -723,7 +716,7 @@ func (h *EventHandler) EventCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/events/%s?created=1", evt.ID), http.StatusFound)
+	h.redirectToEvent(w, r, evt.ID, "?created=1")
 }
 
 func (h *EventHandler) buildEditFormData(ctx context.Context, r *http.Request, evt *event.Event, errors map[string]string) eventFormData {
@@ -766,6 +759,26 @@ func (h *EventHandler) buildFormDataOnError(ctx context.Context, r *http.Request
 		UnitType:           unitType,
 		UnitNumber:         unitNumber,
 	}
+}
+
+func (h *EventHandler) renderEventForm(w http.ResponseWriter, r *http.Request, data eventFormData, status int) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	tmplName := "event_form.html"
+	if r.Header.Get("HX-Request") != "" {
+		tmplName = "event_form_content.html"
+	}
+	if err := h.tmpl.ExecuteTemplate(w, tmplName, data); err != nil {
+		log.Printf("template execution: %v", err)
+	}
+}
+
+func (h *EventHandler) redirectToEvent(w http.ResponseWriter, r *http.Request, eventID string, query string) {
+	if r.Header.Get("HX-Request") != "" {
+		w.Header().Set("HX-Redirect", fmt.Sprintf("/events/%s%s", eventID, query))
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/events/%s%s", eventID, query), http.StatusFound)
 }
 
 func (h *EventHandler) EventEditForm(w http.ResponseWriter, r *http.Request) {
@@ -873,6 +886,7 @@ func (h *EventHandler) EventEdit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(errors) > 0 {
+		errors["cooking"] = "Some fields were invalid. Please fix the indicated errors above."
 		evt := &event.Event{
 			ID:          eventID,
 			Title:       title,
@@ -885,11 +899,7 @@ func (h *EventHandler) EventEdit(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:   existing.CreatedAt,
 		}
 		data := h.buildEditFormData(ctx, r, evt, errors)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
-			log.Printf("template execution: %v", err)
-		}
+		h.renderEventForm(w, r, data, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -908,18 +918,14 @@ func (h *EventHandler) EventEdit(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:      existing.CreatedAt,
 	}
 
-	if err := h.repo.Update(ctx, evt); err != nil {
-		log.Printf("EventEdit Update: %v", err)
-		data := h.buildEditFormData(ctx, r, evt, map[string]string{"title": "Failed to update event"})
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusInternalServerError)
-		if err := h.tmpl.ExecuteTemplate(w, "event_form.html", data); err != nil {
-			log.Printf("template execution: %v", err)
-		}
+	if err := h.repo.UpdateWithCooking(ctx, evt, existing.CookingEnabled); err != nil {
+		log.Printf("EventEdit UpdateWithCooking: %v", err)
+		data := h.buildEditFormData(ctx, r, evt, map[string]string{"cooking": fmt.Sprintf("Failed to update event. %v", err)})
+		h.renderEventForm(w, r, data, http.StatusInternalServerError)
 		return
 	}
 
-	http.Redirect(w, r, fmt.Sprintf("/events/%s?updated=1", eventID), http.StatusFound)
+	h.redirectToEvent(w, r, eventID, "?updated=1")
 }
 
 func (h *EventHandler) buildProfileSignUps(ctx context.Context, currentUserID string, attendees []*profile.Profile) []profileSignUpVM {

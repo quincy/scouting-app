@@ -1785,6 +1785,306 @@ func TestEventHandler_EventEdit_ValidationError(t *testing.T) {
 	}
 }
 
+func editEventForm(evt *event.Event, cookingEnabled bool) url.Values {
+	return url.Values{
+		"title":           {evt.Title},
+		"description":     {evt.Description},
+		"location":        {evt.Location},
+		"start_time":      {evt.StartTime.Format("2006-01-02T15:04")},
+		"end_time":        {evt.EndTime.Format("2006-01-02T15:04")},
+		"cost":            {"25.00"},
+		"type":            {evt.Type},
+		"cooking_enabled": formCheckbox(cookingEnabled),
+	}
+}
+
+func formCheckbox(enabled bool) []string {
+	if enabled {
+		return []string{"on"}
+	}
+	return nil
+}
+
+func TestEventHandler_EventEdit_EnableCooking_AutoAssignsExistingAdults(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake",
+		StartTime: time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents: 1000,
+		Type:      "campout",
+		CreatedAt: time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	adult := &profile.Profile{
+		FirstName:  "Chef",
+		LastName:   "Adult",
+		Email:      "chef.adult@scout.local",
+		MemberType: profile.MemberTypeAdult,
+		Status:     profile.StatusActive,
+	}
+	if err := store.Profile.Create(ctx, adult); err != nil {
+		t.Fatalf("Create adult: %v", err)
+	}
+	signUpAttendee(t, store, evt.ID, adult.ID)
+
+	form := editEventForm(evt, true)
+	form.Set("title", "Updated Title")
+	req := loggedInPostRequest(t, authService, "/events/"+evt.ID+"/edit?id="+evt.ID, form)
+	rr := httptest.NewRecorder()
+
+	handler.EventEdit(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("EventEdit returned status %d, want %d; body:\n%s", rr.Code, http.StatusFound, rr.Body.String())
+	}
+
+	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 1 {
+		t.Fatalf("expected 1 cooking patrol, got %d", len(patrols))
+	}
+	if !patrols[0].IsAdult {
+		t.Error("expected the adult cooking patrol to be created")
+	}
+	if patrols[0].Name != event.CookingPatrolAdultsName {
+		t.Errorf("expected patrol name %q, got %q", event.CookingPatrolAdultsName, patrols[0].Name)
+	}
+	if len(patrols[0].Members) != 1 || patrols[0].Members[0].ProfileID != adult.ID {
+		t.Errorf("expected existing adult attendee to be assigned to the adult patrol, got %+v", patrols[0].Members)
+	}
+}
+
+func TestEventHandler_EventEdit_DisableCooking_RemovesAllPatrols(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title:          "Campout",
+		Location:       "Lake",
+		StartTime:      time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:        time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents:      1000,
+		Type:           "campout",
+		CookingEnabled: true,
+		CreatedAt:      time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+	adultPatrol, err := store.Event.CreateCookingPatrol(ctx, evt.ID, true)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+	if _, err := store.Event.CreateCookingPatrol(ctx, evt.ID, false); err != nil {
+		t.Fatalf("CreateCookingPatrol youth: %v", err)
+	}
+	_ = adultPatrol
+
+	form := editEventForm(evt, false)
+	form.Set("title", "Updated Title")
+	req := loggedInPostRequest(t, authService, "/events/"+evt.ID+"/edit?id="+evt.ID, form)
+	rr := httptest.NewRecorder()
+
+	handler.EventEdit(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("EventEdit returned status %d, want %d; body:\n%s", rr.Code, http.StatusFound, rr.Body.String())
+	}
+
+	patrols, err := store.Event.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 0 {
+		t.Errorf("expected all cooking patrols removed after disabling cooking, got %d", len(patrols))
+	}
+}
+
+func TestEventHandler_EventEdit_Success_HtmxRedirect(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake",
+		StartTime: time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents: 1000,
+		Type:      "campout",
+		CreatedAt: time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	form := editEventForm(evt, false)
+	req := loggedInPostRequest(t, authService, "/events/"+evt.ID+"/edit?id="+evt.ID, form)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.EventEdit(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("EventEdit returned status %d, want %d", rr.Code, http.StatusOK)
+	}
+	if got := rr.Header().Get("HX-Redirect"); got != "/events/"+evt.ID+"?updated=1" {
+		t.Errorf("expected HX-Redirect header, got %q", got)
+	}
+}
+
+func TestEventHandler_EventEdit_ValidationError_ShowsSummaryNearButton(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title:       "Original",
+		Description: "",
+		Location:    "Lake",
+		StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents:   1000,
+		Type:        "campout",
+		CreatedAt:   time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	form := url.Values{
+		"title":       {""},
+		"description": {""},
+		"location":    {""},
+		"start_time":  {""},
+		"end_time":    {""},
+		"cost":        {""},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/"+evt.ID+"/edit?id="+evt.ID, form)
+	rr := httptest.NewRecorder()
+
+	handler.EventEdit(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("EventEdit returned status %d, want %d", rr.Code, http.StatusUnprocessableEntity)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Title is required") {
+		t.Errorf("expected field error 'Title is required', got:\n%s", body)
+	}
+	if !strings.Contains(body, "Some fields were invalid. Please fix the indicated errors above.") {
+		t.Errorf("expected summary error near submit button, got:\n%s", body)
+	}
+}
+
+func TestEventHandler_EventEdit_ValidationError_HtmxReturnsFragment(t *testing.T) {
+	handler, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title:       "Original",
+		Description: "",
+		Location:    "Lake",
+		StartTime:   time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:     time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents:   1000,
+		Type:        "campout",
+		CreatedAt:   time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	form := url.Values{
+		"title":       {""},
+		"description": {""},
+		"location":    {""},
+		"start_time":  {""},
+		"end_time":    {""},
+		"cost":        {""},
+		"type":        {"campout"},
+	}
+
+	req := loggedInPostRequest(t, authService, "/events/"+evt.ID+"/edit?id="+evt.ID, form)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.EventEdit(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("EventEdit returned status %d, want %d", rr.Code, http.StatusUnprocessableEntity)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Some fields were invalid. Please fix the indicated errors above.") {
+		t.Errorf("expected summary error near submit button, got:\n%s", body)
+	}
+	if !strings.Contains(body, fmt.Sprintf(`hx-post="/events/%s/edit"`, evt.ID)) {
+		t.Errorf("expected form fragment with hx-post, got:\n%s", body)
+	}
+	if strings.Contains(body, "Back to events") {
+		t.Errorf("expected fragment only, got full page:\n%s", body)
+	}
+}
+
+func TestRenderEventForm_TemplateExecutionError(t *testing.T) {
+	handler, _, _, _ := setupEventTest(t)
+
+	data := eventFormData{Event: nil}
+	req := httptest.NewRequest(http.MethodPost, "/events/x/edit?id=x", nil)
+	req.Header.Set("HX-Request", "true")
+	rr := httptest.NewRecorder()
+
+	handler.renderEventForm(rr, req, data, http.StatusOK)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+}
+
+func TestEventHandler_EventEdit_UpdateFailure_StaysOnPageWithCookingError(t *testing.T) {
+	_, authService, store, _ := setupEventTest(t)
+	ctx := t.Context()
+
+	evt := &event.Event{
+		Title:     "Campout",
+		Location:  "Lake",
+		StartTime: time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC),
+		CostCents: 1000,
+		Type:      "campout",
+		CreatedAt: time.Now(),
+	}
+	if err := store.Event.Create(ctx, evt); err != nil {
+		t.Fatalf("Create event: %v", err)
+	}
+
+	repo := &failingCookingRepo{Repository: store.Event, fail: map[string]error{"updateCooking": errors.New("db exploded")}}
+	handler := newEventHandlerWithRepo(repo, authService, store)
+
+	form := editEventForm(evt, true)
+	req := loggedInPostRequest(t, authService, "/events/"+evt.ID+"/edit?id="+evt.ID, form)
+	rr := httptest.NewRecorder()
+
+	handler.EventEdit(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("EventEdit returned status %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Failed to update event. db exploded") {
+		t.Errorf("expected cooking error near submit button with detail, got:\n%s", body)
+	}
+}
+
 func TestEventHandler_SignUp_ParentCanSignUpYouth(t *testing.T) {
 	handler, authService, store, adminProfile := setupEventTest(t)
 	ctx := t.Context()
@@ -3253,6 +3553,13 @@ func (f *failingCookingRepo) ListCookingPatrols(ctx context.Context, eventID str
 		return nil, err
 	}
 	return f.Repository.ListCookingPatrols(ctx, eventID)
+}
+
+func (f *failingCookingRepo) UpdateWithCooking(ctx context.Context, e *event.Event, prevCookingEnabled bool) error {
+	if err := f.errFor("updateCooking"); err != nil {
+		return err
+	}
+	return f.Repository.UpdateWithCooking(ctx, e, prevCookingEnabled)
 }
 
 func (f *failingCookingRepo) GetAttendees(ctx context.Context, eventID string) ([]*profile.Profile, error) {

@@ -16,6 +16,7 @@ type Repository interface {
 	SignUp(ctx context.Context, eventID string, profileID string) error
 	Withdraw(ctx context.Context, eventID string, profileID string) error
 	Update(ctx context.Context, e *Event) error
+	UpdateWithCooking(ctx context.Context, e *Event, prevCookingEnabled bool) error
 	Delete(ctx context.Context, id string) error
 	GetAttendees(ctx context.Context, eventID string) ([]*profile.Profile, error)
 	AddDriver(ctx context.Context, eventID string, profileID string, seatbeltCount int) error

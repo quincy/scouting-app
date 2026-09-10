@@ -393,6 +393,77 @@ func (r *EventRepository) Update(ctx context.Context, e *event.Event) error {
 	return nil
 }
 
+func (r *EventRepository) UpdateWithCooking(ctx context.Context, e *event.Event, prevCookingEnabled bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	existing, ok := r.events[e.ID]
+	if !ok {
+		return errors.New("event not found")
+	}
+	clone := *e
+	clone.CreatedAt = existing.CreatedAt
+	clone.UpdatedAt = time.Now()
+	r.events[clone.ID] = &clone
+
+	if prevCookingEnabled == clone.CookingEnabled {
+		return nil
+	}
+
+	if !clone.CookingEnabled {
+		delete(r.cookingPatrols, e.ID)
+		return nil
+	}
+
+	for _, p := range r.cookingPatrols[e.ID] {
+		if p.IsAdult {
+			for _, attendee := range r.attendees[e.ID] {
+				if attendee.MemberType != profile.MemberTypeAdult {
+					continue
+				}
+				for _, existingPatrol := range r.cookingPatrols[e.ID] {
+					for i, m := range existingPatrol.Members {
+						if m.ProfileID == attendee.ID {
+							existingPatrol.Members = append(existingPatrol.Members[:i], existingPatrol.Members[i+1:]...)
+							break
+						}
+					}
+				}
+				p.Members = append(p.Members, event.CookingPatrolMember{
+					EventID:     e.ID,
+					PatrolID:    p.ID,
+					ProfileID:   attendee.ID,
+					ProfileName: attendee.DisplayName(),
+					CreatedAt:   time.Now(),
+				})
+			}
+			return nil
+		}
+	}
+
+	patrol := &event.CookingPatrol{
+		ID:        newUUID(),
+		EventID:   e.ID,
+		Name:      event.CookingPatrolAdultsName,
+		IsAdult:   true,
+		CreatedAt: time.Now(),
+		Members:   []event.CookingPatrolMember{},
+	}
+	for _, attendee := range r.attendees[e.ID] {
+		if attendee.MemberType != profile.MemberTypeAdult {
+			continue
+		}
+		patrol.Members = append(patrol.Members, event.CookingPatrolMember{
+			EventID:     e.ID,
+			PatrolID:    patrol.ID,
+			ProfileID:   attendee.ID,
+			ProfileName: attendee.DisplayName(),
+			CreatedAt:   time.Now(),
+		})
+	}
+	r.cookingPatrols[e.ID] = append(r.cookingPatrols[e.ID], patrol)
+	return nil
+}
+
 func (r *EventRepository) Delete(ctx context.Context, id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

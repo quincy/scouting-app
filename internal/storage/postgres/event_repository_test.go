@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
@@ -1294,6 +1295,386 @@ func TestPostgresEventRepository_Toggles_UpdateRoundTrip(t *testing.T) {
 	}
 	if !fetched.DriversEnabled {
 		t.Error("expected DriversEnabled to remain true after toggling cooking off")
+	}
+}
+
+func TestPostgresEventRepository_UpdateWithCooking_EnableCreatesAdultsPatrolAndAssignsAdults(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := createTestEvent(t, repo, "UpdateWithCooking Enable")
+	adult := createTestProfile(t, profileRepo, "Chef", "Adult", profile.MemberTypeAdult)
+	youth := createTestProfile(t, profileRepo, "Scout", "Youth", profile.MemberTypeYouth)
+
+	if err := repo.SignUp(ctx, evt.ID, adult.ID); err != nil {
+		t.Fatalf("SignUp adult: %v", err)
+	}
+	if err := repo.SignUp(ctx, evt.ID, youth.ID); err != nil {
+		t.Fatalf("SignUp youth: %v", err)
+	}
+
+	evt.CookingEnabled = true
+	if err := repo.UpdateWithCooking(ctx, evt, false); err != nil {
+		t.Fatalf("UpdateWithCooking: %v", err)
+	}
+
+	fetched, err := repo.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if !fetched.CookingEnabled {
+		t.Error("expected CookingEnabled true after UpdateWithCooking")
+	}
+
+	patrols, err := repo.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 1 {
+		t.Fatalf("expected 1 cooking patrol, got %d", len(patrols))
+	}
+	patrol := patrols[0]
+	if !patrol.IsAdult {
+		t.Error("expected patrol to be the adult patrol")
+	}
+	if patrol.Name != event.CookingPatrolAdultsName {
+		t.Errorf("expected patrol name %q, got %q", event.CookingPatrolAdultsName, patrol.Name)
+	}
+
+	foundAdult := false
+	foundYouth := false
+	for _, m := range patrol.Members {
+		if m.ProfileID == adult.ID {
+			foundAdult = true
+		}
+		if m.ProfileID == youth.ID {
+			foundYouth = true
+		}
+	}
+	if !foundAdult {
+		t.Error("expected adult attendee to be assigned to the adult patrol")
+	}
+	if foundYouth {
+		t.Error("expected youth attendee NOT to be assigned to the adult patrol")
+	}
+}
+
+func TestPostgresEventRepository_UpdateWithCooking_DisableDeletesAllPatrols(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := createTestEvent(t, repo, "UpdateWithCooking Disable")
+	adult := createTestProfile(t, profileRepo, "Chef", "Adult", profile.MemberTypeAdult)
+
+	if err := repo.SignUp(ctx, evt.ID, adult.ID); err != nil {
+		t.Fatalf("SignUp adult: %v", err)
+	}
+
+	evt.CookingEnabled = true
+	if err := repo.UpdateWithCooking(ctx, evt, false); err != nil {
+		t.Fatalf("UpdateWithCooking enable: %v", err)
+	}
+	patrols, err := repo.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 1 {
+		t.Fatalf("expected 1 patrol after enable, got %d", len(patrols))
+	}
+
+	evt.CookingEnabled = false
+	if err := repo.UpdateWithCooking(ctx, evt, true); err != nil {
+		t.Fatalf("UpdateWithCooking disable: %v", err)
+	}
+
+	fetched, err := repo.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if fetched.CookingEnabled {
+		t.Error("expected CookingEnabled false after disable")
+	}
+	patrols, err = repo.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 0 {
+		t.Errorf("expected all cooking patrols deleted after disable, got %d", len(patrols))
+	}
+}
+
+func TestPostgresEventRepository_UpdateWithCooking_UnchangedPreservesPatrols(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := createTestEvent(t, repo, "UpdateWithCooking Unchanged")
+	adult := createTestProfile(t, profileRepo, "Chef", "Adult", profile.MemberTypeAdult)
+	if err := repo.SignUp(ctx, evt.ID, adult.ID); err != nil {
+		t.Fatalf("SignUp adult: %v", err)
+	}
+
+	evt.CookingEnabled = true
+	if err := repo.UpdateWithCooking(ctx, evt, false); err != nil {
+		t.Fatalf("UpdateWithCooking enable: %v", err)
+	}
+
+	youthPatrol, err := repo.CreateCookingPatrol(ctx, evt.ID, false)
+	if err != nil {
+		t.Fatalf("CreateCookingPatrol: %v", err)
+	}
+
+	evt.CookingEnabled = false
+	evt.TentingEnabled = false
+	if err := repo.UpdateWithCooking(ctx, evt, false); err != nil {
+		t.Fatalf("UpdateWithCooking unchanged off: %v", err)
+	}
+
+	fetched, err := repo.GetByID(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if fetched.CookingEnabled {
+		t.Error("expected CookingEnabled false")
+	}
+	patrols, err := repo.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 2 {
+		t.Fatalf("expected existing patrols preserved when flag unchanged, got %d", len(patrols))
+	}
+	found := false
+	for _, p := range patrols {
+		if p.ID == youthPatrol.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected youth patrol to be preserved")
+	}
+}
+
+func TestPostgresEventRepository_UpdateWithCooking_NotFound(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	evt := &event.Event{
+		ID:             "00000000-0000-0000-0000-00000000dead",
+		Title:          "Missing",
+		Location:       "Nowhere",
+		StartTime:      time.Now(),
+		EndTime:        time.Now().Add(time.Hour),
+		CostCents:      100,
+		Type:           "campout",
+		CookingEnabled: true,
+	}
+	if err := repo.UpdateWithCooking(ctx, evt, false); err == nil {
+		t.Fatal("expected UpdateWithCooking to fail for a non-existent event")
+	}
+}
+
+func TestPostgresEventRepository_UpdateWithCooking_UnreachableDB(t *testing.T) {
+	badDB, err := sql.Open("pgx", "postgres://invalid:invalid@127.0.0.1:1/bad")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer badDB.Close()
+	repo := NewEventRepository(badDB)
+	ctx := context.Background()
+
+	evt := &event.Event{ID: "event-1"}
+	if err := repo.UpdateWithCooking(ctx, evt, false); err == nil {
+		t.Error("expected UpdateWithCooking to fail with unreachable DB")
+	}
+}
+
+func TestPostgresEventRepository_UpdateWithCooking_EnableTwiceKeepsSingleAdultPatrol(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := createTestEvent(t, repo, "UpdateWithCooking Twice")
+	adult := createTestProfile(t, profileRepo, "Chef", "Adult", profile.MemberTypeAdult)
+	if err := repo.SignUp(ctx, evt.ID, adult.ID); err != nil {
+		t.Fatalf("SignUp adult: %v", err)
+	}
+
+	evt.CookingEnabled = true
+	if err := repo.UpdateWithCooking(ctx, evt, false); err != nil {
+		t.Fatalf("UpdateWithCooking first enable: %v", err)
+	}
+	if err := repo.UpdateWithCooking(ctx, evt, false); err != nil {
+		t.Fatalf("UpdateWithCooking second enable: %v", err)
+	}
+
+	patrols, err := repo.ListCookingPatrols(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("ListCookingPatrols: %v", err)
+	}
+	if len(patrols) != 1 {
+		t.Fatalf("expected exactly 1 adult patrol after double enable, got %d", len(patrols))
+	}
+	if len(patrols[0].Members) != 1 {
+		t.Errorf("expected adult still assigned, got %d members", len(patrols[0].Members))
+	}
+}
+
+func TestPostgresEventRepository_UpdateWithCooking_EnableQueryError(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+
+	evt := createTestEvent(t, repo, "Enable Query Error")
+	for i := 0; i < 3; i++ {
+		adult := createTestProfile(t, profileRepo, fmt.Sprintf("Chef%02d", i), "Adult", profile.MemberTypeAdult)
+		if err := repo.SignUp(t.Context(), evt.ID, adult.ID); err != nil {
+			t.Fatalf("SignUp adult: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	evt.CookingEnabled = true
+	if err := repo.UpdateWithCooking(ctx, evt, false); err == nil {
+		t.Fatal("expected UpdateWithCooking to fail with canceled context")
+	}
+}
+
+func TestEnableCookingTx_QueryError(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	evt := createTestEvent(t, repo, "EnableTx Query Error")
+	adult := createTestProfile(t, NewProfileRepository(testDB), "Chef", "Adult", profile.MemberTypeAdult)
+	if err := repo.SignUp(ctx, evt.ID, adult.ID); err != nil {
+		t.Fatalf("SignUp adult: %v", err)
+	}
+
+	tx, err := testDB.Begin()
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback()
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := repo.enableCookingTx(canceled, tx, evt.ID); err == nil {
+		t.Fatal("expected enableCookingTx to fail with canceled context")
+	}
+}
+
+func TestPostgresEventRepository_UpdateWithCooking_EnableMemberInsertError(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	profileRepo := NewProfileRepository(testDB)
+	ctx := context.Background()
+
+	evt := createTestEvent(t, repo, "Members Schema Error")
+	adult := createTestProfile(t, profileRepo, "Chef", "Adult", profile.MemberTypeAdult)
+	if err := repo.SignUp(ctx, evt.ID, adult.ID); err != nil {
+		t.Fatalf("SignUp adult: %v", err)
+	}
+
+	if _, err := testDB.Exec("DROP TABLE event_cooking_patrol_members"); err != nil {
+		t.Fatalf("drop members table: %v", err)
+	}
+	defer func() {
+		recreateCookingPatrolMembersTable(t)
+	}()
+
+	evt.CookingEnabled = true
+	if err := repo.UpdateWithCooking(ctx, evt, false); err == nil {
+		t.Fatal("expected UpdateWithCooking to fail when members table is missing")
+	}
+}
+
+func TestPostgresEventRepository_UpdateWithCooking_EnableAndDisableQueryErrors(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no database connection")
+	}
+	truncateAll(t)
+	repo := NewEventRepository(testDB)
+	ctx := context.Background()
+
+	evt := createTestEvent(t, repo, "Patrols Schema Error")
+
+	if _, err := testDB.Exec("DROP TABLE IF EXISTS event_cooking_patrol_members"); err != nil {
+		t.Fatalf("drop members table: %v", err)
+	}
+	if _, err := testDB.Exec("DROP TABLE IF EXISTS event_cooking_patrols"); err != nil {
+		t.Fatalf("drop patrols table: %v", err)
+	}
+	defer func() {
+		recreateCookingPatrolsTable(t)
+		recreateCookingPatrolMembersTable(t)
+	}()
+
+	evt.CookingEnabled = true
+	if err := repo.UpdateWithCooking(ctx, evt, false); err == nil {
+		t.Error("expected UpdateWithCooking enable to fail when patrols table is missing")
+	}
+
+	evt.CookingEnabled = false
+	if err := repo.UpdateWithCooking(ctx, evt, true); err == nil {
+		t.Error("expected UpdateWithCooking disable to fail when patrols table is missing")
+	}
+}
+
+func recreateCookingPatrolsTable(t *testing.T) {
+	t.Helper()
+	_, err := testDB.Exec(`CREATE TABLE event_cooking_patrols (
+		id         UUID NOT NULL PRIMARY KEY,
+		event_id   UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+		name       TEXT NOT NULL,
+		is_adult   BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	)`)
+	if err != nil {
+		t.Fatalf("recreate patrols table: %v", err)
+	}
+	if _, err := testDB.Exec(`CREATE UNIQUE INDEX idx_event_cooking_patrols_event_name
+		ON event_cooking_patrols (event_id, name)`); err != nil {
+		t.Fatalf("recreate event name index: %v", err)
+	}
+	if _, err := testDB.Exec(`CREATE UNIQUE INDEX idx_event_cooking_patrols_single_adult
+		ON event_cooking_patrols (event_id)
+		WHERE is_adult`); err != nil {
+		t.Fatalf("recreate single adult index: %v", err)
 	}
 }
 

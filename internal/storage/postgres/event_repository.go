@@ -64,6 +64,112 @@ func (r *EventRepository) Update(ctx context.Context, e *event.Event) error {
 	return nil
 }
 
+func (r *EventRepository) UpdateWithCooking(ctx context.Context, e *event.Event, prevCookingEnabled bool) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx,
+		`UPDATE events
+		 SET title = $2, description = $3, location = $4, start_time = $5, end_time = $6, cost_cents = $7, type = $8, cooking_enabled = $9, tenting_enabled = $10, drivers_enabled = $11, updated_at = NOW()
+		 WHERE id = $1`,
+		e.ID, e.Title, e.Description, e.Location, e.StartTime, e.EndTime, e.CostCents, e.Type, e.CookingEnabled, e.TentingEnabled, e.DriversEnabled,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("event not found")
+	}
+
+	if prevCookingEnabled != e.CookingEnabled {
+		if e.CookingEnabled {
+			if err := r.enableCookingTx(ctx, tx, e.ID); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx,
+				`DELETE FROM event_cooking_patrols WHERE event_id = $1`, e.ID,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *EventRepository) enableCookingTx(ctx context.Context, tx *sql.Tx, eventID string) error {
+	adultPatrolID, err := r.adultPatrolID(ctx, tx, eventID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := tx.QueryContext(ctx,
+		`SELECT p.id
+		 FROM profiles p
+		 JOIN event_attendees ea ON ea.profile_id = p.id
+		 WHERE ea.event_id = $1 AND ea.status = 'signed_up' AND p.member_type = $2`,
+		eventID, string(profile.MemberTypeAdult),
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var profileIDs []string
+	for rows.Next() {
+		var profileID string
+		if err := rows.Scan(&profileID); err != nil {
+			return err
+		}
+		profileIDs = append(profileIDs, profileID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, profileID := range profileIDs {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO event_cooking_patrol_members (event_id, profile_id, patrol_id, created_at, updated_at)
+			 VALUES ($1, $2, $3, NOW(), NOW())
+			 ON CONFLICT (event_id, profile_id)
+			 DO UPDATE SET patrol_id = $3, updated_at = NOW()`,
+			eventID, profileID, adultPatrolID,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *EventRepository) adultPatrolID(ctx context.Context, tx *sql.Tx, eventID string) (string, error) {
+	var id string
+	err := tx.QueryRowContext(ctx,
+		`SELECT id FROM event_cooking_patrols WHERE event_id = $1 AND is_adult`, eventID,
+	).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", err
+	}
+	patrolID := newUUID()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO event_cooking_patrols (id, event_id, name, is_adult)
+		 VALUES ($1, $2, $3, TRUE)`,
+		patrolID, eventID, event.CookingPatrolAdultsName,
+	); err != nil {
+		return "", err
+	}
+	return patrolID, nil
+}
+
 func (r *EventRepository) Delete(ctx context.Context, id string) error {
 	result, err := r.db.ExecContext(ctx, `DELETE FROM events WHERE id = $1`, id)
 	if err != nil {

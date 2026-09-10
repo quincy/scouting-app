@@ -1,0 +1,73 @@
+{{define "event_form_content.html"}}
+<form class="event-form" action="{{.FormAction}}" method="POST" hx-post="{{.FormAction}}" hx-swap="outerHTML" novalidate>
+    <div class="form-group">
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title" value="{{.Event.Title}}" required>
+        {{if index .Errors "title"}}<div class="field-error">{{index .Errors "title"}}</div>{{end}}
+    </div>
+
+    <div class="form-group">
+        <label for="description">Description</label>
+        <div class="split-editor">
+            <div class="editor-pane">
+                <textarea id="description" name="description" hx-trigger="keyup delay:500ms" hx-post="/events/markdown-preview" hx-target="#preview-pane">{{.Event.Description}}</textarea>
+            </div>
+            <div class="preview-pane" id="preview-pane">{{.DescriptionHTML}}</div>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label for="location">Location</label>
+        <input type="text" id="location" name="location" value="{{.Event.Location}}" required>
+        {{if index .Errors "location"}}<div class="field-error">{{index .Errors "location"}}</div>{{end}}
+    </div>
+
+    <div class="form-group">
+        <label for="start_time">Start Time</label>
+        <input type="datetime-local" id="start_time" name="start_time" value="{{.StartTimeFormatted}}" required>
+        {{if index .Errors "start_time"}}<div class="field-error">{{index .Errors "start_time"}}</div>{{end}}
+    </div>
+
+    <div class="form-group">
+        <label for="end_time">End Time</label>
+        <input type="datetime-local" id="end_time" name="end_time" value="{{.EndTimeFormatted}}" required>
+        {{if index .Errors "end_time"}}<div class="field-error">{{index .Errors "end_time"}}</div>{{end}}
+    </div>
+
+    <div class="form-group">
+        <label for="cost">Cost ($)</label>
+        <input type="number" id="cost" name="cost" step="0.01" min="0" value="{{.CostFormatted}}" required>
+        {{if index .Errors "cost"}}<div class="field-error">{{index .Errors "cost"}}</div>{{end}}
+    </div>
+
+    <div class="form-group">
+        <label for="type">Type</label>
+        <select id="type" name="type" required>
+            <option value="campout" {{if eq .Event.Type "campout"}}selected{{end}}>Campout</option>
+        </select>
+    </div>
+
+    <fieldset class="form-group feature-toggles">
+        <legend>Features</legend>
+        <label class="feature-toggle">
+            <input type="checkbox" name="cooking_enabled" {{if .Event.CookingEnabled}}checked{{end}}>
+            <span>Cooking patrols</span>
+        </label>
+        <label class="feature-toggle">
+            <input type="checkbox" name="tenting_enabled" {{if .Event.TentingEnabled}}checked{{end}}>
+            <span>Tenting assignments</span>
+        </label>
+        <label class="feature-toggle">
+            <input type="checkbox" name="drivers_enabled" {{if .Event.DriversEnabled}}checked{{end}}>
+            <span>Drivers</span>
+        </label>
+    </fieldset>
+
+    {{if index .Errors "cooking"}}<div class="field-error form-error">{{index .Errors "cooking"}}</div>{{end}}
+
+    <div class="form-actions">
+        <button type="submit" class="btn-signup">{{.SubmitLabel}}</button>
+        <a href="/events" class="btn-withdraw form-cancel">Cancel</a>
+    </div>
+</form>
+{{end}}
