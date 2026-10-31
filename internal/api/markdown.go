@@ -6,10 +6,13 @@ import (
 	"net/http"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/renderer/html"
 )
 
 func renderMarkdown(source string) (string, error) {
-	md := goldmark.New()
+	md := goldmark.New(
+		goldmark.WithRendererOptions(html.WithHardWraps()),
+	)
 	var buf bytes.Buffer
 	if err := md.Convert([]byte(source), &buf); err != nil {
 		return "", err

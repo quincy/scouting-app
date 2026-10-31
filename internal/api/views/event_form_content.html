@@ -8,11 +8,20 @@
 
     <div class="form-group">
         <label for="description">Description</label>
-        <div class="split-editor">
-            <div class="editor-pane">
-                <textarea id="description" name="description" hx-trigger="keyup delay:500ms" hx-post="/events/markdown-preview" hx-target="#preview-pane">{{.Event.Description}}</textarea>
+        <div class="markdown-editor">
+            <div class="tab-bar" role="tablist" aria-label="Description editor">
+                <button type="button" class="tab-btn active" id="source-tab" role="tab" aria-selected="true" aria-controls="source-pane" data-markdown-tab="source">Source</button>
+                <button type="button" class="tab-btn" id="preview-tab" role="tab" aria-selected="false" aria-controls="preview-pane" data-markdown-tab="preview">Preview</button>
             </div>
-            <div class="preview-pane" id="preview-pane">{{.DescriptionHTML}}</div>
+            <div class="tab-pane active" id="source-pane" role="tabpanel" aria-labelledby="source-tab" data-markdown-pane="source">
+                <textarea id="description" name="description">{{.Event.Description}}</textarea>
+            </div>
+            <div class="tab-pane preview-pane" id="preview-pane" role="tabpanel" aria-labelledby="preview-tab" aria-live="polite" data-markdown-pane="preview"
+                 hx-post="/events/markdown-preview"
+                 hx-trigger="markdown-preview-shown"
+                 hx-include="#description"
+                 hx-target="#preview-pane"
+                 hx-swap="innerHTML"></div>
         </div>
     </div>
 

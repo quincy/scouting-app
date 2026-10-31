@@ -1098,11 +1098,23 @@ func TestEventHandler_EventCreateForm_Renders(t *testing.T) {
 	if !strings.Contains(body, "event-form") {
 		t.Errorf("expected form to have 'event-form' class, got:\n%s", body)
 	}
-	if !strings.Contains(body, "split-editor") {
-		t.Errorf("expected form to have split editor, got:\n%s", body)
+	if !strings.Contains(body, "markdown-editor") {
+		t.Errorf("expected form to have markdown editor, got:\n%s", body)
 	}
-	if !strings.Contains(body, "hx-post=\"/events/markdown-preview\"") {
-		t.Errorf("expected textarea to have htmx markdown preview trigger, got:\n%s", body)
+	if !strings.Contains(body, `data-markdown-tab="source"`) {
+		t.Errorf("expected source tab, got:\n%s", body)
+	}
+	if !strings.Contains(body, `data-markdown-tab="preview"`) {
+		t.Errorf("expected preview tab, got:\n%s", body)
+	}
+	if strings.Contains(body, `id="description" name="description" hx-post`) {
+		t.Errorf("expected description source not to render preview on every edit, got:\n%s", body)
+	}
+	if !strings.Contains(body, `hx-post="/events/markdown-preview"`) {
+		t.Errorf("expected preview tab to render markdown on demand, got:\n%s", body)
+	}
+	if !strings.Contains(body, `hx-trigger="markdown-preview-shown"`) {
+		t.Errorf("expected preview rendering to trigger when the preview tab is shown, got:\n%s", body)
 	}
 }
 

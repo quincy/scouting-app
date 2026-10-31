@@ -30,6 +30,11 @@ func TestRenderMarkdown_Basic(t *testing.T) {
 			want:  "<li>item 1</li>\n<li>item 2</li>",
 		},
 		{
+			name:  "single newline renders as line break",
+			input: "line one\nline two",
+			want:  "line one<br",
+		},
+		{
 			name:  "code block",
 			input: "```\ncode\n```",
 			want:  "<code>code\n</code>",
