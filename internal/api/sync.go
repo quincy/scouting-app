@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -270,11 +269,9 @@ func (h *SyncHandler) Revert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if snapshot.BSAID == "" {
-		log.Printf("Revert failed: empty BSAID for member %s", memberID)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = fmt.Fprintf(w, `<div class="profile-card" id="profile-%s">`, memberID)
-		_, _ = fmt.Fprintf(w, `<div class="error">Cannot revert: profile has no BSA ID. This profile may not have been imported from Scoutbook.</div>`)
-		_, _ = fmt.Fprintf(w, `</div>`)
+		// #nosec G706 -- memberID is quoted with %q so newlines cannot inject log entries.
+		log.Printf("Revert failed: empty BSAID for member %q", memberID)
+		renderRevertError(w, memberID, "Cannot revert: profile has no BSA ID. This profile may not have been imported from Scoutbook.")
 		return
 	}
 
@@ -283,10 +280,7 @@ func (h *SyncHandler) Revert(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.svc.Revert(r.Context(), snapshot, addedRoles, removedRoles); err != nil {
 		log.Printf("Revert failed: %v", err)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = fmt.Fprintf(w, `<div class="profile-card" id="profile-%s">`, memberID)
-		_, _ = fmt.Fprintf(w, `<div class="error">Revert failed: %s</div>`, err.Error())
-		_, _ = fmt.Fprintf(w, `</div>`)
+		renderRevertError(w, memberID, "Revert failed: "+err.Error())
 		return
 	}
 
@@ -297,6 +291,20 @@ func (h *SyncHandler) Revert(w http.ResponseWriter, r *http.Request) {
 		"Name":      name,
 		"ProfileID": profileID,
 	})
+}
+
+var revertErrorTemplate = template.Must(template.New("sync_revert_error").Parse(
+	`<div class="profile-card" id="profile-{{.MemberID}}"><div class="error">{{.Message}}</div></div>`))
+
+// renderRevertError writes the revert error card with all values escaped.
+func renderRevertError(w http.ResponseWriter, memberID, message string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := revertErrorTemplate.Execute(w, struct {
+		MemberID string
+		Message  string
+	}{MemberID: memberID, Message: message}); err != nil {
+		log.Printf("render revert error: %v", err)
+	}
 }
 
 func splitProfiles(profiles []domainsync.ProfileReport, memberType profile.MemberType) []domainsync.ProfileReport {

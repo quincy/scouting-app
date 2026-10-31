@@ -58,6 +58,7 @@ func ConfigFromEnv() (*Config, error) {
 }
 
 func LoadFile(path string) error {
+	// #nosec G304 -- path is supplied by the operator via the --env flag, not by untrusted input.
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -83,7 +84,9 @@ func LoadFile(path string) error {
 			continue
 		}
 		if os.Getenv(key) == "" {
-			os.Setenv(key, value)
+			if err := os.Setenv(key, value); err != nil {
+				return err
+			}
 		}
 	}
 	return scanner.Err()

@@ -22,13 +22,14 @@ type OTPCode struct {
 }
 
 func GenerateCode() (string, error) {
+	const digits = "0123456789"
 	var code [CodeLength]byte
 	for i := range code {
-		n, err := rand.Int(rand.Reader, big.NewInt(10))
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(digits))))
 		if err != nil {
 			return "", err
 		}
-		code[i] = byte('0' + n.Int64())
+		code[i] = digits[n.Int64()]
 	}
 	return string(code[:]), nil
 }

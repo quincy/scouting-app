@@ -50,16 +50,22 @@ func (h *AuthHandler) LoginPage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// safeRedirectPath returns target when it is a local, absolute path.
+// It falls back to /events to prevent open redirects.
+func safeRedirectPath(target string) string {
+	if target == "" || !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") || strings.Contains(target, `\`) {
+		return "/events"
+	}
+	return target
+}
+
 // Login authenticates the user and creates a session.
 // POST /login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(r.FormValue("email"))
 	password := r.FormValue("password")
 
-	redirect := r.URL.Query().Get("redirect")
-	if redirect == "" {
-		redirect = "/events"
-	}
+	redirect := safeRedirectPath(r.URL.Query().Get("redirect"))
 
 	_, err := h.auth.Login(w, r, email, password)
 	if err != nil {
@@ -67,6 +73,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #nosec G710 -- redirect is validated by safeRedirectPath to be a local path.
 	http.Redirect(w, r, redirect, http.StatusFound)
 }
 

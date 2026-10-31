@@ -420,7 +420,7 @@ func (r *EventRepository) AssignResponsibility(ctx context.Context, eventID stri
 		).Scan(&currentHolderID)
 		if err == nil {
 			var currentHolderName string
-			r.db.QueryRowContext(ctx,
+			_ = r.db.QueryRowContext(ctx,
 				`SELECT CASE WHEN p.nickname != '' THEN p.nickname || ' (' || p.first_name || ') ' || p.last_name
 				            ELSE p.first_name || ' ' || p.last_name
 				       END
@@ -547,14 +547,14 @@ func (r *EventRepository) CreateCookingPatrol(ctx context.Context, eventID strin
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		if n, ok := event.CookingPatrolNumber(name); ok && n > highest {
 			highest = n
 		}
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -753,14 +753,14 @@ func (r *EventRepository) CreateTent(ctx context.Context, eventID string) (*even
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		if n, ok := event.TentNumber(name); ok && n > highest {
 			highest = n
 		}
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}

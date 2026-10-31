@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -162,7 +163,8 @@ func (h *RegistrationHandler) Register(w http.ResponseWriter, r *http.Request) {
 		log.Printf("send OTP email: %v", err)
 	}
 
-	http.Redirect(w, r, "/register/verify?otp_id="+otp.ID, http.StatusFound)
+	// #nosec G710 -- target is a fixed local path; the OTP ID is a server-generated UUID.
+	http.Redirect(w, r, "/register/verify?otp_id="+url.QueryEscape(otp.ID), http.StatusFound)
 }
 
 func (h *RegistrationHandler) renderRegister(w http.ResponseWriter, errMsg template.HTML) {

@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/gorilla/mux"
+
 	"scout-app/internal/config"
 	"scout-app/internal/testhelper"
 )
@@ -24,6 +26,17 @@ func TestOpenDatabase(t *testing.T) {
 		t.Fatalf("db.Ping failed: %v", err)
 	}
 	db.Close()
+}
+
+func TestNewServer_ConfiguresTimeouts(t *testing.T) {
+	srv := newServer(&config.Config{Addr: ":0"}, mux.NewRouter())
+
+	if srv.Addr != ":0" {
+		t.Errorf("expected Addr :0, got %q", srv.Addr)
+	}
+	if srv.ReadHeaderTimeout <= 0 {
+		t.Errorf("expected ReadHeaderTimeout to be configured, got %v", srv.ReadHeaderTimeout)
+	}
 }
 
 func TestBuildApp(t *testing.T) {

@@ -87,18 +87,18 @@ func startContainer() (*sql.DB, string, error) {
 	}
 
 	if err := goose.SetDialect("postgres"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, "", fmt.Errorf("set goose dialect: %w", err)
 	}
 
 	migrationsDir := findMigrationsDir()
 	if migrationsDir == "" {
-		db.Close()
+		_ = db.Close()
 		return nil, "", fmt.Errorf("cannot find migrations directory")
 	}
 
 	if err := goose.Up(db, migrationsDir); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, "", fmt.Errorf("run migrations: %w", err)
 	}
 
@@ -115,12 +115,14 @@ func findMigrationsDir() string {
 	wd, _ := os.Getwd()
 	for i := 0; i < 5; i++ {
 		candidate := filepath.Join(wd, "migrations")
+		// #nosec G703 -- path is derived from the repository working directory during tests.
 		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 			return candidate
 		}
 		wd = filepath.Dir(wd)
 	}
 	for _, c := range candidates {
+		// #nosec G703 -- paths are fixed candidates derived from the test working directory.
 		if info, err := os.Stat(c); err == nil && info.IsDir() {
 			return c
 		}
@@ -148,6 +150,7 @@ func TruncateAll(t TB, db *sql.DB) {
 	}
 	ctx := context.Background()
 	for _, table := range tables {
+		// #nosec G202 -- table names come from the static list above.
 		if _, err := db.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 			t.Fatalf("failed to truncate %s: %v", table, err)
 		}

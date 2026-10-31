@@ -90,6 +90,7 @@ func (r *ProfileRepository) GetByUserID(ctx context.Context, userID string) (*pr
 
 func (r *ProfileRepository) ListAll(ctx context.Context) ([]*profile.Profile, error) {
 	rows, err := r.db.QueryContext(ctx,
+		// #nosec G202 -- columns() returns a static, trusted column list.
 		`SELECT `+r.columns()+` FROM profiles`,
 	)
 	if err != nil {
@@ -109,6 +110,7 @@ func (r *ProfileRepository) ListAll(ctx context.Context) ([]*profile.Profile, er
 
 func (r *ProfileRepository) ListByStatus(ctx context.Context, status profile.Status) ([]*profile.Profile, error) {
 	rows, err := r.db.QueryContext(ctx,
+		// #nosec G202 -- columns() returns a static, trusted column list.
 		`SELECT `+r.columns()+` FROM profiles WHERE status = $1`, status,
 	)
 	if err != nil {

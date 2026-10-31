@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -134,6 +135,41 @@ func TestAuthHandler_Login_WithRedirect(t *testing.T) {
 	location := rr.Header().Get("Location")
 	if location != "/events/upcoming" {
 		t.Errorf("expected redirect to /events/upcoming, got %q", location)
+	}
+}
+
+func TestAuthHandler_Login_RejectsExternalRedirect(t *testing.T) {
+	handler, _, db := setupAuthTest(t)
+	t.Cleanup(func() { testhelper.TruncateAll(t, db) })
+
+	ctx := t.Context()
+	store := postgres.NewStore(db)
+	seedAdminUser(t, store, &auth.MockHasher{}, ctx)
+
+	tests := []struct {
+		name     string
+		redirect string
+	}{
+		{name: "absolute URL", redirect: "https://evil.example/phish"},
+		{name: "protocol relative URL", redirect: "//evil.example/phish"},
+		{name: "backslash URL", redirect: `/\evil.example/phish`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/login?redirect="+url.QueryEscape(tt.redirect), strings.NewReader("email=admin@scout.local&password=password"))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rr := httptest.NewRecorder()
+
+			handler.Login(rr, req)
+
+			if rr.Code != http.StatusFound {
+				t.Fatalf("Login returned status %d, want 302 Found", rr.Code)
+			}
+			if location := rr.Header().Get("Location"); location != "/events" {
+				t.Errorf("expected external redirect %q to be replaced with /events, got %q", tt.redirect, location)
+			}
+		})
 	}
 }
 

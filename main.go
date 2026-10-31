@@ -209,10 +209,18 @@ func buildApp(cfg *config.Config, db *sql.DB) (*mux.Router, context.CancelFunc) 
 	return router, stopCleanup
 }
 
+func newServer(cfg *config.Config, router *mux.Router) *http.Server {
+	return &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+}
+
 func runServer(cfg *config.Config, router *mux.Router, stopCleanup context.CancelFunc) {
 	defer stopCleanup()
 
-	srv := &http.Server{Addr: cfg.Addr, Handler: router}
+	srv := newServer(cfg, router)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
 			log.Fatalf("Server ListenAndServe: %v", err)
